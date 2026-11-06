@@ -21,6 +21,9 @@
 /[Bb]uilds/
 /[Ll]ogs/
 /[Uu]ser[Ss]ettings/
+# Standalone C# verification output
+/Tests/**/bin/
+/Tests/**/obj/
 *.log
 
 # By default unity supports Blender asset imports, *.blend1 blender files do not need to be commited to version control.
@@ -52,6 +55,7 @@
 ExportedObj/
 .consulo/
 *.csproj
+!/Tests/WorldGeneration/WorldGeneration.Checks.csproj
 *.unityproj
 *.sln
 *.slnx

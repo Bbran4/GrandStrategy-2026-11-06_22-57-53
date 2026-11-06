@@ -8,7 +8,7 @@ The player represents the society itself. Individual characters, rulers, dynasti
 
 ## Project status
 
-**Initial Unity project and design stage.** The repository contains the Universal 3D project foundation. The gameplay systems described below are planned, not implemented or verified.
+**World-generation prototype.** The project now includes an Old World heightmap authoring window with seeded generation, editable recipe steps, elevation previews, asset saving, and RAW16 export. Gameplay systems described below remain planned. Unity Editor interaction and asset round-tripping still require verification; see the [world-generation guide](docs/world-generation.md).
 
 - **Engine:** Unity 6000.6.8f1
 - **Rendering:** Universal Render Pipeline (URP)
@@ -18,8 +18,17 @@ The player represents the society itself. Individual characters, rulers, dynasti
 
 This README records the initial agreed direction. Proposed implementation details and unresolved decisions are identified separately.
 
+## World-generation tool
+
+Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024 × 512**, choose a seed, and click **Generate**. The window also supports 2048 × 1024 and 3072 × 2048.
+
+See [World generation](docs/world-generation.md) for controls, export formats, validation evidence, and limitations. This first increment focuses on elevation; rivers, lakes, climate, biomes, and snow simulation are not implemented.
+
 ## Design pillars
 
+- **Identity through deeds:** Meaningful accomplishments should unlock choices in society-wide passive progression.
+- **Negotiated belonging:** Communities can join under commitments involving autonomy, tribute, protection, and cultural rights.
+- **History on the landscape:** Development, fortification, devastation, and recovery should become visible in settlements.
 - **Society over characters:** Build institutions, manage population, and shape a civilization across its history.
 - **Geography matters:** Terrain, water, climate, and resources shape settlement, movement, trade, and expansion.
 - **Several paths to expansion:** Conquest, diplomacy, cultural incorporation, and settlement all have a place.
@@ -278,17 +287,17 @@ Events concern the society and its institutions. Individual-character stories ar
 
 ## Development roadmap
 
-All milestones below are planned.
+Milestone 1 has an initial heightmap implementation. Later milestones remain planned; unchecked items include unfinished work and required verification.
 
 ### 1. World-generation foundation — first priority
 
 - [ ] Define world dimensions, coordinates, saved data, and performance budgets.
-- [ ] Create a Unity Editor authoring window with seed and settings.
-- [ ] Generate and preview elevation and sea level.
+- [x] Create a Unity Editor authoring window with seed and settings (compiled; interactive verification pending).
+- [x] Implement seeded elevation generation and elevation previews with adjustable sea level (visual Editor verification pending).
 - [ ] Generate drainage, rivers, and lakes.
 - [ ] Derive climate and biomes.
 - [ ] Add permanent snow coverage.
-- [ ] Save and reload authored worlds.
+- [ ] Verify saving and reloading authored worlds in the Unity Editor (asset support implemented).
 - [ ] Provide a terrain preview and aligned OpenGS-compatible exports.
 
 **Completion target:** Generate, inspect, save, reload, and export a coherent world with aligned geographic layers.
@@ -371,7 +380,7 @@ Keep source assets and their `.meta` files, `Packages`, and `ProjectSettings` in
 
 Binary asset types are configured for Git LFS through `.gitattributes`; contributors need Git LFS installed when working with those assets. Scripts and text-serialized Unity files remain in normal Git.
 
-No game-specific build, test, or automation workflow has been established yet.
+The pure C# heightmap checks run with `dotnet run -c Release` from `Tests/WorldGeneration` using .NET 8. A Unity batch smoke-check entry point is provided; see the [world-generation guide](docs/world-generation.md).
 
 ## Open design decisions
 
