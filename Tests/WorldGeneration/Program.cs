@@ -55,7 +55,8 @@ internal static class Program
             Require(raw[0] == 0 && raw[1] == 0 && raw[2] == 255 && raw[3] == 255, "RAW encoding invalid.");
             Require(raw[256] == 0 && raw[257] == 128 && raw[raw.Length - 2] == 0 && raw[raw.Length - 1] == 64, "RAW orientation/endianness invalid.");
         }
-        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, and RAW16 encoding.");
+        CheckWater();
+        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, and OpenGS palette.");
         if (args.Contains("--benchmark"))
         {
             foreach (var dimensions in new[] { (1024, 512), (2048, 1024), (3072, 2048) })
@@ -65,6 +66,9 @@ internal static class Program
                     var process = Process.GetCurrentProcess(); var cpu = process.TotalProcessorTime; var timer = Stopwatch.StartNew();
                     var world = HeightmapGenerator.Generate(settings); timer.Stop(); process.Refresh();
                     Console.WriteLine($"{settings.Width}x{settings.Height} {(run == 0 ? "first" : "repeat")} elapsed={timer.Elapsed.TotalSeconds:F3}s cpu={(process.TotalProcessorTime - cpu).TotalSeconds:F3}s processPeak={process.PeakWorkingSet64 / 1048576.0:F1}MiB land={world.LandFraction:P1} max={world.Maximum:F3}");
+                    cpu = process.TotalProcessorTime; timer.Restart();
+                    var water = WaterMap.Classify(world); timer.Stop(); process.Refresh();
+                    Console.WriteLine($"  classify elapsed={timer.Elapsed.TotalSeconds:F3}s cpu={(process.TotalProcessorTime - cpu).TotalSeconds:F3}s processPeak={process.PeakWorkingSet64 / 1048576.0:F1}MiB ocean={water.OceanCount} lake={water.LakeCount}");
                     if (settings.Width == 1024 && run == 0 && args.Length > 1)
                     {
                         var directory = args.Last(); Directory.CreateDirectory(directory);
@@ -72,5 +76,42 @@ internal static class Program
                     }
                 }
         }
+    }
+
+    private static void CheckWater()
+    {
+        var recipe = Small(); recipe.Width = 32; recipe.Height = 32;
+        var heights = Enumerable.Repeat(.6f, 1024).ToArray();
+        // Boundary-connected sea, an enclosed basin, a corner-connected sea, and a diagonal-only basin.
+        heights[5 * 32] = .1f; heights[5 * 32 + 1] = .1f; heights[5 * 32 + 2] = .1f;
+        heights[10 * 32 + 10] = .1f; heights[10 * 32 + 11] = .1f;
+        heights[0] = .1f; heights[33] = .1f;
+        heights[12 * 32 + 12] = recipe.SeaLevel;
+        var world = new HeightmapResult(recipe, heights); var water = WaterMap.Classify(world);
+        Require(water[5 * 32 + 2] == WaterKind.Ocean && water[0] == WaterKind.Ocean, "Boundary water must flood inland as ocean.");
+        Require(water[10 * 32 + 10] == WaterKind.Lake && water[10 * 32 + 11] == WaterKind.Lake, "Enclosed water must be lake.");
+        Require(water[33] == WaterKind.Lake, "Diagonal-only contact must not create an ocean passage.");
+        Require(water[12 * 32 + 12] == WaterKind.Land, "Sea-level equality must agree with the generator's land rule.");
+        Require(water.OceanCount == 4 && water.LakeCount == 3 && water.LandCount == 1017, "Classification coverage/counts incorrect.");
+        Require(ReferenceEquals(water.Source, world) && heights[33] == .1f, "Classification must retain source identity without changing elevations.");
+        heights[10 * 32] = .1f;
+        for (var x = 1; x <= 10; x++) heights[10 * 32 + x] = .1f;
+        var connected = WaterMap.Classify(world);
+        Require(connected[10 * 32 + 11] == WaterKind.Ocean, "A cardinal channel must connect an inland basin to ocean.");
+        Require(water[10 * 32 + 11] == WaterKind.Lake, "An existing classification must remain a completed snapshot.");
+        var land = WaterMap.Classify(new HeightmapResult(recipe, Enumerable.Repeat(.6f, 1024).ToArray()));
+        Require(land.LandCount == 1024 && land.OceanCount == 0 && land.LakeCount == 0, "All-land maps must work without a water queue.");
+        var ocean = WaterMap.Classify(new HeightmapResult(recipe, new float[1024]));
+        Require(ocean.OceanCount == 1024 && ocean.LakeCount == 0, "All-water maps must not overflow the queue at duplicate edges.");
+        var rgb = OpenGsLandPalette.Color(WaterKind.Ocean);
+        Require(rgb.R == 5 && rgb.G == 20 && rgb.B == 18, "Wrong OpenGS ocean bytes.");
+        rgb = OpenGsLandPalette.Color(WaterKind.Lake);
+        Require(rgb.R == 0 && rgb.G == 255 && rgb.B == 0, "Wrong OpenGS lake bytes.");
+        rgb = OpenGsLandPalette.Color(WaterKind.Land);
+        Require(rgb.R == 255 && rgb.G == 255 && rgb.B == 255, "Wrong OpenGS land bytes.");
+        Reject(() => OpenGsLandPalette.Color((WaterKind)255), "Unknown water kinds must not become land.");
+        Reject(() => WaterMap.Classify(new HeightmapResult(recipe, new float[100])), "Wrong raster size accepted.");
+        var bad = Enumerable.Repeat(.6f, 1024).ToArray(); bad[50] = float.NaN;
+        Reject(() => WaterMap.Classify(new HeightmapResult(recipe, bad)), "NaN water elevation accepted.");
     }
 }

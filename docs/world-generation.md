@@ -1,6 +1,6 @@
 # World-generation tool: Old World heightmaps
 
-This first increment implements heightmap authoring only. It does not implement gameplay, 3D world rendering, hydraulic erosion, river routing, lake classification, climate, biomes, or seasonal snow.
+The tool implements heightmap authoring, an orbitable 3D preview, and an OpenGS land-image export. It does not implement gameplay, production 3D world rendering, hydraulic erosion, river routing, physically filled lakes, climate, biomes, or seasonal snow.
 
 ## Quick start
 
@@ -8,12 +8,20 @@ This first increment implements heightmap authoring only. It does not implement 
 2. Choose **Tools → GrandStrategy → World Generator**.
 3. Keep **1024 × 512 · Prototype** selected for initial exploration.
 4. Enter a seed and click **Generate**, or use **New seed + generate**.
-5. Inspect **Relief**, **Grayscale**, and **LandAndWater** views. Hover over the map to inspect samples.
+5. Inspect **Relief**, **Grayscale**, and **LandAndWater** views. Hover over the 2D map to inspect samples. **LandAndWater** uses the OpenGS data palette.
 6. Select a recipe step to edit it. Enable/disable, reorder, add, or remove steps, then generate again.
 7. Use **Save displayed world as asset…** to preserve the result. Select that asset in **Saved World** and choose **Load saved world** to reopen it.
 8. Use **Export displayed world…** for height data and inspection images.
 
 The Unity Editor execution path is provided but has not yet been verified interactively. See validation below before treating saving or exports as production-proven.
+
+### Viewing the world in 3D
+
+Click **3D** in the preview toolbar after generating or loading a world. Drag with the left mouse button to orbit, scroll to zoom, and use **Reset view** to return to the initial camera. The **Height** slider changes vertical exaggeration in the preview only; it does not modify elevations, saved assets, or exports. Toggle **3D** off to return to the top-down view.
+
+The preview uses a private scene with URP materials and a downsampled mesh, at most 257 vertices on either axis. Normalized heightmap coordinates map west-to-east along +X and south-to-north along +Z. The longest raster axis determines mesh sampling density. Texture and mesh use the same orientation.
+
+Water samples are displayed at sea level in this initial preview. Separate lake surface elevations will follow with hydrology. Small features can be absent from the coarse preview mesh even though they remain present in the full-resolution heightmap and export. No preview objects are added to the open game scene, and preview resources are released when the window closes.
 
 ## Resolution
 
@@ -59,7 +67,7 @@ For shaped features, count and strength are drawn within the selected ranges. Fo
 
 Operations are ordered and can intentionally undo or soften earlier changes. Reordering changes the recipe. Disabling a step preserves the random stream assigned to later step indices; inserting or moving steps changes those indices.
 
-The realism goal is more coherent relief, multi-scale coastlines, and less abrupt slopes. This is **not a physical tectonic, climate, or hydraulic simulation**. Deep depressions remain potential water basins awaiting hydrology. White high-elevation colours are an elevation palette, not a snow model; green colours are not biome assignments.
+The realism goal is more coherent relief, multi-scale coastlines, and less abrupt slopes. This is **not a physical tectonic, climate, or hydraulic simulation**. Deep depressions remain potential water basins awaiting hydrology. In Relief, white high-elevation colours are an elevation palette, not a snow model, and green colours are not biome assignments. In LandAndWater, bright green specifically identifies a lake for OpenGS.
 
 ## Preservation and cancellation
 
@@ -81,22 +89,39 @@ Each export creates a new uniquely named subfolder under the chosen parent. An i
 | heightmap.raw | Headerless unsigned 16-bit little-endian elevation samples |
 | heightmap-preview.png | 8-bit grayscale inspection image, not the precision source |
 | relief.png | Coloured elevation inspection image |
-| land-mask.png | White land, black samples below sea level |
+| land-mask.png | OpenGS Land Image: exact ocean, lake, and land RGB values |
 | manifest.json | Recipe, dimensions, sea level, format version, encoding, and coordinate documentation |
 
 Authoritative Unity asset samples are normalized floats from 0 to 1. They are not elevations in metres. RAW16 quantizes those floats to 0–65535. Values at or above sea level are land.
 
 Data arrays and RAW16 are row-major: **X west to east, Y south to north, first row at the south edge**. PNGs show north at the top. Use the manifest when importing elsewhere to avoid vertical flips or incorrect byte order.
 
-The generic land mask is **not yet an OpenGS land/lake mask**. Ocean connectivity and lakes are not classified. OpenGS's documented ocean/lake RGB encoding must be added with the hydrology/export integration rather than guessing that every low basin is ocean.
+### OpenGS colours and water classification
+
+Import **land-mask.png** into OpenGS MapTool's **Land Image** tab.
+
+| Kind | Exact RGB |
+| --- | --- |
+| Ocean | (5, 20, 18) |
+| Lake | (0, 255, 0) |
+| Land | (255, 255, 255) |
+
+The LandAndWater view and PNG export share one palette. Data pixels are written directly as opaque bytes, without terrain shading, interpolation, or colour conversion. The data texture uses point filtering. Relief retains its illustrative elevation colours and is not the OpenGS input. On-screen graphics colour management is not a substitute for checking PNG bytes.
+
+Classification uses four-neighbour raster connectivity: below-sea-level samples connected to any map boundary are ocean; other submerged samples are lakes. Diagonal-only contact does not open a sea passage. Classification is computed once for the displayed result and reused by previews and exports; it does not change elevation samples.
+
+This is a topological classification, not completed hydrology. Inland seas without an ocean connection are currently classified as lakes, including tiny enclosed depressions. Above-sea-level lakes and separate lake elevations require drainage and basin filling, which are still pending. No minimum-area filter silently removes small lakes. The original world asset stays compatible because the water map is derived from its saved elevation and sea level.
+
+The manifest is now version **2** to describe the OpenGS palette and connectivity rule. Version 1 exports used a black/white mask; export again to obtain the OpenGS image. Province export/import and terrain-image classification remain future work.
 
 ## Code ownership
 
 - **HeightmapRecipe:** serializable settings, default recipe, and validation.
 - **HeightmapGenerator:** Unity-independent seeded generation and completed results.
 - **HeightmapEncoding:** RAW16 serialization and documented byte/row order.
+- **WaterMap / OpenGsLandPalette:** water topology, coverage counts, and the exact shared data colours.
 - **WorldHeightmap:** Unity asset preservation and validation of saved samples.
-- **Editor:** authoring window, elevation previews, export commands, and a batch smoke check.
+- **Editor:** authoring window, elevation textures, private-scene 3D preview, export commands, and a batch smoke check.
 
 Generation uses a private stable random implementation, not Unity's global random state. Work and dimensions are bounded before raster allocation. The generator currently uses four float arrays, plus small feature lists and the final result; consumers add their own buffers.
 
@@ -111,7 +136,7 @@ dotnet run -c Release
 dotnet run -c Release -- --benchmark
 ```
 
-The harness has no external NuGet packages. It checks seeded reproduction, changed seeds, input snapshots, land/water coverage, bounded ocean edges, invalid inputs, late cancellation, progress monotonicity, disabled steps, and RAW16 byte order and orientation using asymmetric sentinel samples.
+The harness has no external NuGet packages. It checks seeded reproduction, changed seeds, input snapshots, land/water coverage, bounded ocean edges, invalid inputs, late cancellation, progress monotonicity, disabled steps, and RAW16 byte order and orientation using asymmetric sentinel samples. It also checks boundary-connected oceans, enclosed lakes, diagonal contact, channel opening, all-land/all-water maps, exact palette bytes, and invalid classification inputs. **124 assertions passed** after adding water classification.
 
 Benchmark output reports elapsed time, process CPU time, and cumulative process peak working set for first and repeat runs at all three preset sizes. These are standalone core measurements, not end-to-end Unity Editor costs. First runs follow smaller checks and therefore are not fully cold starts. There is no before-change implementation baseline. Agent-token use, process-family peak memory, Unity import, serialization, rendering, and interactive costs are unmeasured.
 
@@ -125,6 +150,16 @@ Measured on the development Windows machine with .NET 8, Release, seed 271828 (1
 
 These peaks are cumulative within a single harness process and include retained allocations and runtime overhead; they are not isolated per-run allocation measurements. The large preset has a different aspect ratio, so it is a capacity check rather than an equivalent-view quality comparison.
 
+After adding classification, the same standalone workflow and seed measured:
+
+| Resolution | Generate first / repeat | Classify first / repeat | Classify CPU first / repeat | Cumulative process peak after repeat |
+| --- | --- | --- | --- | --- |
+| 1024 x 512 | 0.402s / 0.385s | 0.005s / 0.003s | <0.001s / <0.001s | 47.7 MiB |
+| 2048 x 1024 | 1.487s / 1.563s | 0.013s / 0.010s | 0.016s / 0.016s | 110.3 MiB |
+| 3072 x 2048 | 4.496s / 4.558s | 0.038s / 0.036s | 0.047s / 0.031s | 309.6 MiB |
+
+Generation CPU first/repeat was 0.406s/0.391s, 1.484s/1.531s, and 4.500s/4.547s respectively. Classification times are additional work compared with the earlier workflow. Sub-millisecond reported CPU values reflect timer resolution, not zero cost. The classification retains one byte per sample and temporarily allocates one integer per submerged sample. This run retains classification work between measurements, so differences in cumulative process peaks are not isolated allocation deltas. 3D frame time, GPU memory, and total Editor memory remain unmeasured.
+
 ### Unity smoke check
 
 ```powershell
@@ -134,13 +169,15 @@ These peaks are cumulative within a single harness process and include retained 
   -logFile 'PATH_TO_LOG\worldgen-smoke.log'
 ```
 
-The entry point verifies recipe JSON regeneration, an actual world-asset disk round-trip, PNG generation for all preview modes, and window creation. It creates a uniquely named temporary asset and removes it afterward. Successful execution logs **WORLDGEN_SMOKE_PASS**.
+The entry point is intended to verify recipe JSON regeneration, an actual world-asset disk round-trip, PNG generation for all preview modes, exact OpenGS RGB bytes after PNG decode, preview mesh dimensions/normals, and window creation. It creates a uniquely named temporary asset and removes it afterward. Successful execution logs **WORLDGEN_SMOKE_PASS**. The mesh checks do not exercise GPU rendering or orbit controls.
 
-In the development session, the full source compiled against the installed Unity **6000.6.8f1** reference assemblies. The Unity batch launch stopped before this smoke check because the Editor could not connect to its local Package Manager server. **No Unity runtime smoke-check pass, interactive UI verification, or actual Unity save/export round-trip is claimed.** A separate image reconstructed from the generated RAW16 was visually inspected to assess terrain shape; that does not validate Unity preview rendering.
+In the development session, the full source compiled against the installed Unity **6000.6.8f1** reference assemblies. The initial Unity batch launch stopped because the Editor could not connect to its local Package Manager server. A later isolated attempt with the documented -noUpm option progressed further but timed out waiting for licensing initialization; it was stopped. **No Unity runtime smoke-check pass, interactive 3D verification, or actual Unity save/export round-trip is claimed.** A separate image reconstructed from generated RAW16 was visually inspected in the earlier heightmap increment; that does not validate Unity preview rendering or PNG encoding.
 
 ### Manual checks still required
 
 - Open the window, generate each preset, inspect all preview modes, and check hover coordinates.
+- Toggle 3D, orbit, zoom, reset the camera, and change Height; confirm saved/exported elevations remain unchanged.
+- Inspect the OpenGS mask's exact decoded RGB values and import it into OpenGS's Land Image tab.
 - Change settings and confirm the displayed result remains unchanged until regeneration.
 - Cancel generation and confirm the previous completed result remains available.
 - Save an asset, reload scripts, and reopen that asset.
@@ -151,7 +188,7 @@ In the development session, the full source compiled against the installed Unity
 ## Next increments
 
 1. Verify the authoring workflow in the Editor and refine landforms from visual feedback.
-2. Add drainage, ocean connectivity, lake surfaces, and river routing.
+2. Add drainage, above-sea-level lake surfaces, and river routing using the existing ocean connectivity.
 3. Add climate, biomes, and permanent snow as separate data layers.
 4. Add deliberate terrain rendering and shared map/world coordinates.
 5. Add validated OpenGS inputs and province-map import.

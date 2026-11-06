@@ -20,9 +20,11 @@ This README records the initial agreed direction. Proposed implementation detail
 
 ## World-generation tool
 
-Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024 × 512**, choose a seed, and click **Generate**. The window also supports 2048 × 1024 and 3072 × 2048.
+Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024 × 512**, choose a seed, and click **Generate**. The window also supports 2048 × 1024 and 3072 × 2048. Toggle **3D** to orbit the terrain, scroll to zoom, and adjust the preview-only Height slider.
 
-See [World generation](docs/world-generation.md) for controls, export formats, validation evidence, and limitations. This first increment focuses on elevation; rivers, lakes, climate, biomes, and snow simulation are not implemented.
+**LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean RGB (5,20,18), lake RGB (0,255,0), and white land. Boundary-connected water is ocean; enclosed below-sea-level water is lake. Physical lake filling and river routing remain future work.
+
+See [World generation](docs/world-generation.md) for controls, export formats, validation evidence, and limitations. This increment provides elevation and topological water classification; river routing, lake filling and elevations, climate, biomes, and snow simulation are not implemented.
 
 ## Design pillars
 

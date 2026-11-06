@@ -13,12 +13,16 @@ namespace GrandStrategy.WorldGeneration.Editor
         [SerializeField] private WorldHeightmap savedWorld;
         [SerializeField] private HeightmapPreviewMode previewMode;
         [SerializeField] private int selectedStep;
+        [SerializeField] private bool show3D;
+        [SerializeField] private float heightScale = .35f;
         private HeightmapResult result;
+        private WaterMap water;
         private Texture2D preview;
+        private Heightmap3DPreview preview3D;
         private Vector2 scroll;
         private bool settingsChanged;
         private string status = "Choose a seed and generate your first Old World heightmap.";
-        private static readonly string[] SizeNames = { "1024 × 512 · Prototype", "2048 × 1024 · Full map", "3072 × 2048 · Large map" };
+        private static readonly string[] SizeNames = { "1024 x 512 | Prototype", "2048 x 1024 | Full map", "3072 x 2048 | Large map" };
         private static readonly int[] Widths = { 1024, 2048, 3072 };
         private static readonly int[] Heights = { 512, 1024, 2048 };
 
@@ -37,13 +41,17 @@ namespace GrandStrategy.WorldGeneration.Editor
         }
 
         private void OnEnable() { if (recipe == null) recipe = HeightmapRecipe.OldWorld(); }
-        private void OnDisable() { if (preview != null) DestroyImmediate(preview); }
+        private void OnDisable()
+        {
+            try { if (preview3D != null) { preview3D.Dispose(); preview3D = null; } }
+            finally { if (preview != null) { DestroyImmediate(preview); preview = null; } }
+        }
 
         private void OnGUI()
         {
             EditorGUILayout.Space(8);
             EditorGUILayout.LabelField("GRANDSTRATEGY  /  WORLD AUTHORING", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("OLD WORLD  ·  Heightmap foundation", EditorStyles.largeLabel);
+            EditorGUILayout.LabelField("OLD WORLD  |  Heightmap foundation", EditorStyles.largeLabel);
             EditorGUILayout.Space(6);
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -64,7 +72,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             var sizeIndex = -1;
             for (var i = 0; i < Widths.Length; i++)
                 if (recipe.Width == Widths[i] && recipe.Height == Heights[i]) sizeIndex = i;
-            var names = sizeIndex < 0 ? new[] { SizeNames[0], SizeNames[1], SizeNames[2], $"{recipe.Width} × {recipe.Height} · Loaded recipe" } : SizeNames;
+            var names = sizeIndex < 0 ? new[] { SizeNames[0], SizeNames[1], SizeNames[2], $"{recipe.Width} x {recipe.Height} | Loaded recipe" } : SizeNames;
             var currentIndex = sizeIndex < 0 ? 3 : sizeIndex;
             var newIndex = EditorGUILayout.Popup("Resolution", currentIndex, names);
             if (newIndex != currentIndex && newIndex < Widths.Length) { recipe.Width = Widths[newIndex]; recipe.Height = Heights[newIndex]; }
@@ -91,9 +99,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                     if (enabled != step.Enabled) { step.Enabled = enabled; settingsChanged = true; }
                     if (GUILayout.Toggle(selectedStep == i, $"{i + 1:00}   {step.Operation}", "Button")) selectedStep = i;
                     using (new EditorGUI.DisabledScope(i == 0))
-                        if (GUILayout.Button("↑", GUILayout.Width(25))) { Move(i, i - 1); break; }
+                        if (GUILayout.Button("Up", GUILayout.Width(25))) { Move(i, i - 1); break; }
                     using (new EditorGUI.DisabledScope(i == recipe.Steps.Count - 1))
-                        if (GUILayout.Button("↓", GUILayout.Width(25))) { Move(i, i + 1); break; }
+                        if (GUILayout.Button("Dn", GUILayout.Width(25))) { Move(i, i + 1); break; }
                 }
             }
             using (new EditorGUILayout.HorizontalScope())
@@ -121,10 +129,10 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (GUILayout.Button("Load saved world")) LoadWorld();
             using (new EditorGUI.DisabledScope(result == null))
             {
-                if (GUILayout.Button("Save displayed world as asset…")) SaveWorld();
-                if (GUILayout.Button("Export displayed world…")) Export();
+                if (GUILayout.Button("Save displayed world as asset...")) SaveWorld();
+                if (GUILayout.Button("Export displayed world...")) Export();
             }
-            EditorGUILayout.HelpBox("Relief colours indicate elevation, not biomes or simulated snow. Rivers, lakes, climate, and provinces come later.", MessageType.Info);
+            EditorGUILayout.HelpBox("LandAndWater uses OpenGS colours: ocean (5,20,18), lakes (0,255,0), land white. Lakes are enclosed below-sea-level basins for now; lake elevations, rivers, climate, and biomes come later.", MessageType.Info);
         }
 
         private void DrawStep(HeightmapStep step)
@@ -164,12 +172,34 @@ namespace GrandStrategy.WorldGeneration.Editor
                 EditorGUI.BeginChangeCheck();
                 previewMode = (HeightmapPreviewMode)EditorGUILayout.EnumPopup(previewMode, EditorStyles.toolbarPopup, GUILayout.Width(150));
                 if (EditorGUI.EndChangeCheck() && result != null) RefreshPreview();
+                var oldShow3D = show3D; var oldHeightScale = heightScale;
+                show3D = GUILayout.Toggle(show3D, "3D", EditorStyles.toolbarButton, GUILayout.Width(35));
+                if (show3D)
+                {
+                    GUILayout.Label("Height", GUILayout.Width(40));
+                    heightScale = GUILayout.HorizontalSlider(heightScale, .05f, 1, GUILayout.Width(95));
+                    if (GUILayout.Button("Reset view", EditorStyles.toolbarButton, GUILayout.Width(70))) preview3D?.ResetView();
+                }
+                else if (preview3D != null) { preview3D.Dispose(); preview3D = null; }
+                if (oldShow3D != show3D || !Mathf.Approximately(oldHeightScale, heightScale)) Repaint();
                 GUILayout.FlexibleSpace();
-                GUILayout.Label("NORTH ↑", EditorStyles.miniLabel);
+                GUILayout.Label(show3D ? "North = +Z" : "North up", EditorStyles.miniLabel);
             }
             var area = GUILayoutUtility.GetRect(100, 100, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
             EditorGUI.DrawRect(area, new Color(.035f, .045f, .055f));
-            if (preview != null)
+            if (preview != null && show3D)
+            {
+                try
+                {
+                    if (preview3D == null) preview3D = new Heightmap3DPreview();
+                    preview3D.SetWorld(result, preview, heightScale, previewMode == HeightmapPreviewMode.LandAndWater);
+                    if (preview3D.HandleInput(area)) Repaint();
+                    preview3D.Draw(area);
+                    GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), "Drag to orbit | Scroll to zoom | Height changes preview only", EditorStyles.whiteMiniLabel);
+                }
+                catch (Exception ex) { show3D = false; ShowError(ex); }
+            }
+            else if (preview != null)
             {
                 var aspect = (float)preview.width / preview.height;
                 var w = Mathf.Min(area.width - 24, (area.height - 24) * aspect); var h = w / aspect;
@@ -181,13 +211,13 @@ namespace GrandStrategy.WorldGeneration.Editor
                     var x = Mathf.Clamp((int)((point.x - imageRect.x) / imageRect.width * result.Recipe.Width), 0, result.Recipe.Width - 1);
                     var y = Mathf.Clamp((int)((imageRect.yMax - point.y) / imageRect.height * result.Recipe.Height), 0, result.Recipe.Height - 1);
                     var elevation = result.Elevations[y * result.Recipe.Width + x];
-                    GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), $"X {x} · Y {y} · Elevation {elevation:F4} · {(elevation >= result.Recipe.SeaLevel ? "Land" : "Water")}", EditorStyles.whiteMiniLabel);
+                    GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), $"X {x} | Y {y} | Elevation {elevation:F4} | {(elevation >= result.Recipe.SeaLevel ? "Land" : "Water")}", EditorStyles.whiteMiniLabel);
                     if (Event.current.type == EventType.MouseMove) Repaint();
                 }
             }
             else GUI.Label(area, "Generate an Old World to preview its elevation.", new GUIStyle(EditorStyles.centeredGreyMiniLabel) { alignment = TextAnchor.MiddleCenter });
             if (result != null)
-                EditorGUILayout.LabelField($"{result.Recipe.Width} × {result.Recipe.Height}   |   Seed {result.Recipe.Seed}   |   Land {result.LandFraction:P1}   |   Elevation {result.Minimum:F3}–{result.Maximum:F3}", EditorStyles.miniLabel);
+                EditorGUILayout.LabelField($"{result.Recipe.Width} x {result.Recipe.Height}   |   Seed {result.Recipe.Seed}   |   Land {result.LandFraction:P1}   |   Elevation {result.Minimum:F3}-{result.Maximum:F3}", EditorStyles.miniLabel);
             if (settingsChanged && result != null)
                 EditorGUILayout.HelpBox("Settings changed. Generate again to apply them. Saving and exporting use the displayed result and its original settings.", MessageType.Warning);
             EditorGUILayout.HelpBox(status, MessageType.None);
@@ -212,9 +242,10 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         private void RefreshPreview()
         {
-            var next = HeightmapPreview.Create(result, previewMode);
+            var nextWater = water != null && ReferenceEquals(water.Source, result) ? water : WaterMap.Classify(result);
+            var next = HeightmapPreview.Create(result, previewMode, nextWater);
             if (preview != null) DestroyImmediate(preview);
-            preview = next; wantsMouseMove = true;
+            water = nextWater; preview = next; wantsMouseMove = true;
         }
 
         private void SaveWorld()
@@ -274,11 +305,12 @@ namespace GrandStrategy.WorldGeneration.Editor
         [Serializable] private sealed class ExportManifest
         {
             public string Format = "GrandStrategy.HeightmapExport";
-            public int Version = 1;
+            public int Version = 2;
             public string Coordinates = "X west to east; Y south to north; row-major. PNG top corresponds to north.";
-            public string RawEncoding = "unsigned 16-bit little-endian; no header; first row south; normalized 0–65535";
-            public string ElevationUnits = "normalized 0–1, not metres";
-            public string WaterMask = "white land, black below sea level; lakes and oceans not classified";
+            public string RawEncoding = "unsigned 16-bit little-endian; no header; first row south; normalized 0-65535";
+            public string ElevationUnits = "normalized 0-1, not metres";
+            public string WaterMask = "OpenGS Land Image: RGB ocean (5,20,18), lakes (0,255,0), land (255,255,255). Exact unshaded PNG bytes.";
+            public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean; remaining submerged samples are lakes. No above-sea-level lake filling yet.";
             public string Preview = "8-bit PNGs are inspection images; RAW16 and the Unity asset preserve higher precision";
             public HeightmapRecipe Recipe;
         }
@@ -294,7 +326,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 using (var stream = new FileStream(Path.Combine(folder, "heightmap.raw"), FileMode.CreateNew)) HeightmapEncoding.WriteRaw16(result, stream);
                 WritePng(Path.Combine(folder, "heightmap-preview.png"), HeightmapPreviewMode.Grayscale);
                 WritePng(Path.Combine(folder, "relief.png"), HeightmapPreviewMode.Relief);
-                WriteMask(Path.Combine(folder, "land-mask.png"));
+                WritePng(Path.Combine(folder, "land-mask.png"), HeightmapPreviewMode.LandAndWater);
                 File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(new ExportManifest { Recipe = result.Recipe }, true));
                 status = "Exported to " + folder;
                 EditorUtility.RevealInFinder(folder);
@@ -304,20 +336,8 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         private void WritePng(string path, HeightmapPreviewMode mode)
         {
-            var texture = HeightmapPreview.Create(result, mode);
+            var texture = HeightmapPreview.Create(result, mode, water);
             try { File.WriteAllBytes(path, texture.EncodeToPNG()); }
-            finally { DestroyImmediate(texture); }
-        }
-
-        private void WriteMask(string path)
-        {
-            var texture = new Texture2D(result.Recipe.Width, result.Recipe.Height, TextureFormat.RGBA32, false, true);
-            try
-            {
-                var pixels = new Color32[result.Elevations.Length];
-                for (var i = 0; i < pixels.Length; i++) pixels[i] = result.Elevations[i] >= result.Recipe.SeaLevel ? new Color32(255, 255, 255, 255) : new Color32(0, 0, 0, 255);
-                texture.SetPixels32(pixels); texture.Apply(); File.WriteAllBytes(path, texture.EncodeToPNG());
-            }
             finally { DestroyImmediate(texture); }
         }
 
