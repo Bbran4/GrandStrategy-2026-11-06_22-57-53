@@ -4,9 +4,9 @@ using UnityEngine.Rendering;
 
 namespace GrandStrategy.WorldGeneration
 {
-    internal static class HeightmapMesh
+    public static class HeightmapMesh
     {
-        internal static Mesh Create(HeightmapResult world, float heightScale, int longestSide = 256)
+        public static Mesh Create(HeightmapResult world, float heightScale, int longestSide = 256)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (float.IsNaN(heightScale) || float.IsInfinity(heightScale) || heightScale <= 0 || heightScale > 1)
