@@ -139,6 +139,49 @@ namespace GrandStrategy.WorldGeneration.Editor
             GUI.DrawTexture(rect, image, ScaleMode.StretchToFill, false);
         }
 
+        public bool TryPick(Rect rect, Vector2 mouse, out Vector2 uv)
+        {
+            uv = default;
+            if (renderer == null || mesh == null || rect.width < 2 || rect.height < 2 || !rect.Contains(mouse))
+                return false;
+
+            var camera = renderer.camera;
+            var aspect = rect.width / rect.height;
+            var verticalTangent = Mathf.Tan(camera.fieldOfView * Mathf.Deg2Rad * .5f) * Mathf.Max(1f, 1f / aspect);
+            var x = (mouse.x - rect.x) / rect.width * 2f - 1f;
+            var y = 1f - (mouse.y - rect.y) / rect.height * 2f;
+            var direction = camera.transform.rotation * new Vector3(x * aspect * verticalTangent, y * verticalTangent, 1);
+            var origin = camera.transform.position;
+
+            // Pick against the same mesh used for the preview, including its downsampling.
+            var vertices = mesh.vertices;
+            var triangles = mesh.triangles;
+            var nearest = float.PositiveInfinity;
+            for (var i = 0; i < triangles.Length; i += 3)
+            {
+                var a = vertices[triangles[i]];
+                var edge1 = vertices[triangles[i + 1]] - a;
+                var edge2 = vertices[triangles[i + 2]] - a;
+                var cross = Vector3.Cross(direction, edge2);
+                var determinant = Vector3.Dot(edge1, cross);
+                if (Mathf.Abs(determinant) < .0000001f) continue;
+                var inverse = 1f / determinant;
+                var offset = origin - a;
+                var u = Vector3.Dot(offset, cross) * inverse;
+                if (u < 0f || u > 1f) continue;
+                var offsetCross = Vector3.Cross(offset, edge1);
+                var v = Vector3.Dot(direction, offsetCross) * inverse;
+                if (v < 0f || u + v > 1f) continue;
+                var t = Vector3.Dot(edge2, offsetCross) * inverse;
+                if (t >= 0f && t < nearest) nearest = t;
+            }
+
+            if (float.IsPositiveInfinity(nearest)) return false;
+            var point = origin + nearest * direction;
+            uv = new Vector2(point.x / ((float)world.Recipe.Width / world.Recipe.Height) + .5f, point.z + .5f);
+            return true;
+        }
+
         public void Dispose()
         {
             // Keep ownership if cleanup fails, allowing a later Dispose to retry it.

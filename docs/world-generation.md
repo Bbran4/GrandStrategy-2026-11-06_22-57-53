@@ -79,6 +79,16 @@ Generate climate, then click **Generate Biomes**. The biome view shows oceans, l
 
 Use the matching Land Image and Terrain Image in OpenGS. Mountains and hills use elevation bands, boreal and temperate forests share the forest colour, tropical forest uses jungle, wetlands use marsh, and tundra lowlands use plains. River cells count as marsh in the ordinary Terrain image and navigable water uses shallow sea in the naval image. OpenGS assigns terrain using the pixel at a province's centre. [OpenGS MapTool](https://github.com/Thomas-Holtvedt/opengs-maptool#readme)
 
+### Importing OpenGS provinces
+
+Open **Tools → GrandStrategy → Province Map**. Select the `manifest.json` from the world export used to generate the OpenGS map, the province PNG, and the province definitions. If you want territory membership, also select the territory PNG, territory definitions, and territory history.
+
+Use opaque, lossless PNGs at the original map dimensions. Definitions and history can be JSON or semicolon CSV. Black pixels without a matching definition are counted as unassigned. Province IDs and terrain labels come from OpenGS. The imported map derives neighbours from shared edges, counts river route samples and biomes, and uses the world land mask to distinguish open-sea borders from inland naval corridors.
+
+Click a province in 2D to inspect it, or enable **3D** and right-click on the terrain. The selected province is highlighted and its neighbour buttons jump to adjacent provinces. **Save Province Map as Asset** keeps the indexed province raster, metadata, and final terrain in a reusable Unity asset. Use **Open Saved Map** to reopen it.
+
+Use the world export that produced the OpenGS inputs. Matching dimensions and colour definitions can detect many mismatches, but two different worlds can have the same dimensions. Visually check the coastlines before saving. Province adjacency records geographic borders. Movement rules can later distinguish land crossings, naval travel, and landing points. [OpenGS data export format](https://github.com/Thomas-Holtvedt/opengs-maptool/blob/main/docs/data_export_format.md)
+
 ## Resolution
 
 | Preset | Samples | Height data alone |

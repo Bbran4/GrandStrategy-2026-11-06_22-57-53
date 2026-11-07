@@ -61,6 +61,7 @@ internal static class Program
         CheckNavalAccess();
         CheckClimate();
         CheckBiomes();
+        CheckProvinceMap();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
         if (args.Contains("--benchmark"))
         {
@@ -276,6 +277,51 @@ internal static class Program
     private static void RequireRgb(Rgb24 colour, byte r, byte g, byte b, string name)
     {
         Require(colour.R == r && colour.G == g && colour.B == b, $"Wrong OpenGS Terrain colour for {name}.");
+    }
+
+    private static void CheckProvinceMap()
+    {
+        var recipe = Small();
+        recipe.Width = 32;
+        recipe.Height = 32;
+        var provinces = new[]
+        {
+            new ProvinceInfo { Id = "PRV000014", Rgb = 0x112233, Type = "land", Terrain = "forest", TerritoryId = "TRT000002" },
+            new ProvinceInfo { Id = "PRV000007", Rgb = 0x223344, Type = "ocean" },
+            new ProvinceInfo { Id = "PRV000021", Rgb = 0x334455, Type = "land" }
+        };
+        var colors = new int[1024];
+        colors[0] = provinces[0].Rgb;
+        colors[1] = provinces[1].Rgb;
+        colors[34] = provinces[2].Rgb; // Diagonal to the ocean cell.
+        var biomes = new byte[1024];
+        biomes[0] = (byte)BiomeKind.TemperateForest;
+        var rivers = new byte[1024];
+        rivers[0] = 1;
+        var ocean = new byte[1024];
+        ocean[1] = 1;
+        var map = ProvinceMap.Build(recipe, (int[])colors.Clone(), provinces, biomes: biomes, rivers: rivers, ocean: ocean);
+        Require(map.Provinces[0].Id == "PRV000014" && map.Provinces[0].TerritoryId == "TRT000002",
+            "Province identity and territory membership must survive indexing.");
+        Require(map.ProvinceAt[0] == 0 && map.ProvinceAt[1] == 1 && map.ProvinceAt[34] == 2
+            && map.ProvinceAt[33] == -1 && map.UnassignedPixels == 1021, "RGB-to-province indexing changed the raster.");
+        Require(map.Provinces[0].Neighbours.SequenceEqual(new[] { 1 })
+            && map.Provinces[1].Neighbours.SequenceEqual(new[] { 0 })
+            && map.Provinces[2].Neighbours.Length == 0, "Neighbours must share an edge.");
+        Require(map.Provinces[0].TouchesOpenSea && map.Provinces[0].RiverSamples == 1
+            && map.Provinces[0].BiomeCounts[(int)BiomeKind.TemperateForest] == 1, "Geographic summaries are misaligned.");
+        colors[10] = 0xabcdef;
+        Reject(() => ProvinceMap.Build(recipe, colors, provinces), "Unknown province RGB accepted.");
+
+        using var raw = new MemoryStream();
+        var heights = Enumerable.Repeat(.25f, 1024).ToArray();
+        heights[0] = 0f;
+        heights[992] = 1f;
+        HeightmapEncoding.WriteRaw16(new HeightmapResult(recipe, heights), raw);
+        raw.Position = 0;
+        var terrain = HeightmapEncoding.ReadRaw16(recipe, raw);
+        Require(terrain.Elevations[0] == 0f && terrain.Elevations[992] == 1f
+            && Math.Abs(terrain.Elevations[1] - .25f) <= 1f / 65535f, "RAW16 import changed orientation or precision.");
     }
 
     private static void CheckRivers()
