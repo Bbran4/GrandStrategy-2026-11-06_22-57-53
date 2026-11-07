@@ -29,9 +29,9 @@ Generate or load terrain, then click **Generate Rivers**. Lower **Catchment (%)*
 
 Routing starts at existing water and uses an eight-neighbour adaptation of Priority-Flood. A temporary spill priority lets flow cross dry saddles while the base samples stay intact. Contributing area sets the channel threshold and width. A final pass grades channel beds toward their outlets, which can require deeper cuts through saddles. Flat bed sections can occur. Carving stays at or above sea level on land so existing oceans and lakes keep their footprints. [Priority-Flood paper](https://doi.org/10.1016/j.cageo.2013.04.024)
 
-The world asset preserves the base samples, carved samples, directions, and river settings. Reading the terrain for gameplay returns the carved samples when present. Existing heightmap-only assets can be loaded and carved.
+The world asset stores the original samples, cut elevations, flow directions, and river settings as separate layers. The preview, gameplay read, and export use the same composition rule. A zero cut keeps the original sample. A positive cut supplies the final normalized elevation at that sample, including the cut banks around a channel. Existing river assets recover their cut layer from the saved base and carved terrain on load. Saving a new world asset writes the separate layers.
 
-Standalone Linux measurements for seed 271828 used a fresh process per preset and two passes per process. The baseline generated terrain and classified water. The river workflow also carved channels and classified the final terrain. CPU and peak memory cover both passes in each process. Editor texture generation, mesh rendering, and export costs were not measured.
+Standalone Linux measurements for the initial river implementation used seed 271828, a fresh process per preset, and two passes per process. The baseline generated terrain and classified water. The river workflow also carved channels and classified the final terrain. CPU and peak memory cover both passes in each process. The separate cut layer, Editor rendering, and export costs are outside these measurements.
 
 | Preset | Baseline first / repeat | River workflow first / repeat | Process CPU baseline / rivers | Process peak baseline / rivers |
 | --- | --- | --- | --- | --- |
@@ -104,6 +104,7 @@ Each export creates a new uniquely named subfolder under the chosen parent. An i
 | --- | --- |
 | heightmap.raw | Final terrain, including any channel cuts, as headerless unsigned 16-bit little-endian samples |
 | heightmap-base.raw | Original samples in the same format, included when rivers are present |
+| river-cuts.f32 | One little-endian float32 per sample when rivers are present, aligned with the base and final rasters. Zero keeps the base value. Positive values give the final cut elevation before RAW16 quantization |
 | river-directions.raw | One byte per sample when rivers are present. Zero means no channel. Values 1–8 run counterclockwise from east in 45-degree increments |
 | rivers.png | Inspection image of the channel network over carved relief, included when rivers are present |
 | heightmap-preview.png | 8-bit grayscale inspection image, not the precision source |

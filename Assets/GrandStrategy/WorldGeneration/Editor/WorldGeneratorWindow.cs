@@ -398,6 +398,8 @@ namespace GrandStrategy.WorldGeneration.Editor
         [Serializable] private sealed class RiverExport
         {
             public string BaseHeightmap = "heightmap-base.raw";
+            public string CutElevations = "river-cuts.f32";
+            public string CutEncoding = "Little-endian float32 per sample in RAW16 order. Zero keeps the base sample. Positive values replace it with the normalized cut elevation before RAW16 quantization.";
             public string Directions = "river-directions.raw";
             public string DirectionEncoding = "One byte per sample, aligned with heightmap.raw. 0=none; 1=E, 2=NE, 3=N, 4=NW, 5=W, 6=SW, 7=S, 8=SE.";
             public int ChannelCells;
@@ -429,6 +431,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                     };
                     using (var stream = new FileStream(Path.Combine(folder, manifest.Rivers.BaseHeightmap), FileMode.CreateNew))
                         HeightmapEncoding.WriteRaw16(rivers.Base, stream);
+                    using (var stream = new FileStream(Path.Combine(folder, manifest.Rivers.CutElevations), FileMode.CreateNew))
+                        HeightmapEncoding.WriteRiverCuts(rivers, stream);
                     File.WriteAllBytes(Path.Combine(folder, manifest.Rivers.Directions), rivers.Directions);
                     WritePng(Path.Combine(folder, "rivers.png"), HeightmapPreviewMode.Rivers);
                 }

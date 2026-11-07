@@ -12,6 +12,8 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField, HideInInspector] private HeightmapRecipe recipe;
         [SerializeField, HideInInspector] private float heightScale;
         [SerializeField, HideInInspector] private float[] elevations;
+        [SerializeField, HideInInspector] private float[] riverCutElevations;
+        // Kept for loading worlds saved before the explicit cut layer.
         [SerializeField, HideInInspector] private float[] carvedElevations;
         [SerializeField, HideInInspector] private byte[] riverDirections;
         [SerializeField, HideInInspector] private float riverCatchmentPercent;
@@ -21,7 +23,8 @@ namespace GrandStrategy.WorldGeneration
         public int Height => recipe == null ? 0 : recipe.Height;
         public int Seed => recipe == null ? 0 : recipe.Seed;
         public float SeaLevel => recipe == null ? 0 : recipe.SeaLevel;
-        public bool HasRivers => (riverDirections?.Length ?? 0) > 0 || (carvedElevations?.Length ?? 0) > 0;
+        public bool HasRivers => (riverDirections?.Length ?? 0) > 0
+            || (riverCutElevations?.Length ?? 0) > 0 || (carvedElevations?.Length ?? 0) > 0;
 
         // Assets saved before height scale was introduced have no serialized value.
         public float HeightScale => heightScale == 0f ? DefaultHeightScale : heightScale;
@@ -34,43 +37,40 @@ namespace GrandStrategy.WorldGeneration
                 throw new ArgumentException("The river network belongs to a different terrain.", nameof(rivers));
             recipe = result.Recipe.Copy();
             elevations = (float[])(rivers?.Base ?? result).Elevations.Clone();
-            carvedElevations = rivers == null ? null : (float[])result.Elevations.Clone();
+            riverCutElevations = rivers == null ? null : (float[])rivers.CutElevations.Clone();
+            carvedElevations = null;
             riverDirections = rivers == null ? null : (byte[])rivers.Directions.Clone();
             riverCatchmentPercent = rivers?.CatchmentPercent ?? 0f;
             riverCarveDepth = rivers?.CarveDepth ?? 0f;
             this.heightScale = heightScale;
         }
 
-        public HeightmapResult Read() => ReadSamples(HasRivers ? carvedElevations : elevations);
+        public HeightmapResult Read() => ReadRivers()?.Terrain ?? ReadSamples(elevations);
 
         public RiverMap ReadRivers()
         {
             if (!HasRivers) return null;
-            RiverGenerator.ValidateSettings(riverCatchmentPercent, riverCarveDepth);
             var world = ReadSamples(elevations);
-            var terrain = ReadSamples(carvedElevations);
-            var length = world.Elevations.Length;
-            if (riverDirections == null || riverDirections.Length != length)
-                throw new InvalidOperationException("River directions do not match the heightmap dimensions.");
+            var cuts = (riverCutElevations?.Length ?? 0) > 0
+                ? (float[])riverCutElevations.Clone() : RecoverLegacyCuts(world);
+            var directions = (byte[])riverDirections?.Clone();
+            return RiverMap.Compose(world, cuts, directions, riverCatchmentPercent, riverCarveDepth);
+        }
 
-            var channels = 0;
-            var sea = recipe.SeaLevel;
-            for (var i = 0; i < length; i++)
+        private float[] RecoverLegacyCuts(HeightmapResult world)
+        {
+            if (carvedElevations == null || carvedElevations.Length != world.Elevations.Length)
+                throw new InvalidOperationException("River cuts are missing or do not match the heightmap dimensions.");
+            var cuts = new float[carvedElevations.Length];
+            for (var i = 0; i < cuts.Length; i++)
             {
-                var original = world.Elevations[i];
-                var carved = terrain.Elevations[i];
-                if (carved > original || (original < sea ? carved != original : carved < sea))
-                    throw new InvalidOperationException("River carving must preserve existing land and water coverage.");
-                if (riverDirections[i] == 0) continue;
-                channels++;
-                var next = RiverGenerator.Neighbor(i, riverDirections[i], Width, Height);
-                if (original < sea || next < 0 || terrain.Elevations[next] > carved
-                    || (world.Elevations[next] >= sea && riverDirections[next] == 0))
-                    throw new InvalidOperationException("The saved river network contains an invalid flow direction.");
+                var previous = carvedElevations[i];
+                if (previous == world.Elevations[i]) continue;
+                if (previous == 0f)
+                    throw new InvalidOperationException("A legacy river cut changed the water classification.");
+                cuts[i] = previous;
             }
-
-            return new RiverMap(world, terrain, (byte[])riverDirections.Clone(), channels,
-                riverCatchmentPercent, riverCarveDepth);
+            return cuts;
         }
 
         private HeightmapResult ReadSamples(float[] samples)

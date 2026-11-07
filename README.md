@@ -24,7 +24,7 @@ Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024
 
 **LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean RGB (5,20,18), lake RGB (0,255,0), and white land. Boundary-connected water is ocean; enclosed below-sea-level water is lake. River generation uses the existing oceans and lakes as outlets.
 
-See [World generation](docs/world-generation.md) for controls, export formats, validation evidence, and limitations. Generate the base terrain, then select **Generate Rivers**. Save or export the carved world to retain the base heightmap, river directions, and final terrain. Climate, biomes, and snow are future steps.
+Generate the base terrain, then select **Generate Rivers**. Saved worlds store the base terrain, river cuts, and flow directions. The game and export use the heightmap composed from the base and cuts. Climate, biomes, and snow are future steps. [World generation](docs/world-generation.md)
 
 ## Design pillars
 

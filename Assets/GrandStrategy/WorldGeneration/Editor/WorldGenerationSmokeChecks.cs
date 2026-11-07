@@ -39,8 +39,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                     throw new Exception("River asset disk round-trip failed.");
                 for (var i = 0; i < loaded.Elevations.Length; i++)
                     if (loaded.Elevations[i] != network.Terrain.Elevations[i]
+                        || loadedNetwork.CutElevations[i] != network.CutElevations[i]
                         || loadedNetwork.Directions[i] != network.Directions[i])
-                        throw new Exception("Saved river geometry or direction changed.");
+                        throw new Exception("Saved river geometry, cut layer, or direction changed.");
                 if (asset.HeightScale != authoredHeightScale)
                     throw new Exception("Terrain height scale did not survive the asset disk round-trip.");
                 var output = Path.Combine(Path.GetTempPath(), "GrandStrategy-worldgen-qa");

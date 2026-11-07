@@ -108,6 +108,10 @@ internal static class Program
                 && rivers.Terrain.Elevations.SequenceEqual(repeat.Terrain.Elevations), "River generation must be deterministic.");
             Require(world.Elevations.SequenceEqual(original), "River generation modified the base world.");
             Require(rivers.Terrain.Elevations.Where((value, i) => value < original[i]).Any(), "River generation should carve terrain.");
+            var composed = RiverMap.Compose(world, rivers.CutElevations, rivers.Directions,
+                rivers.CatchmentPercent, rivers.CarveDepth);
+            Require(composed.Terrain.Elevations.SequenceEqual(rivers.Terrain.Elevations), "Cut layer did not reconstruct the final terrain.");
+            CheckRiverExport(rivers);
             var carvedWater = WaterMap.Classify(rivers.Terrain);
             for (var i = 0; i < elevations.Length; i++)
             {
@@ -143,6 +147,30 @@ internal static class Program
         var flooded = new HeightmapResult(recipe, new float[1024]);
         Require(RiverGenerator.Generate(flooded).ChannelCells == 0, "A world without land cannot have channels.");
         Reject(() => RiverGenerator.Generate(dry, carveDepth: float.NaN), "Invalid river depth accepted.");
+    }
+
+    private static void CheckRiverExport(RiverMap rivers)
+    {
+        using var original = new MemoryStream();
+        using var cuts = new MemoryStream();
+        using var final = new MemoryStream();
+        HeightmapEncoding.WriteRaw16(rivers.Base, original);
+        HeightmapEncoding.WriteRiverCuts(rivers, cuts);
+        HeightmapEncoding.WriteRaw16(rivers.Terrain, final);
+        Require(cuts.Length == rivers.Base.Elevations.Length * 4L, "Cut export must contain one float32 per base sample.");
+        original.Position = cuts.Position = final.Position = 0;
+        using var originalReader = new BinaryReader(original);
+        using var cutReader = new BinaryReader(cuts);
+        using var finalReader = new BinaryReader(final);
+        for (var i = 0; i < rivers.Base.Elevations.Length; i++)
+        {
+            var baseSample = originalReader.ReadUInt16();
+            var cut = cutReader.ReadSingle();
+            Require(cut == rivers.CutElevations[i], "Exported cut is not the original float sample.");
+            var composed = cut == 0f
+                ? baseSample : (ushort)Math.Round(cut * 65535, MidpointRounding.AwayFromZero);
+            Require(composed == finalReader.ReadUInt16(), "Exported layers did not reconstruct the final RAW16 sample.");
+        }
     }
 
     private static void CheckWater()
