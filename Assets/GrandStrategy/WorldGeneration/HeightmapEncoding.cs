@@ -15,6 +15,22 @@ namespace GrandStrategy.WorldGeneration
                     writer.Write((ushort)Math.Round(HeightmapGenerator.Clamp(value) * 65535, MidpointRounding.AwayFromZero));
         }
 
+        public static HeightmapResult ReadRaw16(HeightmapRecipe recipe, Stream source)
+        {
+            if (recipe == null) throw new ArgumentNullException(nameof(recipe));
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            recipe.Validate();
+            var length = recipe.Width * recipe.Height;
+            if (!source.CanSeek || source.Length - source.Position != length * 2L)
+                throw new InvalidDataException("RAW16 length does not match the manifest dimensions.");
+
+            var elevations = new float[length];
+            using (var reader = new BinaryReader(source, System.Text.Encoding.UTF8, true))
+                for (var i = 0; i < elevations.Length; i++)
+                    elevations[i] = reader.ReadUInt16() / 65535f;
+            return new HeightmapResult(recipe.Copy(), elevations);
+        }
+
         /// <summary>Little-endian float32 cut elevations in the same sample order as RAW16.</summary>
         public static void WriteRiverCuts(RiverMap rivers, Stream destination)
         {

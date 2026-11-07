@@ -34,20 +34,40 @@ namespace GrandStrategy.WorldGeneration
         public int DownstreamIndex(int index) => RiverGenerator.Neighbor(index, Directions[index],
             Base.Recipe.Width, Base.Recipe.Height);
 
-        public byte[] BuildSurfaceMask()
+        public byte[] BuildSurfaceMask() => RasterizeSurface(Base.Recipe, Directions, Widths, IsBaseLand);
+
+        public static byte[] RasterizeSurface(HeightmapRecipe recipe, byte[] directions, byte[] widths, Func<int, bool> isLand)
         {
-            var surface = new byte[Directions.Length];
-            for (var cell = 0; cell < Directions.Length; cell++)
-                if (Directions[cell] != 0) StampSurface(surface, cell, 1);
+            recipe.Validate();
+            var length = recipe.Width * recipe.Height;
+            if (directions == null || directions.Length != length || (widths != null && widths.Length != length))
+                throw new ArgumentException("River layers do not match the surface dimensions.");
+            if (isLand == null) throw new ArgumentNullException(nameof(isLand));
+            var surface = new byte[length];
+            for (var cell = 0; cell < length; cell++)
+            {
+                var direction = directions[cell];
+                if (direction > 8 || (widths != null && (widths[cell] == 0) != (direction == 0)))
+                    throw new ArgumentException("Invalid river directions or widths.");
+                if (direction != 0)
+                    StampSurface(surface, cell, 1, recipe.Width, recipe.Height, widths?[cell] ?? 1, isLand);
+            }
             return surface;
         }
 
-        internal void StampSurface(byte[] destination, int cell, byte flag)
+        internal void StampSurface(byte[] destination, System.Collections.Generic.IEnumerable<int> cells, byte flag)
         {
-            var width = Base.Recipe.Width;
-            var height = Base.Recipe.Height;
-            var sea = Base.Recipe.SeaLevel;
-            var radius = (Widths?[cell] ?? 1) * .5f;
+            Func<int, bool> isLand = IsBaseLand;
+            foreach (var cell in cells)
+                StampSurface(destination, cell, flag, Base.Recipe.Width, Base.Recipe.Height, Widths?[cell] ?? 1, isLand);
+        }
+
+        private bool IsBaseLand(int index) => Base.Elevations[index] >= Base.Recipe.SeaLevel;
+
+        private static void StampSurface(byte[] destination, int cell, byte flag, int width, int height,
+            byte diameter, Func<int, bool> isLand)
+        {
+            var radius = diameter * .5f;
             var reach = (int)Math.Floor(radius);
             var x = cell % width;
             var y = cell / width;
@@ -61,7 +81,7 @@ namespace GrandStrategy.WorldGeneration
                     var dx = column - x;
                     var dy = row - y;
                     var index = row * width + column;
-                    if (dx * dx + dy * dy <= radiusSquared && Base.Elevations[index] >= sea)
+                    if (dx * dx + dy * dy <= radiusSquared && isLand(index))
                         destination[index] |= flag;
                 }
         }

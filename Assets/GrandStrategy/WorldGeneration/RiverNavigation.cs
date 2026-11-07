@@ -62,8 +62,7 @@ namespace GrandStrategy.WorldGeneration
                 }
             }
 
-            foreach (var cell in upstream)
-                rivers.StampSurface(cells, cell, WaterFootprint);
+            rivers.StampSurface(cells, upstream, WaterFootprint);
 
             return new RiverNavigation(cells, upstream.Count);
         }
