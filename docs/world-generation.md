@@ -39,6 +39,19 @@ Standalone Linux measurements for the initial river implementation used seed 271
 | 2048 x 1024 | 1.818s / 1.751s | 2.024s / 2.016s | 3.622s / 4.108s | 107.6 / 157.5 MiB |
 | 3072 x 2048 | 5.509s / 5.925s | 6.104s / 6.058s | 11.499s / 12.201s | 247.9 / 295.5 MiB |
 
+### Testing inland naval access
+
+Generate rivers and click **Preview Naval Access**. The preview starts at mouths that reach the ocean and follows connected channels upstream. **Naval rise limit** is an authoring control in normalized elevation above sea level. The default is 0.08. This first pass estimates access by connection and elevation. Ship draft, width, rapids, ports, and fleet movement need gameplay rules.
+
+Enable **Export naval mask** to include two optional files. The export manifest records the chosen rise limit.
+
+| File | Contents |
+| --- | --- |
+| naval-land-mask.png | An alternate OpenGS Land Image. Accepted reaches use ocean RGB (5,20,18), with cardinal connections for diagonal reaches. Existing lakes keep their lake colour. |
+| river-naval-access.raw | One byte per sample in heightmap order. Bit 0 marks a route cell and bit 1 marks a mask-only connector. Route cells use the original river directions for movement. |
+
+Use the alternate image in OpenGS to try generating ocean provinces along the river. OpenGS decides province boundaries and grouping, so inspect whether narrow reaches receive useful province shapes. Use the regular land mask when authoring land provinces and keep naval access as a separate gameplay layer if the same area needs land ownership and ship access. [OpenGS MapTool](https://github.com/Thomas-Holtvedt/opengs-maptool#readme)
+
 ## Resolution
 
 | Preset | Samples | Height data alone |

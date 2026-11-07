@@ -2,13 +2,14 @@ using UnityEngine;
 
 namespace GrandStrategy.WorldGeneration.Editor
 {
-    public enum HeightmapPreviewMode { Relief, Grayscale, LandAndWater, Rivers }
+    public enum HeightmapPreviewMode { Relief, Grayscale, LandAndWater, Rivers, NavalAccess }
 
     internal static class HeightmapPreview
     {
-        public static Texture2D Create(HeightmapResult result, HeightmapPreviewMode mode, WaterMap water = null, RiverMap rivers = null)
+        public static Texture2D Create(HeightmapResult result, HeightmapPreviewMode mode, WaterMap water = null, RiverMap rivers = null, RiverNavigation navigation = null)
         {
-            if (mode == HeightmapPreviewMode.LandAndWater)
+            var showMask = mode == HeightmapPreviewMode.LandAndWater || mode == HeightmapPreviewMode.NavalAccess;
+            if (showMask)
             {
                 if (water == null) water = WaterMap.Classify(result);
                 if (!ReferenceEquals(water.Source, result)) throw new System.ArgumentException("Water classification belongs to a different world.");
@@ -18,7 +19,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             var width = result.Recipe.Width; var height = result.Recipe.Height;
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
                 { name = "Heightmap preview", hideFlags = HideFlags.HideAndDontSave, wrapMode = TextureWrapMode.Clamp,
-                    filterMode = mode == HeightmapPreviewMode.LandAndWater ? FilterMode.Point : FilterMode.Bilinear };
+                    filterMode = showMask ? FilterMode.Point : FilterMode.Bilinear };
             try
             {
                 var colours = new Color32[width * height];
@@ -27,9 +28,11 @@ namespace GrandStrategy.WorldGeneration.Editor
                     for (var x = 0; x < width; x++)
                     {
                         var index = y * width + x;
-                        if (mode == HeightmapPreviewMode.LandAndWater)
+                        if (showMask)
                         {
-                            var rgb = OpenGsLandPalette.Color(water[index]);
+                            var kind = mode == HeightmapPreviewMode.NavalAccess && navigation != null && navigation[index] != 0
+                                ? WaterKind.Ocean : water[index];
+                            var rgb = OpenGsLandPalette.Color(kind);
                             colours[index] = new Color32(rgb.R, rgb.G, rgb.B, 255);
                             continue;
                         }

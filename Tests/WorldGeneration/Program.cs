@@ -57,6 +57,7 @@ internal static class Program
         }
         CheckWater();
         CheckRivers();
+        CheckNavalAccess();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
         if (args.Contains("--benchmark"))
         {
@@ -83,6 +84,46 @@ internal static class Program
                     }
                 }
         }
+    }
+
+    private static void CheckNavalAccess()
+    {
+        var recipe = Small();
+        recipe.Width = 32;
+        recipe.Height = 32;
+        var sea = recipe.SeaLevel;
+        var heights = Enumerable.Repeat(.7f, 1024).ToArray();
+        var cuts = new float[heights.Length];
+        var directions = new byte[heights.Length];
+        var mouth = 33;
+        var inland = 66;
+        var upland = 99;
+        var lake = 16 * 32 + 16;
+        var lakeReach = lake - 1;
+        heights[0] = heights[lake] = sea / 2;
+        cuts[mouth] = sea + .01f;
+        cuts[inland] = sea + .04f;
+        cuts[upland] = sea + .14f;
+        cuts[lakeReach] = sea + .01f;
+        directions[mouth] = directions[inland] = directions[upland] = 6; // Southwest.
+        directions[lakeReach] = 1; // East into the lake.
+        var world = new HeightmapResult(recipe, heights);
+        var river = RiverMap.Compose(world, cuts, directions,
+            RiverGenerator.DefaultCatchmentPercent, RiverGenerator.DefaultCarveDepth);
+        var water = WaterMap.Classify(river.Terrain);
+        var access = RiverNavigation.Build(river, water, .08f);
+        Require(access.ChannelCount == 2, "Only the low sea-connected reaches should admit ships.");
+        Require((access[mouth] & RiverNavigation.Channel) != 0
+            && (access[inland] & RiverNavigation.Channel) != 0, "The route must extend upstream from the mouth.");
+        Require(access[32] == RiverNavigation.Connector && access[65] == RiverNavigation.Connector,
+            "Diagonal reaches should have cardinal mask connections without adding movement nodes.");
+        Require(access[lakeReach] == 0 && access[lake] == 0 && access[upland] == 0,
+            "Lake routes and high riverbeds must stay out of the naval corridor.");
+        var extended = RiverNavigation.Build(river, water, .16f);
+        Require(extended.ChannelCount == 3 && (extended[upland] & RiverNavigation.Channel) != 0,
+            "A higher rise limit should extend an existing ocean route.");
+        Require(water[mouth] == WaterKind.Land && water[lake] == WaterKind.Lake,
+            "Naval access must preserve the source geography.");
     }
 
     private static void CheckRivers()

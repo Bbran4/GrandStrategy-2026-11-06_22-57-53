@@ -17,6 +17,9 @@ namespace GrandStrategy.WorldGeneration.Editor
         [SerializeField] private float heightScale = WorldHeightmap.DefaultHeightScale;
         [SerializeField] private float riverCatchment = RiverGenerator.DefaultCatchmentPercent;
         [SerializeField] private float riverDepth = RiverGenerator.DefaultCarveDepth;
+        [SerializeField] private float maximumNavalRise = RiverNavigation.DefaultMaximumRise;
+        [SerializeField] private bool exportNavalMask;
+        private RiverNavigation navigation;
         private HeightmapResult result;
         private RiverMap rivers;
         private WaterMap water;
@@ -155,7 +158,38 @@ namespace GrandStrategy.WorldGeneration.Editor
                     if (GUILayout.Button("Clear Rivers")) ClearRivers();
             }
             if (rivers != null)
+            {
                 EditorGUILayout.LabelField($"{rivers.ChannelCells:N0} channel samples", EditorStyles.miniLabel);
+                var rise = EditorGUILayout.DelayedFloatField(
+                    new GUIContent("Naval rise limit", "Maximum normalized riverbed elevation above sea level."),
+                    maximumNavalRise);
+                if (!float.IsNaN(rise))
+                    SetNavalRise(Mathf.Clamp(rise, 0f, RiverNavigation.MaximumRiseLimit));
+                exportNavalMask = EditorGUILayout.Toggle("Export naval mask", exportNavalMask);
+                if (GUILayout.Button("Preview Naval Access"))
+                {
+                    try { SetPreview(result, rivers, HeightmapPreviewMode.NavalAccess); }
+                    catch (Exception ex) { ShowError(ex); }
+                }
+                if (navigation != null)
+                    EditorGUILayout.LabelField($"{navigation.ChannelCount:N0} ship-route samples", EditorStyles.miniLabel);
+            }
+        }
+
+        private void SetNavalRise(float rise)
+        {
+            if (rise == maximumNavalRise) return;
+            var previousRise = maximumNavalRise;
+            maximumNavalRise = rise;
+            try
+            {
+                if (previewMode == HeightmapPreviewMode.NavalAccess) SetPreview(result, rivers, previewMode);
+            }
+            catch (Exception ex)
+            {
+                maximumNavalRise = previousRise;
+                ShowError(ex);
+            }
         }
 
         private void DrawStep(HeightmapStep step)
@@ -222,7 +256,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 try
                 {
                     if (preview3D == null) preview3D = new Heightmap3DPreview();
-                    preview3D.SetWorld(result, preview, heightScale, previewMode == HeightmapPreviewMode.LandAndWater);
+                    preview3D.SetWorld(result, preview, heightScale,
+                        previewMode == HeightmapPreviewMode.LandAndWater || previewMode == HeightmapPreviewMode.NavalAccess);
                     if (preview3D.HandleInput(area)) Repaint();
                     preview3D.Draw(area);
                     GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), "Drag to orbit | Scroll to zoom | Height is saved with the world", EditorStyles.whiteMiniLabel);
@@ -304,10 +339,13 @@ namespace GrandStrategy.WorldGeneration.Editor
         private void SetPreview(HeightmapResult terrain, RiverMap network, HeightmapPreviewMode mode)
         {
             var nextWater = water != null && ReferenceEquals(water.Source, terrain) ? water : WaterMap.Classify(terrain);
-            var next = HeightmapPreview.Create(terrain, mode, nextWater, network);
+            var nextNavigation = mode == HeightmapPreviewMode.NavalAccess && network != null
+                ? RiverNavigation.Build(network, nextWater, maximumNavalRise) : null;
+            var next = HeightmapPreview.Create(terrain, mode, nextWater, network, nextNavigation);
             if (preview != null) DestroyImmediate(preview);
             result = terrain;
             rivers = network;
+            navigation = nextNavigation;
             previewMode = mode;
             water = nextWater;
             preview = next;
@@ -405,6 +443,11 @@ namespace GrandStrategy.WorldGeneration.Editor
             public int ChannelCells;
             public float CatchmentPercent;
             public float CarveDepth;
+            public string NavalLandMask;
+            public string NavalAccessRaster;
+            public string NavalAccessEncoding;
+            public float NavalMaximumRise;
+            public int NavalChannelCells;
         }
 
         private void Export()
@@ -435,6 +478,17 @@ namespace GrandStrategy.WorldGeneration.Editor
                         HeightmapEncoding.WriteRiverCuts(rivers, stream);
                     File.WriteAllBytes(Path.Combine(folder, manifest.Rivers.Directions), rivers.Directions);
                     WritePng(Path.Combine(folder, "rivers.png"), HeightmapPreviewMode.Rivers);
+                    if (exportNavalMask)
+                    {
+                        var access = navigation ?? RiverNavigation.Build(rivers, water, maximumNavalRise);
+                        manifest.Rivers.NavalLandMask = "naval-land-mask.png";
+                        manifest.Rivers.NavalAccessRaster = "river-naval-access.raw";
+                        manifest.Rivers.NavalAccessEncoding = "One byte per sample in RAW16 order. Bit 0 marks a ship route. Bit 1 marks a mask-only connector.";
+                        manifest.Rivers.NavalMaximumRise = maximumNavalRise;
+                        manifest.Rivers.NavalChannelCells = access.ChannelCount;
+                        WritePng(Path.Combine(folder, manifest.Rivers.NavalLandMask), HeightmapPreviewMode.NavalAccess, access);
+                        File.WriteAllBytes(Path.Combine(folder, manifest.Rivers.NavalAccessRaster), access.CopyCells());
+                    }
                 }
                 File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(manifest, true));
                 status = "Exported to " + folder;
@@ -443,9 +497,9 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch (Exception ex) { status = "Export incomplete at " + folder + ". " + ex.Message; Debug.LogException(ex); }
         }
 
-        private void WritePng(string path, HeightmapPreviewMode mode)
+        private void WritePng(string path, HeightmapPreviewMode mode, RiverNavigation access = null)
         {
-            var texture = HeightmapPreview.Create(result, mode, water, rivers);
+            var texture = HeightmapPreview.Create(result, mode, water, rivers, access);
             try { File.WriteAllBytes(path, texture.EncodeToPNG()); }
             finally { DestroyImmediate(texture); }
         }
