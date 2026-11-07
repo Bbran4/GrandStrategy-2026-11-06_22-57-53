@@ -10,10 +10,7 @@ namespace GrandStrategy.WorldGeneration
     internal sealed class MapBorderOverlay : IDisposable
     {
         private readonly ProvinceMap map;
-        private readonly Vector3[] terrainVertices;
-        private readonly Bounds terrainBounds;
-        private readonly int columns;
-        private readonly int rows;
+        private readonly MapTerrainGeometry geometry;
         private readonly int[] territoryRaster;
         private Material material;
         private MeshFilter filter;
@@ -23,13 +20,10 @@ namespace GrandStrategy.WorldGeneration
 
         public bool HasTerritories => territoryRaster != null;
 
-        public MapBorderOverlay(GameObject surface, Mesh terrain, ProvinceMap map)
+        public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map)
         {
             this.map = map;
-            terrainVertices = terrain.vertices;
-            terrainBounds = terrain.bounds;
-            columns = Array.FindIndex(terrainVertices, point => point.z > terrainVertices[0].z);
-            rows = terrainVertices.Length / columns;
+            this.geometry = geometry;
             territoryRaster = GetTerritories(map);
 
             try
@@ -103,7 +97,7 @@ namespace GrandStrategy.WorldGeneration
                 mesh.SetUVs(0, corners);
                 mesh.SetUVs(1, ends);
                 mesh.SetTriangles(indices, 0, false);
-                var bounds = terrainBounds;
+                var bounds = geometry.Bounds;
                 bounds.Expand(.02f);
                 mesh.bounds = bounds;
                 mesh.UploadMeshData(true);
@@ -118,10 +112,10 @@ namespace GrandStrategy.WorldGeneration
             void FollowTerrain(Vector2 a, Vector2 b)
             {
                 // Split at mesh cell sides and their diagonals so no chord cuts through a slope.
-                var ax = a.x / map.Width * (columns - 1);
-                var ay = a.y / map.Height * (rows - 1);
-                var bx = b.x / map.Width * (columns - 1);
-                var by = b.y / map.Height * (rows - 1);
+                var ax = a.x / map.Width * (geometry.Columns - 1);
+                var ay = a.y / map.Height * (geometry.Rows - 1);
+                var bx = b.x / map.Width * (geometry.Columns - 1);
+                var by = b.y / map.Height * (geometry.Rows - 1);
                 crossings.Clear();
                 AddCrossings(ax, bx);
                 AddCrossings(ay, by);
@@ -178,25 +172,7 @@ namespace GrandStrategy.WorldGeneration
         private Vector2 Corner(int index) => new Vector2(index % (map.Width + 1), index / (map.Width + 1));
 
         private Vector3 TerrainPoint(Vector2 corner)
-        {
-            var u = corner.x / map.Width;
-            var v = corner.y / map.Height;
-            var sx = u * (columns - 1);
-            var sy = v * (rows - 1);
-            var x = Mathf.Min((int)sx, columns - 2);
-            var y = Mathf.Min((int)sy, rows - 2);
-            var fx = sx - x;
-            var fy = sy - y;
-            var i = y * columns + x;
-            var a = terrainVertices[i].y;
-            var b = terrainVertices[i + 1].y;
-            var c = terrainVertices[i + columns].y;
-            var d = terrainVertices[i + columns + 1].y;
-            var height = fx + fy <= 1f
-                ? a + (b - a) * fx + (c - a) * fy
-                : d + (c - d) * (1f - fx) + (b - d) * (1f - fy);
-            return new Vector3((u - .5f) * terrainBounds.size.x, height + .0001f, v - .5f);
-        }
+            => geometry.Sample(new Vector2(corner.x / map.Width, corner.y / map.Height), out _) + Vector3.up * .0001f;
 
         private static int[] GetTerritories(ProvinceMap map)
         {

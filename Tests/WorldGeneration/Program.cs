@@ -67,6 +67,7 @@ internal static class Program
         CheckWorldRecipe();
         CheckCampaign();
         CheckBorderPaths();
+        CheckNature();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, river routing and carving, and campaign integration and restore.");
         if (args.Contains("--benchmark"))
         {
@@ -455,6 +456,30 @@ internal static class Program
             && restored.IntegrationTarget == -1 && restored.Day == CampaignState.IntegrationDuration + 1,
             "Integration must transfer ownership on the scheduled day.");
         Require(restored.TryStartIntegration(2), "A new border must open further integration.");
+    }
+
+    private static void CheckNature()
+    {
+        Require(MapNatureRules.Pick(BiomeKind.TemperateForest, false, .1f, 0f, .1f, .9f) == NatureKind.None,
+            "Water must block nature placement.");
+        Require(MapNatureRules.Pick(BiomeKind.TemperateForest, true, .1f, 0f, .1f, .9f) == NatureKind.Broadleaf
+            && MapNatureRules.Pick(BiomeKind.BorealForest, true, .1f, 0f, .1f, .9f) == NatureKind.Conifer,
+            "Forest species should reflect the biome.");
+        Require(MapNatureRules.Pick(BiomeKind.TemperateForest, true, .9f, 0f, .1f, .9f) == NatureKind.Rock,
+            "Steep slopes should replace trees with rock.");
+        Require(MapNatureRules.Pick(BiomeKind.Wetland, true, .1f, 0f, .1f, .9f) == NatureKind.Reeds
+            && MapNatureRules.Pick(BiomeKind.Desert, true, .1f, 0f, .1f, .9f) == NatureKind.None,
+            "Wetland and desert should have distinct placement.");
+        Require(MapNatureRules.Snow(.95f, .32f, -14f) == 1f
+            && MapNatureRules.Snow(.95f, .32f, 5f) == 0f
+            && MapNatureRules.Snow(.40f, .32f, -14f) == 0f, "Snow should require both cold and altitude.");
+        Require(MapNatureRules.Snow(.95f, .32f, null) > 0f && MapNatureRules.Snow(.55f, .32f, null) == 0f,
+            "Older worlds should use an altitude-based snow fallback.");
+        var sites = Enumerable.Range(0, 32).Select(x => MapNatureRules.Random01(17, x, 8)).ToArray();
+        Require(sites.All(value => value >= 0f && value < 1f)
+            && sites.SequenceEqual(Enumerable.Range(0, 32).Select(x => MapNatureRules.Random01(17, x, 8)))
+            && !sites.SequenceEqual(Enumerable.Range(0, 32).Select(x => MapNatureRules.Random01(18, x, 8))),
+            "Site variation should be bounded and repeatable for the same seed.");
     }
 
     private static void CheckBorderPaths()

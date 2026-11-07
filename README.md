@@ -10,7 +10,7 @@ The player represents the society itself. Individual characters, rulers, dynasti
 
 **Playable map prototype.** The world authoring tool, OpenGS import, and first Unity gameplay scene are working. Open `Assets/Scenes/PlayableMap.unity` and press **Play** to pan and zoom over the authored world, inspect provinces, and establish a tribe in a land province. The first campaign loop includes a paused start, Pop and ownership, peaceful integration, and local save and load. The campaign loop has been verified in Unity Play Mode.
 
-**Next milestone.** Verify the new borders and map modes in Unity, then begin biome materials and nature. See the [development roadmap](#development-roadmap) for the order of work.
+**Next milestone.** Verify the biome materials and nature pass in Unity, then begin development and economy. See the [development roadmap](#development-roadmap) for the order of work.
 
 - **Engine** · Unity 6000.6.8f1
 - **Rendering** · Universal Render Pipeline (URP)
@@ -23,7 +23,7 @@ Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024
 
 **LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean RGB (5,20,18), lake RGB (0,255,0), and white land. The optional naval mask adds full-width navigable rivers in the ocean colour. Boundary-connected water is ocean; enclosed below-sea-level water is lake. River generation uses the existing oceans and lakes as outlets.
 
-Generate the base terrain, then select **Generate Rivers**. Saved worlds store the base terrain, river cuts, and flow directions. The game and export use the heightmap composed from the base and cuts. Generate climate to preview temperature and moisture and export both data layers. Generate biomes to preview land cover and export the OpenGS Terrain image paired with either land mask. Save the recipe JSON to rebuild the configured stages, or save the World asset to retain the exact terrain samples. Snow coverage is planned with the terrain presentation work. [World generation](docs/world-generation.md)
+Generate the base terrain, then select **Generate Rivers**. Saved worlds store the base terrain, river cuts, and flow directions. The game and export use the heightmap composed from the base and cuts. Generate climate to preview temperature and moisture and export both data layers. Generate biomes to preview land cover and export the OpenGS Terrain image paired with either land mask. Save the recipe JSON to rebuild the configured stages, or save the World asset to retain the exact terrain samples. The playable map adds permanent snow visually using elevation and climate. [World generation](docs/world-generation.md)
 
 ## Design pillars
 
@@ -284,7 +284,7 @@ Events concern the society and its institutions. Individual-character stories ar
 Work through these in order so the camera and political overlays set the scale for terrain detail.
 
 1. **2D to 3D zoom · implemented.** Full zoom-out fits the entire map in a straight overhead view. The camera gradually tilts into the terrain as the player zooms in.
-2. **Crisp borders and map modes · implemented, Unity verification pending.** Trace each shared boundary once and preserve junctions. Render smoothed, anti-aliased outlines at a consistent screen width on the terrain. The imported raster still determines selection and limits the source precision.
+2. **Crisp borders and map modes · implemented.** Trace each shared boundary once and preserve junctions. Render smoothed, anti-aliased outlines at a consistent screen width on the terrain. The imported raster still determines selection and limits the source precision.
 
    | Map mode | Presentation |
    | --- | --- |
@@ -292,7 +292,7 @@ Work through these in order so the camera and political overlays set the scale f
    | Territories | Show territory borders and tribe colours. When tribes share a territory, show each tribe's holdings inside its outer border. |
    | Provinces | Show individual province borders and tribe colours. |
 
-3. **Biome materials and nature.** Give forests, grasslands, deserts, and wetlands distinct ground textures and blend their edges. Use slope to expose rock on steep ground. Scatter trees, rocks, and wetland plants according to biome and slope, keeping rivers and settlements clear. Keep distant views readable with broad biome colours, then reveal finer textures and vegetation as the player zooms in. Add permanent snow coverage.
+3. **Biome materials and nature · implemented, Unity verification pending.** Blend procedural forest, grassland, desert, and wetland ground patterns. Expose rock on slopes, show permanent snow on cold peaks, and reveal seeded trees, rocks, and reeds as the player zooms in.
 
 **Completion target.** Inspect the whole map overhead, zoom into detailed terrain, and switch between geographic and political views while borders stay clear.
 

@@ -155,6 +155,7 @@ namespace GrandStrategy.WorldGeneration
             // At full zoom-out the padded fit covers both map axes, including in a tall Game view.
             var overviewSize = .54f * Mathf.Max(1f, mapAspect / viewAspect);
             mapCamera.orthographicSize = overviewSize * zoom;
+            surface.SetZoom(zoom);
 
             var halfWidth = mapCamera.orthographicSize * viewAspect;
             var halfDepth = mapCamera.orthographicSize / groundProjection;
@@ -238,6 +239,7 @@ namespace GrandStrategy.WorldGeneration
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
             settlement = capitalPoint;
+            surface.SetCapital(capitalPoint);
             editingName = false;
             GUI.FocusControl(null);
         }

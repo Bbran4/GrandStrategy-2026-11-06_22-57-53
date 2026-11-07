@@ -12,6 +12,10 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D colours;
         private Texture2D regions;
         private Texture2D ownership;
+        private Texture2D biomeWeights;
+        private Texture2D groundPatterns;
+        private MapNature nature;
+        private float groundDetail;
         private MapBorderOverlay borders;
         private GameObject surface;
         private WaterMap water;
@@ -45,9 +49,13 @@ namespace GrandStrategy.WorldGeneration
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
                 colours = CreateTexture("Map colours", false, FilterMode.Bilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
-                FillTextures(biomes);
+                biomeWeights = CreateTexture("Biome material weights", true, FilterMode.Bilinear, true);
+                groundPatterns = MapGroundPatterns.Create();
+                FillTextures(biomes, terrain);
                 material = new Material(shader) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
+                material.SetTexture("_BiomeWeights", biomeWeights);
+                material.SetTexture("_GroundPatterns", groundPatterns);
                 material.SetTexture("_ProvinceIndices", regions);
                 var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
                 ownership = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
@@ -66,7 +74,10 @@ namespace GrandStrategy.WorldGeneration
                 var collider = surface.GetComponent<MeshCollider>();
                 collider.sharedMesh = mesh;
                 Collider = collider;
-                borders = new MapBorderOverlay(surface, mesh, Map);
+                var geometry = new MapTerrainGeometry(mesh);
+                borders = new MapBorderOverlay(surface, geometry, Map);
+                nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed,
+                    cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes));
             }
             catch
             {
@@ -94,25 +105,37 @@ namespace GrandStrategy.WorldGeneration
             };
         }
 
-        private void FillTextures(BiomeMap biomes)
+        private void FillTextures(BiomeMap biomes, HeightmapResult terrain)
         {
             var raster = Map.ProvinceAt;
             var colourPixels = colours.GetRawTextureData<Color32>();
             var indexPixels = regions.GetRawTextureData<Color32>();
+            var weightPixels = biomeWeights.GetRawTextureData<Color32>();
             for (var cell = 0; cell < raster.Length; cell++)
             {
                 var province = raster[cell];
                 if (province < -1 || province >= Map.Provinces.Length)
                     throw new InvalidOperationException("The saved map contains an invalid province index.");
 
-                var rgb = BiomeMap.PreviewColour(SurfaceKind(cell, biomes));
-                colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, 255);
+                var kind = SurfaceKind(cell, biomes);
+                var dry = IsDryLand(cell);
+                var rgb = BiomeMap.PreviewColour(kind);
+                colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
+                weightPixels[cell] = new Color32(
+                    MapNatureRules.IsForest(kind) ? (byte)255 : (byte)0,
+                    kind == BiomeKind.Desert ? (byte)255 : (byte)0,
+                    kind == BiomeKind.Wetland ? (byte)255 : (byte)0,
+                    dry ? (byte)Mathf.RoundToInt(SnowAt(cell, terrain, biomes) * 255f) : (byte)0);
                 indexPixels[cell] = EncodeProvince(province);
             }
 
             colours.Apply(true, true);
             regions.Apply(false, true);
+            biomeWeights.Apply(true, true);
         }
+
+        private static float SnowAt(int cell, HeightmapResult terrain, BiomeMap biomes)
+            => MapNatureRules.Snow(terrain.Elevations[cell], terrain.Recipe.SeaLevel, biomes?.Climate.TemperatureCelsius(cell));
 
         private BiomeKind SurfaceKind(int cell, BiomeMap biomes)
         {
@@ -140,6 +163,19 @@ namespace GrandStrategy.WorldGeneration
                 throw new InvalidOperationException("The capital is outside the playable terrain.");
             return hit.point;
         }
+
+        public void SetZoom(float zoom)
+        {
+            var next = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(.16f, .65f, zoom));
+            if (groundDetail != next)
+            {
+                groundDetail = next;
+                material.SetFloat("_GroundDetail", groundDetail);
+            }
+            nature.SetZoom(zoom);
+        }
+
+        public void SetCapital(Vector3 point) => nature.SetCapital(point);
 
         public void SetView(MapViewMode mode)
         {
@@ -173,6 +209,7 @@ namespace GrandStrategy.WorldGeneration
 
         public void Dispose()
         {
+            nature?.Dispose();
             borders?.Dispose();
             UnityEngine.Object.Destroy(surface);
             UnityEngine.Object.Destroy(mesh);
@@ -180,6 +217,8 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(ownership);
+            UnityEngine.Object.Destroy(biomeWeights);
+            UnityEngine.Object.Destroy(groundPatterns);
         }
     }
 }
