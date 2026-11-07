@@ -14,7 +14,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (water == null) water = WaterMap.Classify(result);
                 if (!ReferenceEquals(water.Source, result)) throw new System.ArgumentException("Water classification belongs to a different world.");
             }
-            if (mode == HeightmapPreviewMode.Rivers && rivers != null && !ReferenceEquals(rivers.Terrain, result))
+            var showRiverSurface = mode == HeightmapPreviewMode.Rivers || mode == HeightmapPreviewMode.LandAndWater;
+            if (showRiverSurface && rivers != null && !ReferenceEquals(rivers.Terrain, result))
                 throw new System.ArgumentException("River data belongs to a different world.");
             var width = result.Recipe.Width; var height = result.Recipe.Height;
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
@@ -23,7 +24,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             try
             {
                 var colours = new Color32[width * height];
-                var riverSurface = mode == HeightmapPreviewMode.Rivers ? rivers?.BuildSurfaceMask() : null;
+                var riverSurface = showRiverSurface ? rivers?.BuildSurfaceMask() : null;
                 var sea = result.Recipe.SeaLevel;
                 for (var y = 0; y < height; y++)
                     for (var x = 0; x < width; x++)
@@ -31,9 +32,10 @@ namespace GrandStrategy.WorldGeneration.Editor
                         var index = y * width + x;
                         if (showMask)
                         {
-                            var kind = mode == HeightmapPreviewMode.NavalAccess && navigation != null && navigation[index] != 0
-                                ? WaterKind.Ocean : water[index];
-                            var rgb = OpenGsLandPalette.Color(kind);
+                            var riverWater = mode == HeightmapPreviewMode.NavalAccess
+                                ? navigation != null && navigation[index] != 0
+                                : riverSurface != null && riverSurface[index] != 0;
+                            var rgb = OpenGsLandPalette.Color(water[index], riverWater);
                             colours[index] = new Color32(rgb.R, rgb.G, rgb.B, 255);
                             continue;
                         }

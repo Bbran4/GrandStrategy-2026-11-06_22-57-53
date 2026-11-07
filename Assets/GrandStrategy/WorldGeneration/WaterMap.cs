@@ -68,13 +68,15 @@ namespace GrandStrategy.WorldGeneration
     /// <summary>Exact data colours, shared by the OpenGS preview and lossless PNG export.</summary>
     public static class OpenGsLandPalette
     {
-        public static Rgb24 Color(WaterKind kind)
+        private static readonly Rgb24 Ocean = new Rgb24(5, 20, 18);
+
+        public static Rgb24 Color(WaterKind kind, bool riverWater = false)
         {
             switch (kind)
             {
-                case WaterKind.Ocean: return new Rgb24(5, 20, 18);
+                case WaterKind.Ocean: return Ocean;
                 case WaterKind.Lake: return new Rgb24(0, 255, 0);
-                case WaterKind.Land: return new Rgb24(255, 255, 255);
+                case WaterKind.Land: return riverWater ? Ocean : new Rgb24(255, 255, 255);
                 default: throw new ArgumentOutOfRangeException(nameof(kind));
             }
         }

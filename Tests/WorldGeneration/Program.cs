@@ -273,6 +273,10 @@ internal static class Program
         Require(rgb.R == 0 && rgb.G == 255 && rgb.B == 0, "Wrong OpenGS lake bytes.");
         rgb = OpenGsLandPalette.Color(WaterKind.Land);
         Require(rgb.R == 255 && rgb.G == 255 && rgb.B == 255, "Wrong OpenGS land bytes.");
+        rgb = OpenGsLandPalette.Color(WaterKind.Land, riverWater: true);
+        Require(rgb.R == 5 && rgb.G == 20 && rgb.B == 18, "River water must use the ocean RGB.");
+        rgb = OpenGsLandPalette.Color(WaterKind.Lake, riverWater: true);
+        Require(rgb.R == 0 && rgb.G == 255 && rgb.B == 0, "Lake RGB must take priority over a river marker.");
         Reject(() => OpenGsLandPalette.Color((WaterKind)255), "Unknown water kinds must not become land.");
         Reject(() => WaterMap.Classify(new HeightmapResult(recipe, new float[100])), "Wrong raster size accepted.");
         var bad = Enumerable.Repeat(.6f, 1024).ToArray(); bad[50] = float.NaN;

@@ -141,7 +141,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (GUILayout.Button("Save displayed world as asset...")) SaveWorld();
                 if (GUILayout.Button("Export displayed world...")) Export();
             }
-            EditorGUILayout.HelpBox("LandAndWater uses OpenGS colours: ocean (5,20,18), lakes (0,255,0), land white. River carving preserves the existing ocean and lake mask.", MessageType.Info);
+            EditorGUILayout.HelpBox("OpenGS masks use RGB (5,20,18) for ocean and included rivers, (0,255,0) for lakes, and white for land. Naval Access includes ship corridors.", MessageType.Info);
         }
 
         private void DrawRiverSettings()
@@ -429,8 +429,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             public string RawEncoding = "unsigned 16-bit little-endian; no header; first row south; normalized 0-65535";
             public string ElevationUnits = "normalized 0-1, not metres";
             public float TerrainHeightScale;
-            public string WaterMask = "OpenGS Land Image: RGB ocean (5,20,18), lakes (0,255,0), land (255,255,255). Exact unshaded PNG bytes.";
-            public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean; remaining submerged samples are lakes. No above-sea-level lake filling yet.";
+            public string WaterMask = "OpenGS Land Image. Ocean and all river water RGB (5,20,18), lakes (0,255,0), land (255,255,255). The optional naval image uses the same palette with ship corridors.";
+            public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean. Other submerged samples are lakes. The export adds river water above sea level without changing lake pixels.";
             public string Preview = "8-bit PNGs are inspection images; RAW16 and the Unity asset preserve higher precision";
             public HeightmapRecipe Recipe;
             public bool HasRivers;

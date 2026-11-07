@@ -22,7 +22,7 @@ This README records the initial agreed direction. Proposed implementation detail
 
 Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024 × 512**, choose a seed, and click **Generate**. The window also supports 2048 × 1024 and 3072 × 2048. Toggle **3D** to orbit the terrain, scroll to zoom, and adjust the Height slider. Saving the world or exporting it records the selected terrain height scale.
 
-**LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean RGB (5,20,18), lake RGB (0,255,0), and white land. Boundary-connected water is ocean; enclosed below-sea-level water is lake. River generation uses the existing oceans and lakes as outlets.
+**LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean and river water RGB (5,20,18), lake RGB (0,255,0), and white land. The optional naval mask uses the same palette for its ship corridors. Boundary-connected water is ocean; enclosed below-sea-level water is lake. River generation uses the existing oceans and lakes as outlets.
 
 Generate the base terrain, then select **Generate Rivers**. Saved worlds store the base terrain, river cuts, and flow directions. The game and export use the heightmap composed from the base and cuts. Climate, biomes, and snow are future steps. [World generation](docs/world-generation.md)
 

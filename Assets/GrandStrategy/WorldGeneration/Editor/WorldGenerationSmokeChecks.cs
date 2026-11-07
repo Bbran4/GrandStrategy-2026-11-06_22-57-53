@@ -48,13 +48,18 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var output = Path.Combine(Path.GetTempPath(), "GrandStrategy-worldgen-qa");
                 Directory.CreateDirectory(output);
                 var water = WaterMap.Classify(loadedNetwork.Terrain);
+                var access = RiverNavigation.Build(loadedNetwork, water, RiverNavigation.DefaultMaximumRise);
                 foreach (HeightmapPreviewMode mode in Enum.GetValues(typeof(HeightmapPreviewMode)))
                 {
-                    var texture = HeightmapPreview.Create(loadedNetwork.Terrain, mode, water, loadedNetwork);
+                    var texture = HeightmapPreview.Create(loadedNetwork.Terrain, mode, water, loadedNetwork, access);
                     try
                     {
                         var png = texture.EncodeToPNG();
                         if (png.Length < 1000) throw new Exception("Preview PNG unexpectedly empty.");
+                        if (mode == HeightmapPreviewMode.LandAndWater)
+                            CheckMaskPixels(png, water, loadedNetwork.BuildSurfaceMask());
+                        if (mode == HeightmapPreviewMode.NavalAccess)
+                            CheckMaskPixels(png, water, access.CopyCells());
                         File.WriteAllBytes(Path.Combine(output, mode + ".png"), png);
                     }
                     finally { UnityEngine.Object.DestroyImmediate(texture); }
@@ -93,21 +98,37 @@ namespace GrandStrategy.WorldGeneration.Editor
             if (water.LandCount == 0 || water.LakeCount == 0 || water.OceanCount == 0)
                 throw new Exception("OpenGS PNG check requires all three surface types.");
             var texture = HeightmapPreview.Create(world, HeightmapPreviewMode.LandAndWater, water);
-            var decoded = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
             try
             {
                 var bytes = texture.EncodeToPNG();
-                if (!ImageConversion.LoadImage(decoded, bytes)) throw new Exception("Could not decode OpenGS PNG.");
+                CheckMaskPixels(bytes, water);
+                File.WriteAllBytes(Path.Combine(output, "OpenGS-sentinel.png"), bytes);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(texture); }
+        }
+
+        private static void CheckMaskPixels(byte[] png, WaterMap water, byte[] riverCells = null)
+        {
+            var decoded = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+            try
+            {
+                if (!ImageConversion.LoadImage(decoded, png)) throw new Exception("Could not decode OpenGS PNG.");
+                if (decoded.width != water.Source.Recipe.Width || decoded.height != water.Source.Recipe.Height)
+                    throw new Exception("OpenGS PNG dimensions changed.");
                 var pixels = decoded.GetPixels32();
                 for (var i = 0; i < pixels.Length; i++)
                 {
-                    var expected = OpenGsLandPalette.Color(water[i]); var actual = pixels[i];
-                    if (actual.r != expected.R || actual.g != expected.G || actual.b != expected.B || actual.a != 255)
-                        throw new Exception("OpenGS RGB bytes changed during PNG export.");
+                    var kind = water[i];
+                    var expected = kind == WaterKind.Lake ? new Color32(0, 255, 0, 255)
+                        : kind == WaterKind.Ocean || (riverCells != null && riverCells[i] != 0)
+                            ? new Color32(5, 20, 18, 255)
+                            : new Color32(255, 255, 255, 255);
+                    var actual = pixels[i];
+                    if (actual.r != expected.r || actual.g != expected.g || actual.b != expected.b || actual.a != 255)
+                        throw new Exception($"Wrong OpenGS RGBA at sample {i}.");
                 }
-                File.WriteAllBytes(Path.Combine(output, "OpenGS-sentinel.png"), bytes);
             }
-            finally { UnityEngine.Object.DestroyImmediate(texture); UnityEngine.Object.DestroyImmediate(decoded); }
+            finally { UnityEngine.Object.DestroyImmediate(decoded); }
         }
     }
 }
