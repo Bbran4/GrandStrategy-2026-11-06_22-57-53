@@ -54,7 +54,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 SourceY = Coordinate(row, "y")
             }).ToArray();
             var territories = ReadTerritories(territoryImage, territoryDefinitions, territoryHistory,
-                provinces, width, height);
+                provinces, width, height, out var territoryAt);
 
             using (var source = File.OpenRead(Path.Combine(folder, "heightmap.raw")))
                 terrain = HeightmapEncoding.ReadRaw16(export.Recipe, source);
@@ -65,12 +65,13 @@ namespace GrandStrategy.WorldGeneration.Editor
 
             var water = ReadWater(Path.Combine(folder, "land-mask.png"), width, height);
             return ProvinceMap.Build(export.Recipe, ReadPng(provinceImage, width, height),
-                provinces, territories, biomes, rivers, water, widths);
+                provinces, territories, biomes, rivers, water, widths, territoryAt);
         }
 
         private static TerritoryInfo[] ReadTerritories(string image, string definitions, string history,
-            ProvinceInfo[] provinces, int width, int height)
+            ProvinceInfo[] provinces, int width, int height, out int[] territoryAt)
         {
+            territoryAt = null;
             if (string.IsNullOrWhiteSpace(image) && string.IsNullOrWhiteSpace(definitions) && string.IsNullOrWhiteSpace(history))
                 return null;
             if (string.IsNullOrWhiteSpace(image) || string.IsNullOrWhiteSpace(definitions) || string.IsNullOrWhiteSpace(history))
@@ -85,13 +86,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 SourceY = Coordinate(row, "y")
             }).ToArray();
             var byId = territories.ToDictionary(t => t.Id, StringComparer.Ordinal);
-            var colors = new HashSet<int>();
-            foreach (var territory in territories)
-                if (!colors.Add(territory.Rgb))
-                    throw new InvalidDataException($"Duplicate territory RGB #{territory.Rgb:X6}.");
-            foreach (var color in ReadPng(image, width, height))
-                if (color != 0 && !colors.Contains(color))
-                    throw new InvalidDataException($"Unknown territory RGB #{color:X6}.");
+            territoryAt = ProvinceMap.IndexTerritoryColors(ReadPng(image, width, height), territories, width);
 
             var provinceById = provinces.ToDictionary(p => p.Id, StringComparer.Ordinal);
             var historyIds = new HashSet<string>(StringComparer.Ordinal);

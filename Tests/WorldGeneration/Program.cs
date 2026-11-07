@@ -300,7 +300,22 @@ internal static class Program
         rivers[0] = 1;
         var water = new WaterKind[1024];
         water[1] = WaterKind.Ocean;
-        var map = ProvinceMap.Build(recipe, (int[])colors.Clone(), provinces, biomes: biomes, rivers: rivers, water: water);
+        var territories = new[]
+        {
+            new TerritoryInfo { Id = "TRT000002", Rgb = 0x456789, Type = "land" },
+            new TerritoryInfo { Id = "TRT000001", Rgb = 0x987654, Type = "ocean" }
+        };
+        var territoryColors = new int[1024];
+        territoryColors[0] = territoryColors[34] = territories[0].Rgb;
+        territoryColors[1] = territories[1].Rgb;
+        var territoryAt = ProvinceMap.IndexTerritoryColors(territoryColors, territories, recipe.Width);
+        var map = ProvinceMap.Build(recipe, (int[])colors.Clone(), provinces, territories,
+            biomes: biomes, rivers: rivers, water: water, territoryAt: territoryAt);
+        Require(map.HasTerritoryPreview && map.TerritoryAt[0] == 0 && map.TerritoryAt[34] == 0
+            && map.TerritoryAt[1] == 1 && map.TerritoryAt[33] == -1,
+            "The imported territory image should retain its own region layout.");
+        Require(map.Territories[map.TerritoryAt[0]].Id == map.Provinces[0].TerritoryId,
+            "Territory selection and history should resolve to the original ID.");
         Require(map.Provinces[0].Id == "PRV000014" && map.Provinces[0].TerritoryId == "TRT000002",
             "Province identity and territory membership must survive indexing.");
         Require(map.ProvinceAt[0] == 0 && map.ProvinceAt[1] == 1 && map.ProvinceAt[34] == 2

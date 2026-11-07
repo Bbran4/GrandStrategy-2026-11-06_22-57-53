@@ -15,6 +15,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         [SerializeField] private string territoryHistory;
         [SerializeField] private ProvinceMapAsset savedMap;
         [SerializeField] private bool show3D;
+        private bool showTerritories;
         private ProvinceMap map;
         private HeightmapResult terrain;
         private float heightScale;
@@ -50,7 +51,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 {
                     scroll = EditorGUILayout.BeginScrollView(scroll);
                     DrawImport();
-                    DrawProvince();
+                    if (showTerritories) DrawTerritory();
+                    else DrawProvince();
                     EditorGUILayout.EndScrollView();
                 }
                 using (new EditorGUILayout.VerticalScope())
@@ -141,15 +143,44 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (GUILayout.Button(map.Provinces[neighbour].Id)) Run(() => Select(neighbour));
         }
 
+        private void DrawTerritory()
+        {
+            if (selected < 0) return;
+            var territory = map.Territories[selected];
+            EditorGUILayout.Space(10);
+            EditorGUILayout.LabelField(territory.Id, EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Type", territory.Type);
+            EditorGUILayout.LabelField("Member provinces", EditorStyles.boldLabel);
+            var hasMembers = false;
+            for (var i = 0; i < map.Provinces.Length; i++)
+            {
+                var province = map.Provinces[i];
+                if (province.TerritoryId != territory.Id) continue;
+                hasMembers = true;
+                if (GUILayout.Button(province.Id))
+                {
+                    var member = i;
+                    Run(() => SetLayer(false, member));
+                    break;
+                }
+            }
+            if (!hasMembers) EditorGUILayout.LabelField("No member provinces in the imported history.", EditorStyles.miniLabel);
+        }
+
         private void DrawMap()
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
+                if (GUILayout.Toggle(!showTerritories, "Provinces", EditorStyles.toolbarButton) && showTerritories)
+                    Run(() => SetLayer(false));
+                using (new EditorGUI.DisabledScope(map == null || !map.HasTerritoryPreview))
+                    if (GUILayout.Toggle(showTerritories, "Territories", EditorStyles.toolbarButton) && !showTerritories)
+                        Run(() => SetLayer(true));
                 show3D = GUILayout.Toggle(show3D, "3D", EditorStyles.toolbarButton, GUILayout.Width(40));
                 if (show3D && GUILayout.Button("Reset view", EditorStyles.toolbarButton, GUILayout.Width(80)))
                     preview3D?.ResetView();
                 GUILayout.FlexibleSpace();
-                GUILayout.Label(show3D ? "Drag to orbit | Scroll to zoom | Right-click to select" : "Click a province to inspect it", EditorStyles.miniLabel);
+                GUILayout.Label(show3D ? "Drag to orbit | Scroll to zoom | Right-click to select" : "Click a region to inspect it", EditorStyles.miniLabel);
             }
             var area = GUILayoutUtility.GetRect(100, 100, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
             EditorGUI.DrawRect(area, new Color(.035f, .045f, .055f));
@@ -190,25 +221,35 @@ namespace GrandStrategy.WorldGeneration.Editor
         {
             var x = Mathf.Clamp((int)(uv.x * map.Width), 0, map.Width - 1);
             var y = Mathf.Clamp((int)(uv.y * map.Height), 0, map.Height - 1);
-            Select(map.ProvinceAt[y * map.Width + x]);
+            var regions = showTerritories ? map.TerritoryAt : map.ProvinceAt;
+            Select(regions[y * map.Width + x]);
         }
 
         private void Select(int index)
         {
             if (index == selected) return;
-            SetTexture(CreateTexture(map, index));
-            selected = index;
+            SetLayer(showTerritories, index);
+        }
+
+        private void SetLayer(bool territories, int selection = -1)
+        {
+            SetTexture(CreateTexture(map, selection, territories));
+            showTerritories = territories;
+            selected = selection;
             Repaint();
         }
 
         private void ShowMap(ProvinceMap provinces, HeightmapResult elevation, float scale)
         {
-            SetTexture(CreateTexture(provinces, -1));
+            SetTexture(CreateTexture(provinces, -1, false));
+            showTerritories = false;
             map = provinces;
             terrain = elevation;
             heightScale = scale;
             selected = -1;
             status = $"Loaded {map.Provinces.Length:N0} provinces, {map.Territories.Length:N0} territories, {map.UnassignedPixels:N0} unassigned pixels.";
+            if (map.Territories.Length > 0 && !map.HasTerritoryPreview)
+                status += " Reimport the territory PNG to enable the territory view.";
         }
 
         private void SetTexture(Texture2D next)
@@ -217,32 +258,33 @@ namespace GrandStrategy.WorldGeneration.Editor
             texture = next;
         }
 
-        private static Texture2D CreateTexture(ProvinceMap map, int selection)
+        private static Texture2D CreateTexture(ProvinceMap map, int selection, bool territories)
         {
-            var pixels = new Color32[map.ProvinceAt.Length];
-            var colors = new Color32[map.Provinces.Length];
+            var regions = territories ? map.TerritoryAt : map.ProvinceAt;
+            var pixels = new Color32[regions.Length];
+            var colors = new Color32[territories ? map.Territories.Length : map.Provinces.Length];
             for (var i = 0; i < colors.Length; i++)
             {
-                var rgb = map.Provinces[i].Rgb;
+                var rgb = territories ? map.Territories[i].Rgb : map.Provinces[i].Rgb;
                 colors[i] = new Color32((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb, 255);
             }
 
             for (var i = 0; i < pixels.Length; i++)
             {
-                var province = map.ProvinceAt[i];
-                if (province < 0)
+                var region = regions[i];
+                if (region < 0)
                 {
                     pixels[i] = new Color32(36, 38, 41, 255);
                     continue;
                 }
                 var x = i % map.Width;
-                var edge = (x > 0 && map.ProvinceAt[i - 1] != province)
-                    || (x < map.Width - 1 && map.ProvinceAt[i + 1] != province)
-                    || (i >= map.Width && map.ProvinceAt[i - map.Width] != province)
-                    || (i < pixels.Length - map.Width && map.ProvinceAt[i + map.Width] != province);
-                pixels[i] = province == selection
+                var edge = (x > 0 && regions[i - 1] != region)
+                    || (x < map.Width - 1 && regions[i + 1] != region)
+                    || (i >= map.Width && regions[i - map.Width] != region)
+                    || (i < pixels.Length - map.Width && regions[i + map.Width] != region);
+                pixels[i] = region == selection
                     ? edge ? new Color32(255, 246, 190, 255) : new Color32(233, 183, 74, 255)
-                    : edge ? new Color32(19, 23, 30, 255) : colors[province];
+                    : edge ? new Color32(19, 23, 30, 255) : colors[region];
             }
 
             var next = new Texture2D(map.Width, map.Height, TextureFormat.RGBA32, false, false)

@@ -41,6 +41,9 @@ namespace GrandStrategy.WorldGeneration
         public TerritoryInfo[] Territories;
         // Row-major, with the first row at the south edge. -1 denotes unassigned pixels.
         public int[] ProvinceAt;
+        public int[] TerritoryAt;
+        public bool HasTerritoryPreview => TerritoryAt != null && TerritoryAt.Length == Width * Height
+            && Territories != null && Territories.Length > 0;
         public int UnassignedPixels;
         public bool HasRiverData;
         public bool HasRiverFootprint;
@@ -48,14 +51,15 @@ namespace GrandStrategy.WorldGeneration
 
         public static ProvinceMap Build(HeightmapRecipe recipe, int[] rgb, ProvinceInfo[] provinces,
             TerritoryInfo[] territories = null, byte[] biomes = null, byte[] rivers = null,
-            WaterKind[] water = null, byte[] riverWidths = null)
+            WaterKind[] water = null, byte[] riverWidths = null, int[] territoryAt = null)
         {
             recipe.Validate();
             var width = recipe.Width;
             var height = recipe.Height;
             var length = width * height;
             if (rgb == null || rgb.Length != length || (biomes != null && biomes.Length != length)
-                || (rivers != null && rivers.Length != length) || (water != null && water.Length != length))
+                || (rivers != null && rivers.Length != length) || (water != null && water.Length != length)
+                || (territoryAt != null && territoryAt.Length != length))
                 throw new ArgumentException("Province and world layers must have identical dimensions.");
             if (provinces == null || provinces.Length == 0 || provinces.Length > length)
                 throw new ArgumentException("Province definitions are missing or exceed the number of samples.");
@@ -88,13 +92,8 @@ namespace GrandStrategy.WorldGeneration
                 for (var x = 0; x < width; x++)
                 {
                     var cell = y * width + x;
-                    var color = rgb[cell];
-                    if (!byColor.TryGetValue(color, out var index))
-                    {
-                        if (color != 0) throw new ArgumentException($"Unknown province RGB #{color:X6} at ({x}, {y}) from the south.");
-                        index = -1;
-                        unassigned++;
-                    }
+                    var index = FindRegionIndex(byColor, rgb[cell], cell, width, "province");
+                    if (index < 0) unassigned++;
                     // Reuse the packed RGB buffer for the owned province-index raster.
                     rgb[cell] = index;
                     if (x > 0) Connect(index, rgb[cell - 1], cell, cell - 1, water, riverSurface, records, neighbours);
@@ -124,9 +123,31 @@ namespace GrandStrategy.WorldGeneration
             {
                 Width = width, Height = height, Provinces = records,
                 Territories = territories ?? Array.Empty<TerritoryInfo>(),
-                ProvinceAt = rgb, UnassignedPixels = unassigned,
+                ProvinceAt = rgb, TerritoryAt = territoryAt, UnassignedPixels = unassigned,
                 HasRiverData = rivers != null, HasRiverFootprint = riverSurface != null, HasCoastData = water != null
             };
+        }
+
+        // The importer hands over the PNG buffer for conversion in place.
+        public static int[] IndexTerritoryColors(int[] rgb, TerritoryInfo[] territories, int width)
+        {
+            var byColor = new Dictionary<int, int>();
+            for (var i = 0; i < territories.Length; i++)
+            {
+                var colour = territories[i].Rgb;
+                if (colour < 0 || colour > 0xffffff || !byColor.TryAdd(colour, i))
+                    throw new ArgumentException($"Invalid or duplicate territory RGB #{colour:X6}.");
+            }
+            for (var i = 0; i < rgb.Length; i++)
+                rgb[i] = FindRegionIndex(byColor, rgb[i], i, width, "territory");
+            return rgb;
+        }
+
+        private static int FindRegionIndex(Dictionary<int, int> byColor, int color, int cell, int width, string layer)
+        {
+            if (byColor.TryGetValue(color, out var index)) return index;
+            if (color == 0) return -1;
+            throw new ArgumentException($"Unknown {layer} RGB #{color:X6} at ({cell % width}, {cell / width}) from the south.");
         }
 
         private static void Connect(int a, int b, int aCell, int bCell, WaterKind[] water,
