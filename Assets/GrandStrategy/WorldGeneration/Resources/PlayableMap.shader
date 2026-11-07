@@ -5,7 +5,8 @@ Shader "GrandStrategy/Playable Map"
         _MapColours ("Map colours and borders", 2D) = "white" {}
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _Selected ("Selected province", Vector) = (0, 0, 0, 0)
-        _Founded ("Starting province", Vector) = (0, 0, 0, 0)
+        _Ownership ("Province ownership", 2D) = "black" {}
+        _OwnershipSize ("Ownership texture size", Vector) = (1, 1, 1, 1)
         _TribeColour ("Tribe colour", Color) = (0.3, 0.7, 0.9, 1)
     }
 
@@ -16,6 +17,7 @@ Shader "GrandStrategy/Playable Map"
         {
             Tags { "LightMode" = "UniversalForward" }
             HLSLPROGRAM
+            #pragma target 3.0
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -24,9 +26,11 @@ Shader "GrandStrategy/Playable Map"
             SAMPLER(sampler_MapColours);
             TEXTURE2D(_ProvinceIndices);
             SAMPLER(sampler_ProvinceIndices);
+            TEXTURE2D(_Ownership);
+            SAMPLER(sampler_Ownership);
             CBUFFER_START(UnityPerMaterial)
                 float4 _Selected;
-                float4 _Founded;
+                float4 _OwnershipSize;
                 float4 _TribeColour;
             CBUFFER_END
 
@@ -63,7 +67,12 @@ Shader "GrandStrategy/Playable Map"
             {
                 float4 map = SAMPLE_TEXTURE2D(_MapColours, sampler_MapColours, input.uv);
                 float3 province = SAMPLE_TEXTURE2D(_ProvinceIndices, sampler_ProvinceIndices, input.uv).rgb;
-                float3 colour = lerp(map.rgb, _TribeColour.rgb, Matches(province, _Founded) * 0.65);
+                float index = dot(round(province * 255.0), float3(1.0, 256.0, 65536.0));
+                float row = floor(index * _OwnershipSize.z);
+                float column = index - row * _OwnershipSize.x;
+                float2 ownershipUV = (float2(column, row) + 0.5) * _OwnershipSize.zw;
+                float owned = SAMPLE_TEXTURE2D(_Ownership, sampler_Ownership, ownershipUV).r;
+                float3 colour = lerp(map.rgb, _TribeColour.rgb, owned * 0.65);
                 colour = lerp(colour, float3(1.0, 0.78, 0.26), Matches(province, _Selected) * 0.30);
                 float light = saturate(dot(normalize(input.normalWS), normalize(float3(-0.5, 1.0, 0.35))));
                 colour *= lerp(0.58, 1.05, light);

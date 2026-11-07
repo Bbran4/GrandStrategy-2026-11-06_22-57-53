@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Text;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -19,6 +20,7 @@ namespace GrandStrategy.WorldGeneration
             new Color(.95f, .57f, .20f)
         };
         private static readonly string[] ColourNames = { "Blue", "Red", "Green", "Violet", "Ochre" };
+        private static readonly int[] Speeds = { 1, 2, 4 };
         private static readonly Quaternion ViewAngle = Quaternion.Euler(65f, 0f, 0f);
 
         private Camera mapCamera;
@@ -29,8 +31,11 @@ namespace GrandStrategy.WorldGeneration
         private bool editingName;
         private int selected = -1;
         private int selectedCell = -1;
-        private Vector3 selectedPoint;
-        private int founded = -1;
+        private CampaignState campaign;
+        private string mapKey;
+        private string savePath;
+        private bool hasSave;
+        private string saveStatus;
         private Vector3 settlement;
         private string tribeName = "My tribe";
         private string failure;
@@ -38,8 +43,10 @@ namespace GrandStrategy.WorldGeneration
         private string provinceDetails;
         private Vector2 detailsScroll;
 
-        private Rect Panel => new Rect(12, 12, Mathf.Min(325, Screen.width - 24),
-            Mathf.Min(selected >= 0 ? 365 : 112, Screen.height - 24));
+        private float PanelWidth => Mathf.Max(1f, Mathf.Min(325f, (Screen.width - 36f) * .5f));
+        private Rect Panel => new Rect(12, 12, PanelWidth, Mathf.Min(selected >= 0 ? 365 : 112, Screen.height - 24));
+        private Rect CampaignPanel => new Rect(Screen.width - PanelWidth - 12, 12, PanelWidth,
+            Mathf.Min(campaign == null ? 118 : 230, Screen.height - 24));
 
         private void Start()
         {
@@ -50,6 +57,9 @@ namespace GrandStrategy.WorldGeneration
                 mapCamera = GetComponent<Camera>();
                 // The map is anchored at the scene origin, independently of the camera.
                 surface = new PlayableMapSurface(world, provinceMap);
+                mapKey = CampaignState.MapKey(surface.Map, world.Seed);
+                savePath = CampaignSaveFile.PathFor(mapKey);
+                hasSave = File.Exists(savePath);
                 mapCamera.orthographic = true;
                 mapCamera.clearFlags = CameraClearFlags.SolidColor;
                 mapCamera.backgroundColor = new Color(.045f, .058f, .075f);
@@ -69,6 +79,9 @@ namespace GrandStrategy.WorldGeneration
         private void Update()
         {
             if (surface == null || failure != null) return;
+            if (campaign?.Advance(Time.unscaledDeltaTime) == true)
+                surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
+
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
             {
@@ -91,7 +104,8 @@ namespace GrandStrategy.WorldGeneration
             if (mouse != null)
             {
                 var position = mouse.position.ReadValue();
-                var overPanel = Panel.Contains(new Vector2(position.x, Screen.height - position.y));
+                var guiPosition = new Vector2(position.x, Screen.height - position.y);
+                var overPanel = Panel.Contains(guiPosition) || CampaignPanel.Contains(guiPosition);
                 if (mouse.middleButton.wasPressedThisFrame) dragging = !overPanel;
                 if (!mouse.middleButton.isPressed) dragging = false;
                 if (dragging)
@@ -139,7 +153,6 @@ namespace GrandStrategy.WorldGeneration
             {
                 selectedCell = surface.CellAt(hit.textureCoord);
                 selected = surface.Map.ProvinceAt[selectedCell];
-                selectedPoint = hit.point;
             }
 
             if (selected != previous)
@@ -147,7 +160,7 @@ namespace GrandStrategy.WorldGeneration
                 detailsScroll = Vector2.zero;
                 provinceDetails = selected < 0 ? null : Describe(surface.Map.Provinces[selected]);
             }
-            UpdateHighlight();
+            surface.SetSelection(selected);
         }
 
         private string Describe(ProvinceInfo province)
@@ -181,7 +194,45 @@ namespace GrandStrategy.WorldGeneration
             return best < 0 ? "Unavailable" : ((BiomeKind)best).ToString();
         }
 
-        private void UpdateHighlight() => surface.SetSelection(selected, founded, TribeColours[colourIndex]);
+        private void ApplyCampaign(CampaignState next)
+        {
+            if (!surface.IsDryLand(next.CapitalCell))
+                throw new InvalidOperationException("The capital must be on dry land.");
+            var capitalPoint = surface.PointAtCell(next.CapitalCell);
+            surface.SetOwnership(next, TribeColours[next.Colour]);
+            campaign = next;
+            settlement = capitalPoint;
+            editingName = false;
+            GUI.FocusControl(null);
+        }
+
+        private void SaveCampaign()
+        {
+            try
+            {
+                CampaignSaveFile.Write(savePath, campaign.ToSave());
+                hasSave = true;
+                saveStatus = "Campaign saved.";
+            }
+            catch (Exception error)
+            {
+                saveStatus = "Save failed. " + error.Message;
+            }
+        }
+
+        private void LoadCampaign()
+        {
+            try
+            {
+                var save = CampaignSaveFile.Read(savePath);
+                ApplyCampaign(CampaignState.Restore(surface.Map, mapKey, save, TribeColours.Length));
+                saveStatus = "Campaign loaded and paused.";
+            }
+            catch (Exception error)
+            {
+                saveStatus = "Load failed. " + error.Message;
+            }
+        }
 
         private void OnGUI()
         {
@@ -195,6 +246,7 @@ namespace GrandStrategy.WorldGeneration
             if (surface == null) return;
 
             DrawSettlement();
+            DrawCampaign();
             var panel = Panel;
             GUI.Box(panel, GUIContent.none);
             GUILayout.BeginArea(new Rect(panel.x + 10, panel.y + 7, panel.width - 20, panel.height - 14));
@@ -202,7 +254,7 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label("WASD or middle drag to pan. Scroll to zoom.");
             GUILayout.Label("Click a province. Home resets the view.");
             if (selected < 0)
-                GUILayout.Label(founded < 0 ? "Choose a land province to establish a tribe." : "Founded " + tribeName);
+                GUILayout.Label(campaign == null ? "Choose a land province to establish a tribe." : "Click a province to inspect it.");
             else
                 DrawProvince(surface.Map.Provinces[selected]);
             GUILayout.EndArea();
@@ -217,12 +269,12 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label(provinceDetails);
             GUILayout.EndScrollView();
 
-            if (founded >= 0)
+            if (campaign != null)
             {
-                GUILayout.Label(selected == founded ? tribeName + " | Starting settlement" : "Unclaimed");
+                DrawProvinceCampaign();
                 return;
             }
-            if (!string.Equals(province.Type, "land", StringComparison.OrdinalIgnoreCase))
+            if (!CampaignState.IsLand(surface.Map, selected))
             {
                 GUILayout.Label("Choose a land province to establish a tribe.");
                 return;
@@ -230,12 +282,9 @@ namespace GrandStrategy.WorldGeneration
 
             GUILayout.Label("Tribe name");
             GUI.SetNextControlName("TribeName");
-            tribeName = GUILayout.TextField(tribeName, 32);
+            tribeName = GUILayout.TextField(tribeName, CampaignState.MaxNameLength);
             if (GUILayout.Button("Tribe colour: " + ColourNames[colourIndex]))
-            {
                 colourIndex = (colourIndex + 1) % TribeColours.Length;
-                UpdateHighlight();
-            }
 
             var dry = surface.IsDryLand(selectedCell);
             if (!dry) GUILayout.Label("Click dry land to place the settlement.");
@@ -243,22 +292,93 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled && dry && !string.IsNullOrWhiteSpace(tribeName);
             if (GUILayout.Button("Establish tribe here"))
             {
-                tribeName = tribeName.Trim();
-                founded = selected;
-                settlement = selectedPoint;
-                UpdateHighlight();
+                try
+                {
+                    ApplyCampaign(CampaignState.Found(surface.Map, mapKey, selectedCell, tribeName, colourIndex));
+                    saveStatus = "Tribe founded. The campaign is paused.";
+                }
+                catch (Exception error)
+                {
+                    saveStatus = "Founding failed. " + error.Message;
+                }
             }
             GUI.enabled = wasEnabled;
         }
 
+        private void DrawProvinceCampaign()
+        {
+            if (!CampaignState.IsLand(surface.Map, selected)) return;
+
+            GUILayout.Label("Pop: " + campaign.Population(selected).ToString("N0"));
+            if (campaign.Owns(selected))
+            {
+                GUILayout.Label(selected == campaign.Capital
+                    ? campaign.TribeName + " | Capital" : campaign.TribeName + " | Integrated province");
+                return;
+            }
+
+            GUILayout.Label("Unclaimed | Independent community");
+            if (selected == campaign.IntegrationTarget)
+            {
+                var progress = CampaignState.IntegrationDuration - campaign.IntegrationDaysLeft;
+                GUILayout.Label($"Integration {progress}/{CampaignState.IntegrationDuration} days");
+                return;
+            }
+            if (!campaign.CanReachIndependentProvince(selected))
+            {
+                GUILayout.Label("Integration requires a neighbouring province you own.");
+                return;
+            }
+
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.IntegrationTarget == -1 && campaign.Coin >= CampaignState.IntegrationCost;
+            if (GUILayout.Button($"Start integration ({CampaignState.IntegrationCost} coin)"))
+                campaign.TryStartIntegration(selected);
+            GUI.enabled = wasEnabled;
+        }
+
+        private void DrawCampaign()
+        {
+            var panel = CampaignPanel;
+            GUI.Box(panel, GUIContent.none);
+            GUILayout.BeginArea(new Rect(panel.x + 10, panel.y + 7, panel.width - 20, panel.height - 14));
+            GUILayout.Label(campaign?.TribeName ?? "Campaign");
+            if (campaign != null)
+            {
+                GUILayout.Label($"Day {campaign.Day:N0} | Coin {campaign.Coin:N0}");
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(campaign.Paused ? "Resume" : "Pause"))
+                    campaign.Paused = !campaign.Paused;
+                var speedIndex = Array.IndexOf(Speeds, campaign.Speed);
+                if (GUILayout.Button($"Speed {campaign.Speed}×"))
+                    campaign.SetSpeed(Speeds[(speedIndex + 1) % Speeds.Length]);
+                GUILayout.EndHorizontal();
+                if (campaign.IntegrationTarget >= 0)
+                {
+                    var target = surface.Map.Provinces[campaign.IntegrationTarget].Id;
+                    GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
+                }
+            }
+
+            GUILayout.BeginHorizontal();
+            if (campaign != null && GUILayout.Button("Save campaign")) SaveCampaign();
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && hasSave;
+            if (GUILayout.Button("Load campaign")) LoadCampaign();
+            GUI.enabled = wasEnabled;
+            GUILayout.EndHorizontal();
+            if (!string.IsNullOrEmpty(saveStatus)) GUILayout.Label(saveStatus);
+            GUILayout.EndArea();
+        }
+
         private void DrawSettlement()
         {
-            if (founded < 0) return;
+            if (campaign == null) return;
             var point = mapCamera.WorldToScreenPoint(settlement);
             if (point.z <= 0 || point.x < 0 || point.x > Screen.width || point.y < 0 || point.y > Screen.height)
                 return;
             var y = Screen.height - point.y;
-            var label = new GUIContent(tribeName);
+            var label = new GUIContent(campaign.TribeName);
             var width = GUI.skin.box.CalcSize(label).x + 12f;
             GUI.Box(new Rect(point.x - width * .5f, y - 35f, width, 23f), label);
             GUI.Label(new Rect(point.x - 5f, y - 13f, 14f, 18f), "▼");

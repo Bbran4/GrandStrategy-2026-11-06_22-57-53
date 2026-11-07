@@ -11,6 +11,7 @@ namespace GrandStrategy.WorldGeneration
         private Material material;
         private Texture2D colours;
         private Texture2D regions;
+        private Texture2D ownership;
         private GameObject surface;
         private WaterMap water;
         private byte[] rivers;
@@ -46,6 +47,15 @@ namespace GrandStrategy.WorldGeneration
                 material = new Material(shader) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
                 material.SetTexture("_ProvinceIndices", regions);
+                var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
+                ownership = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
+                {
+                    name = "Province ownership", hideFlags = HideFlags.DontSave,
+                    filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp
+                };
+                material.SetTexture("_Ownership", ownership);
+                material.SetVector("_OwnershipSize", new Vector4(size, size, 1f / size, 1f / size));
+                SetOwnership(null, Color.white);
 
                 surface = new GameObject("Map surface", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))
                     { hideFlags = HideFlags.DontSave };
@@ -127,11 +137,26 @@ namespace GrandStrategy.WorldGeneration
 
         public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0);
 
-        public void SetSelection(int selected, int founded, Color tribeColour)
+        public Vector3 PointAtCell(int cell)
         {
+            var x = ((cell % Map.Width + .5f) / Map.Width - .5f) * Aspect;
+            var z = (cell / Map.Width + .5f) / Map.Height - .5f;
+            var origin = new Vector3(x, mesh.bounds.max.y + 1f, z);
+            if (!Collider.Raycast(new Ray(origin, Vector3.down), out var hit, origin.y + 1f))
+                throw new InvalidOperationException("The capital is outside the playable terrain.");
+            return hit.point;
+        }
+
+        public void SetSelection(int selected) => material.SetVector("_Selected", ShaderIndex(selected));
+
+        public void SetOwnership(CampaignState campaign, Color tribeColour)
+        {
+            var pixels = ownership.GetRawTextureData<Color32>();
+            pixels[0] = new Color32(0, 0, 0, 255); // Unassigned pixels use index zero.
+            for (var i = 0; i < Map.Provinces.Length; i++)
+                pixels[i + 1] = new Color32(campaign?.Owns(i) == true ? (byte)255 : (byte)0, 0, 0, 255);
+            ownership.Apply(false, false);
             material.SetColor("_TribeColour", tribeColour);
-            material.SetVector("_Selected", ShaderIndex(selected));
-            material.SetVector("_Founded", ShaderIndex(founded));
         }
 
         private static Vector4 ShaderIndex(int province)
@@ -153,6 +178,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(material);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
+            UnityEngine.Object.Destroy(ownership);
         }
     }
 }

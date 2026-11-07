@@ -95,7 +95,10 @@ Open `Assets/Scenes/PlayableMap.unity` and press **Play**. The Main Camera's **P
 
 - Pan with **WASD**, the arrow keys, or the middle mouse button. Scroll to zoom and press **Home** to reset the camera.
 - Click a province to highlight it and inspect its territory, dominant biome, and neighbours.
-- Click a dry spot in a land province, enter a tribe name, pick a colour, and choose **Establish tribe here**. The province takes the tribe colour and the settlement marker appears at the clicked spot. Founding lasts for the current Play session.
+- Click a dry spot in a land province, enter a tribe name, pick a colour, and choose **Establish tribe here**. The province becomes the capital and the campaign starts paused.
+- Inspect land provinces to see their Pop and ownership. Choose **Resume** to advance time and click the speed button to cycle through **1×**, **2×**, and **4×**. At **1×**, one real second advances one game day.
+- Select an unclaimed land province bordering a province you own. **Start integration** spends 25 of the starting 100 coin. One community can integrate at a time, and it joins after 30 game days. When it joins, the province takes your tribe colour and can open up new neighbours.
+- **Save campaign** writes one local save per authored map. **Load campaign** restores the tribe, capital, Pop, ownership, coin, clock, and any ongoing integration, then pauses. The World and Province Map assets are reusable across campaigns.
 
 ## Resolution
 

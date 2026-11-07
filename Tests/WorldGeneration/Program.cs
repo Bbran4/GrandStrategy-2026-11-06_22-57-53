@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using GrandStrategy.WorldGeneration;
 
 internal static class Program
@@ -63,7 +64,8 @@ internal static class Program
         CheckBiomes();
         CheckProvinceMap();
         CheckWorldRecipe();
-        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
+        CheckCampaign();
+        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, river routing and carving, and campaign integration and restore.");
         if (args.Contains("--benchmark"))
         {
             foreach (var dimensions in new[] { (1024, 512), (2048, 1024), (3072, 2048) })
@@ -400,6 +402,57 @@ internal static class Program
             && legacy.Terrain.Elevations.SequenceEqual(baseTerrain.Elevations), "Legacy recipes must restore their terrain.");
         recipe.BuildClimate = false;
         Reject(() => recipe.Rebuild(), "A biome recipe without climate was accepted.");
+    }
+
+    private static void CheckCampaign()
+    {
+        var recipe = Small();
+        var regions = new[]
+        {
+            new ProvinceInfo { Id = "Capital", Rgb = 1, Type = "land" },
+            new ProvinceInfo { Id = "Neighbour", Rgb = 2, Type = "land" },
+            new ProvinceInfo { Id = "Beyond", Rgb = 3, Type = "land" },
+            new ProvinceInfo { Id = "Sea", Rgb = 4, Type = "ocean" }
+        };
+        var raster = new int[recipe.Width * recipe.Height];
+        raster[0] = 1;
+        raster[1] = 2;
+        raster[2] = 3;
+        raster[recipe.Width] = 4;
+        var map = ProvinceMap.Build(recipe, raster, regions);
+        var key = CampaignState.MapKey(map, recipe.Seed);
+        Require(key != CampaignState.MapKey(map, recipe.Seed + 1), "Save keys should distinguish world seeds.");
+        Reject(() => CampaignState.Found(map, key, recipe.Width, "Tribe", 0), "A water province was made capital.");
+        var campaign = CampaignState.Found(map, key, 0, "  Tribe  ", 1);
+        Require(campaign.Paused && campaign.Day == 1 && campaign.Capital == 0 && campaign.Owns(0)
+            && !campaign.Owns(1) && campaign.Population(1) > 0 && campaign.Population(3) == 0,
+            "Founding must establish a capital and leave independent populations on land.");
+        Require(!campaign.TryStartIntegration(2) && !campaign.TryStartIntegration(3)
+            && campaign.Coin == CampaignState.StartingCoin, "Unreachable or water provinces must not spend coin.");
+        Require(campaign.TryStartIntegration(1) && !campaign.TryStartIntegration(1)
+            && campaign.Coin == CampaignState.StartingCoin - CampaignState.IntegrationCost,
+            "Starting integration should charge once.");
+        Require(!campaign.Advance(60d) && campaign.Day == 1
+            && campaign.IntegrationDaysLeft == CampaignState.IntegrationDuration, "Pause must freeze time and integration.");
+        campaign.SetSpeed(4);
+        campaign.Paused = false;
+        Require(!campaign.Advance(.125d) && campaign.Day == 1, "Sub-day updates must accumulate.");
+        Require(!campaign.Advance(.375d) && campaign.Day == 3
+            && campaign.IntegrationDaysLeft == CampaignState.IntegrationDuration - 2, "Speed must advance daily progress.");
+
+        var json = new JsonSerializerOptions { IncludeFields = true };
+        var save = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(campaign.ToSave(), json), json);
+        Reject(() => CampaignState.Restore(map, "other map", save, 5), "Accepted a save from another map.");
+        var restored = CampaignState.Restore(map, key, save, 5);
+        Require(restored.Paused && restored.TribeName == "Tribe" && restored.Colour == 1 && restored.CapitalCell == 0
+            && restored.Speed == 4 && restored.Coin == campaign.Coin && restored.Population(1) == campaign.Population(1)
+            && restored.Day == campaign.Day && restored.IntegrationDaysLeft == campaign.IntegrationDaysLeft
+            && restored.IntegrationTarget == 1 && !restored.Owns(1), "Restore must preserve the campaign and pause.");
+        restored.Paused = false;
+        Require(restored.Advance(restored.IntegrationDaysLeft / 4d) && restored.Owns(1) && restored.Owns(0)
+            && restored.IntegrationTarget == -1 && restored.Day == CampaignState.IntegrationDuration + 1,
+            "Integration must transfer ownership on the scheduled day.");
+        Require(restored.TryStartIntegration(2), "A new border must open further integration.");
     }
 
     private static void CheckRivers()

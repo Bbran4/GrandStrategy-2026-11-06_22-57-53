@@ -8,9 +8,9 @@ The player represents the society itself. Individual characters, rulers, dynasti
 
 ## Project status
 
-**Playable map prototype.** The world authoring tool, OpenGS import, and first Unity gameplay scene are working. Open `Assets/Scenes/PlayableMap.unity` and press **Play** to pan and zoom over the authored world, inspect provinces, and establish a tribe in a land province. Founding currently lasts for one Play session.
+**Playable map prototype.** The world authoring tool, OpenGS import, and first Unity gameplay scene are working. Open `Assets/Scenes/PlayableMap.unity` and press **Play** to pan and zoom over the authored world, inspect provinces, and establish a tribe in a land province. The first campaign loop includes a paused start, Pop and ownership, peaceful integration, and local save and load. Unity Play Mode verification of the campaign loop is pending.
 
-**Next milestone.** Turn that starting province into the capital of a running campaign, then bring one neighbouring independent province into the tribe through peaceful integration. See the [development roadmap](#development-roadmap) for the order of work.
+**Next milestone.** After verifying the campaign loop, begin the map presentation work with a gradual transition from overhead 2D to tilted 3D. See the [development roadmap](#development-roadmap) for the order of work.
 
 - **Engine** · Unity 6000.6.8f1
 - **Rendering** · Universal Render Pipeline (URP)
@@ -268,9 +268,9 @@ Events concern the society and its institutions. Individual-character stories ar
 - [x] Import provinces and territories, preview both in the editor, and save a Province Map asset.
 - [x] Derive province neighbours, biome counts, and water and river summaries.
 - [x] Open an authored map in Play Mode, pan and zoom, and select and inspect provinces.
-- [x] Name a tribe, choose a colour, and place a starting settlement for the current Play session.
+- [x] Name a tribe, choose a colour, and place a starting settlement.
 
-### 3. First campaign loop · next
+### 3. First campaign loop · implemented, Unity verification pending
 
 1. **Found a society.** Turn the starting province into the capital. Give land provinces abstract Pop and track ownership in campaign state. Unclaimed land starts with independent populations. Keep campaign state separate from the reusable map assets.
 2. **Start the clock.** Begin paused after founding. Add a date, pause and speed controls, and daily simulation updates.
