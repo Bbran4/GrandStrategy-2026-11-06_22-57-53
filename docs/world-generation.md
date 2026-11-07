@@ -17,7 +17,7 @@ The Unity Editor execution path is provided but has not yet been verified intera
 
 ### Viewing the world in 3D
 
-Click **3D** in the preview toolbar after generating or loading a world. Drag with the left mouse button to orbit, scroll to zoom, and use **Reset view** to return to the initial camera. The **Height** slider changes vertical exaggeration in the preview only; it does not modify elevations, saved assets, or exports. Toggle **3D** off to return to the top-down view.
+Click **3D** in the preview toolbar after generating or loading a world. Drag with the left mouse button to orbit, scroll to zoom, and use **Reset view** to return to the initial camera. The **Height** slider sets the world's terrain height scale and updates the preview immediately. Save a world asset to retain the setting. Loading older world assets uses the original default of 0.35. Toggle **3D** off to return to the top-down view.
 
 The preview uses a private scene with URP materials and a downsampled mesh, at most 257 vertices on either axis. Normalized heightmap coordinates map west-to-east along +X and south-to-north along +Z. The longest raster axis determines mesh sampling density. Texture and mesh use the same orientation.
 
@@ -90,7 +90,7 @@ Each export creates a new uniquely named subfolder under the chosen parent. An i
 | heightmap-preview.png | 8-bit grayscale inspection image, not the precision source |
 | relief.png | Coloured elevation inspection image |
 | land-mask.png | OpenGS Land Image: exact ocean, lake, and land RGB values |
-| manifest.json | Recipe, dimensions, sea level, format version, encoding, and coordinate documentation |
+| manifest.json | Recipe, dimensions, sea level, terrain height scale, format version, encoding, and coordinate documentation |
 
 Authoritative Unity asset samples are normalized floats from 0 to 1. They are not elevations in metres. RAW16 quantizes those floats to 0–65535. Values at or above sea level are land.
 
@@ -112,7 +112,9 @@ Classification uses four-neighbour raster connectivity: below-sea-level samples 
 
 This is a topological classification, not completed hydrology. Inland seas without an ocean connection are currently classified as lakes, including tiny enclosed depressions. Above-sea-level lakes and separate lake elevations require drainage and basin filling, which are still pending. No minimum-area filter silently removes small lakes. The original world asset stays compatible because the water map is derived from its saved elevation and sea level.
 
-The manifest is now version **2** to describe the OpenGS palette and connectivity rule. Version 1 exports used a black/white mask; export again to obtain the OpenGS image. Province export/import and terrain-image classification remain future work.
+The manifest includes `TerrainHeightScale` alongside the normalized RAW16 samples. The preview multiplies the normalized elevation above sea level by this scale, using the map's north-to-south span as one unit. A consumer of an older export can use 0.35 when the field is absent. Scale is recorded separately so the height samples and OpenGS classification stay consistent.
+
+The manifest is version **2** to describe the OpenGS palette and connectivity rule. Version 1 exports used a black/white mask; export again to obtain the OpenGS image. Province export/import and terrain-image classification remain future work.
 
 ## Code ownership
 
@@ -176,7 +178,7 @@ In the development session, the full source compiled against the installed Unity
 ### Manual checks still required
 
 - Open the window, generate each preset, inspect all preview modes, and check hover coordinates.
-- Toggle 3D, orbit, zoom, reset the camera, and change Height; confirm saved/exported elevations remain unchanged.
+- Toggle 3D, orbit, zoom, reset the camera, and change Height. Save and reopen the world to verify the slider restores, then check `TerrainHeightScale` in the export manifest.
 - Inspect the OpenGS mask's exact decoded RGB values and import it into OpenGS's Land Image tab.
 - Change settings and confirm the displayed result remains unchanged until regeneration.
 - Cancel generation and confirm the previous completed result remains available.
