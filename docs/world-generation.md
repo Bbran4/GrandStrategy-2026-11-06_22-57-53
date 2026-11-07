@@ -89,6 +89,14 @@ Use **Provinces** or **Territories** to switch layers. Click in 2D to inspect th
 
 Use the world export that produced the OpenGS inputs. Matching dimensions and colour definitions can detect many mismatches, but two different worlds can have the same dimensions. Visually check the coastlines before saving. Province adjacency records geographic borders. Movement rules can later distinguish land crossings, naval travel, and landing points. [OpenGS data export format](https://github.com/Thomas-Holtvedt/opengs-maptool/blob/main/docs/data_export_format.md)
 
+## Playable map scene
+
+Open `Assets/Scenes/PlayableMap.unity` and press **Play**. The Main Camera's **Playable Map** component references the saved World and Province Map assets. To play another authored map, assign its World asset and the Province Map made from its OpenGS export.
+
+- Pan with **WASD**, the arrow keys, or the middle mouse button. Scroll to zoom and press **Home** to reset the camera.
+- Click a province to highlight it and inspect its territory, dominant biome, and neighbours.
+- Click a dry spot in a land province, enter a tribe name, pick a colour, and choose **Establish tribe here**. The province takes the tribe colour and the settlement marker appears at the clicked spot. Founding lasts for the current Play session.
+
 ## Resolution
 
 | Preset | Samples | Height data alone |

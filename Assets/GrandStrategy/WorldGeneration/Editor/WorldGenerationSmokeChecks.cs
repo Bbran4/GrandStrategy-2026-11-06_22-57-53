@@ -88,7 +88,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 CheckTerrainPng(output, biomes);
                 CheckTerrainPng(output, biomes, access);
                 CheckOpenGsPng(output);
-                var mesh = Heightmap3DPreview.CreateMesh(loaded, asset.HeightScale);
+                var mesh = HeightmapMesh.Create(loaded, asset.HeightScale);
                 try
                 {
                     if (mesh.vertexCount != 257 * 129 || Math.Abs(mesh.bounds.size.x - 2) > .00001f || Math.Abs(mesh.bounds.size.z - 1) > .00001f)
