@@ -59,6 +59,7 @@ internal static class Program
         CheckRivers();
         CheckRiverWidths();
         CheckNavalAccess();
+        CheckClimate();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
         if (args.Contains("--benchmark"))
         {
@@ -170,6 +171,50 @@ internal static class Program
         Require(wide.CutElevations.Count(cut => cut != 0) > narrow.CutElevations.Count(cut => cut != 0),
             "The width control should widen the carved channel.");
         Require(wide.BuildSurfaceMask()[0] == 0, "The river surface must preserve the ocean at its outlet.");
+    }
+
+    private static void CheckClimate()
+    {
+        var recipe = Small();
+        recipe.Width = 32;
+        recipe.Height = 32;
+        var sea = recipe.SeaLevel;
+        var heights = new float[1024];
+        for (var y = 0; y < recipe.Height; y++)
+            for (var x = 0; x < recipe.Width; x++)
+                heights[y * recipe.Width + x] = x == 0 || x == 31 ? sea / 2 : x == 15 ? .90f : sea + .04f;
+        var source = new HeightmapResult(recipe, heights);
+        var water = WaterMap.Classify(source);
+        var settings = new ClimateSettings { MoistureReach = .7f };
+        var westWind = ClimateGenerator.Generate(source, water, settings);
+        var warm = 5 * 32 + 8;
+        var north = 28 * 32 + 8;
+        var mountain = 5 * 32 + 15;
+        var leeward = 5 * 32 + 23;
+        Require(westWind.Temperature[warm] > westWind.Temperature[north], "Latitude should cool the far north.");
+        Require(westWind.Temperature[warm] > westWind.Temperature[mountain], "Mountains should be cooler than lowlands at the same latitude.");
+        Require(westWind.Moisture[warm] > westWind.Moisture[leeward], "The mountain should create a dry leeward side.");
+        settings.Wind = PrevailingWind.EastToWest;
+        var eastWind = ClimateGenerator.Generate(source, water, settings);
+        Require(eastWind.Moisture[warm] < eastWind.Moisture[leeward], "Reversing wind should reverse the rain shadow.");
+        Require(westWind.Temperature.SequenceEqual(eastWind.Temperature), "Wind should leave temperature unchanged.");
+        Require(westWind.Settings.Wind == PrevailingWind.WestToEast, "Editing climate settings changed a completed snapshot.");
+        var repeat = ClimateGenerator.Generate(source, water, westWind.Settings);
+        Require(westWind.Temperature.SequenceEqual(repeat.Temperature) && westWind.Moisture.SequenceEqual(repeat.Moisture),
+            "Climate should reproduce exactly from terrain and settings.");
+
+        try
+        {
+            ClimateGenerator.Generate(source, water, settings, (fraction, _) => fraction < .75f);
+            throw new Exception("Late climate cancellation was ignored.");
+        }
+        catch (OperationCanceledException)
+        {
+            Require(westWind.Moisture.SequenceEqual(repeat.Moisture), "Cancelling a new climate changed the previous result.");
+        }
+
+        settings.Equator = float.NaN;
+        Reject(() => ClimateGenerator.Generate(source, water, settings), "Invalid climate settings accepted.");
     }
 
     private static void CheckRivers()

@@ -28,7 +28,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                 asset = ScriptableObject.CreateInstance<WorldHeightmap>();
                 if (asset.HeightScale != WorldHeightmap.DefaultHeightScale)
                     throw new Exception("An asset without a serialized height scale should use the original preview default.");
-                asset.Initialize(network.Terrain, authoredHeightScale, network);
+                var authoredClimate = ClimateGenerator.Generate(network.Terrain, WaterMap.Classify(network.Terrain),
+                    new ClimateSettings { Wind = PrevailingWind.NorthToSouth });
+                asset.Initialize(network.Terrain, authoredHeightScale, network, authoredClimate);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 Resources.UnloadAsset(asset); asset = null;
                 asset = AssetDatabase.LoadAssetAtPath<WorldHeightmap>(path);
@@ -49,9 +51,18 @@ namespace GrandStrategy.WorldGeneration.Editor
                 Directory.CreateDirectory(output);
                 var water = WaterMap.Classify(loadedNetwork.Terrain);
                 var access = RiverNavigation.Build(loadedNetwork, water, RiverNavigation.DefaultMaximumRise);
+                var savedClimateSettings = asset.ReadClimateSettings();
+                if (savedClimateSettings == null || savedClimateSettings.Wind != PrevailingWind.NorthToSouth)
+                    throw new Exception("Climate settings did not survive the asset disk round-trip.");
+                var climate = ClimateGenerator.Generate(loadedNetwork.Terrain, water, savedClimateSettings);
+                for (var i = 0; i < climate.Moisture.Length; i++)
+                    if (climate.Temperature[i] != authoredClimate.Temperature[i]
+                        || climate.Moisture[i] != authoredClimate.Moisture[i])
+                        throw new Exception("Loaded climate differs from the authored climate.");
                 foreach (HeightmapPreviewMode mode in Enum.GetValues(typeof(HeightmapPreviewMode)))
                 {
-                    var texture = HeightmapPreview.Create(loadedNetwork.Terrain, mode, water, loadedNetwork, access);
+                    var texture = HeightmapPreview.Create(loadedNetwork.Terrain, mode, water, loadedNetwork, access, climate,
+                        climateData: HeightmapPreview.IsClimateMode(mode));
                     try
                     {
                         var png = texture.EncodeToPNG();
@@ -60,6 +71,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                             CheckMaskPixels(png, water);
                         if (mode == HeightmapPreviewMode.NavalAccess)
                             CheckMaskPixels(png, water, access.CopyCells());
+                        if (HeightmapPreview.IsClimateMode(mode))
+                            CheckClimatePixels(png, loadedNetwork.Terrain,
+                                mode == HeightmapPreviewMode.Temperature ? climate.Temperature : climate.Moisture);
                         File.WriteAllBytes(Path.Combine(output, mode + ".png"), png);
                     }
                     finally { UnityEngine.Object.DestroyImmediate(texture); }
@@ -105,6 +119,25 @@ namespace GrandStrategy.WorldGeneration.Editor
                 File.WriteAllBytes(Path.Combine(output, "OpenGS-sentinel.png"), bytes);
             }
             finally { UnityEngine.Object.DestroyImmediate(texture); }
+        }
+
+        private static void CheckClimatePixels(byte[] png, HeightmapResult terrain, byte[] samples)
+        {
+            var decoded = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+            try
+            {
+                if (!ImageConversion.LoadImage(decoded, png)
+                    || decoded.width != terrain.Recipe.Width || decoded.height != terrain.Recipe.Height)
+                    throw new Exception("Climate PNG has incorrect dimensions or could not be decoded.");
+                var pixels = decoded.GetPixels32();
+                for (var i = 0; i < samples.Length; i++)
+                {
+                    var pixel = pixels[i];
+                    if (pixel.r != samples[i] || pixel.g != samples[i] || pixel.b != samples[i] || pixel.a != 255)
+                        throw new Exception($"Wrong climate grayscale value at sample {i}.");
+                }
+            }
+            finally { UnityEngine.Object.DestroyImmediate(decoded); }
         }
 
         private static void CheckMaskPixels(byte[] png, WaterMap water, byte[] riverCells = null)

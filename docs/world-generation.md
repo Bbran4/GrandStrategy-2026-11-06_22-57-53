@@ -52,6 +52,21 @@ Enable **Export naval mask** to include two optional files. The export manifest 
 
 Use the alternate image in OpenGS to try generating ocean provinces along the river. OpenGS decides province boundaries and grouping, so inspect whether narrow reaches receive useful province shapes. Use the regular land mask when authoring land provinces and keep naval access as a separate gameplay layer if the same area needs land ownership and ship access. [OpenGS MapTool](https://github.com/Thomas-Holtvedt/opengs-maptool#readme)
 
+### Generating climate
+
+Generate or load terrain and click **Generate Climate**. Switch between **Temperature** and **Moisture** to inspect the results. Hover over the top-down map to see the estimated temperature and moisture index for a sample. Adjust the equator, elevation cooling, coastal reach, or wind and generate climate again to compare settings on the same world.
+
+Temperature is estimated from latitude and the final terrain elevation. The equator starts 15% of the way up from the south edge. Moisture uses distance to the nearest ocean and one prevailing wind. Uphill terrain removes moisture from the air, which dries out the downwind side. The model uses a fixed annual climate and a relative moisture index. Biomes and seasonal snow come later.
+
+Saving a world records the settings used by the displayed climate. Loading the world regenerates those layers from its saved terrain and settings. Worlds without climate settings can generate climate from the displayed terrain.
+
+Climate exports include two opaque grayscale data images with the same dimensions and orientation as the OpenGS masks. The manifest records their encoding and settings.
+
+| File | Pixel values |
+| --- | --- |
+| temperature.png | Grayscale 0 to 255 maps linearly from -40 to 45 C |
+| moisture.png | Grayscale 0 to 255 maps from dry to wet |
+
 ## Resolution
 
 | Preset | Samples | Height data alone |

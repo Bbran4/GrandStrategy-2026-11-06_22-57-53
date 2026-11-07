@@ -20,6 +20,8 @@ namespace GrandStrategy.WorldGeneration.Editor
         [SerializeField] private float maximumNavalRise = RiverNavigation.DefaultMaximumRise;
         [SerializeField] private bool exportNavalMask;
         private RiverNavigation navigation;
+        [SerializeField] private ClimateSettings climateSettings = new ClimateSettings();
+        private ClimateMap climate;
         private HeightmapResult result;
         [SerializeField] private float riverWidthScale = RiverGenerator.DefaultWidthScale;
         private RiverMap rivers;
@@ -47,7 +49,11 @@ namespace GrandStrategy.WorldGeneration.Editor
             window.savedWorld = world; window.LoadWorld();
         }
 
-        private void OnEnable() { if (recipe == null) recipe = HeightmapRecipe.OldWorld(); }
+        private void OnEnable()
+        {
+            if (recipe == null) recipe = HeightmapRecipe.OldWorld();
+            if (climateSettings == null) climateSettings = new ClimateSettings();
+        }
         private void OnDisable()
         {
             try { if (preview3D != null) { preview3D.Dispose(); preview3D = null; } }
@@ -97,6 +103,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             EditorGUILayout.Space(10);
             DrawRiverSettings();
             EditorGUILayout.Space(10);
+            DrawClimateSettings();
+            EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("TEMPLATE STEPS", EditorStyles.boldLabel);
             EditorGUILayout.LabelField("Executed from top to bottom. Positions are %.", EditorStyles.miniLabel);
             for (var i = 0; i < recipe.Steps.Count; i++)
@@ -142,6 +150,32 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (GUILayout.Button("Export displayed world...")) Export();
             }
             EditorGUILayout.HelpBox("LandAndWater shows ocean, lakes, and land. Naval Access adds full-width navigable rivers in the ocean colour.", MessageType.Info);
+        }
+
+        private void DrawClimateSettings()
+        {
+            EditorGUILayout.LabelField("CLIMATE", EditorStyles.boldLabel);
+            climateSettings.Equator = EditorGUILayout.Slider("Equator from south (%)", climateSettings.Equator * 100f, 0f, 100f) / 100f;
+            climateSettings.ElevationCooling = EditorGUILayout.Slider("Elevation cooling (C)", climateSettings.ElevationCooling, 0f, 50f);
+            climateSettings.MoistureReach = EditorGUILayout.Slider("Coastal moisture reach (%)", climateSettings.MoistureReach * 100f, 5f, 100f) / 100f;
+            climateSettings.Wind = (PrevailingWind)EditorGUILayout.EnumPopup("Prevailing wind", climateSettings.Wind);
+            using (new EditorGUI.DisabledScope(result == null))
+                if (GUILayout.Button("Generate Climate")) GenerateClimate();
+        }
+
+        private void GenerateClimate()
+        {
+            try
+            {
+                var next = ClimateGenerator.Generate(result, water, climateSettings,
+                    (fraction, label) => !EditorUtility.DisplayCancelableProgressBar("Generating climate", label, fraction));
+                var mode = HeightmapPreview.IsClimateMode(previewMode) ? previewMode : HeightmapPreviewMode.Temperature;
+                SetPreview(result, rivers, mode, next);
+                status = "Climate generated. Use Temperature or Moisture to inspect it. Save or export to keep this climate.";
+            }
+            catch (OperationCanceledException) { status = "Climate generation cancelled."; }
+            catch (Exception ex) { ShowError(ex); }
+            finally { EditorUtility.ClearProgressBar(); Repaint(); }
         }
 
         private void DrawRiverSettings()
@@ -260,7 +294,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 {
                     if (preview3D == null) preview3D = new Heightmap3DPreview();
                     preview3D.SetWorld(result, preview, heightScale,
-                        previewMode == HeightmapPreviewMode.LandAndWater || previewMode == HeightmapPreviewMode.NavalAccess);
+                        previewMode == HeightmapPreviewMode.LandAndWater || previewMode == HeightmapPreviewMode.NavalAccess
+                        || HeightmapPreview.IsClimateMode(previewMode));
                     if (preview3D.HandleInput(area)) Repaint();
                     preview3D.Draw(area);
                     GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), "Drag to orbit | Scroll to zoom | Height is saved with the world", EditorStyles.whiteMiniLabel);
@@ -278,8 +313,12 @@ namespace GrandStrategy.WorldGeneration.Editor
                     var point = Event.current.mousePosition;
                     var x = Mathf.Clamp((int)((point.x - imageRect.x) / imageRect.width * result.Recipe.Width), 0, result.Recipe.Width - 1);
                     var y = Mathf.Clamp((int)((imageRect.yMax - point.y) / imageRect.height * result.Recipe.Height), 0, result.Recipe.Height - 1);
-                    var elevation = result.Elevations[y * result.Recipe.Width + x];
-                    GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), $"X {x} | Y {y} | Elevation {elevation:F4} | {(elevation >= result.Recipe.SeaLevel ? "Land" : "Water")}", EditorStyles.whiteMiniLabel);
+                    var sample = y * result.Recipe.Width + x;
+                    var elevation = result.Elevations[sample];
+                    var detail = HeightmapPreview.IsClimateMode(previewMode) && climate != null
+                        ? $"Temperature {climate.TemperatureCelsius(sample):F1} C | Moisture {climate.Moisture[sample] / 255f:P0}"
+                        : $"Elevation {elevation:F4} | {(elevation >= result.Recipe.SeaLevel ? "Land" : "Water")}";
+                    GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), $"X {x} | Y {y} | {detail}", EditorStyles.whiteMiniLabel);
                     if (Event.current.type == EventType.MouseMove) Repaint();
                 }
             }
@@ -339,16 +378,21 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch (Exception ex) { ShowError(ex); }
         }
 
-        private void SetPreview(HeightmapResult terrain, RiverMap network, HeightmapPreviewMode mode)
+        private void SetPreview(HeightmapResult terrain, RiverMap network, HeightmapPreviewMode mode,
+            ClimateMap climateOverride = null, ClimateSettings settingsOverride = null)
         {
             var nextWater = water != null && ReferenceEquals(water.Source, terrain) ? water : WaterMap.Classify(terrain);
             var nextNavigation = mode == HeightmapPreviewMode.NavalAccess && network != null
                 ? RiverNavigation.Build(network, nextWater, maximumNavalRise) : null;
-            var next = HeightmapPreview.Create(terrain, mode, nextWater, network, nextNavigation);
+            var nextClimate = climateOverride ?? (ReferenceEquals(climate?.Source, terrain) ? climate : null);
+            if (HeightmapPreview.IsClimateMode(mode) && nextClimate == null)
+                nextClimate = ClimateGenerator.Generate(terrain, nextWater, settingsOverride ?? climateSettings);
+            var next = HeightmapPreview.Create(terrain, mode, nextWater, network, nextNavigation, nextClimate);
             if (preview != null) DestroyImmediate(preview);
             result = terrain;
             rivers = network;
             navigation = nextNavigation;
+            climate = nextClimate;
             previewMode = mode;
             water = nextWater;
             preview = next;
@@ -364,7 +408,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             WorldHeightmap asset = null;
             try
             {
-                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result, heightScale, rivers);
+                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result, heightScale, rivers, climate);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 savedWorld = asset; EditorGUIUtility.PingObject(asset); status = "Saved " + path;
             }
@@ -378,7 +422,11 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var network = savedWorld.ReadRivers();
                 var terrain = network?.Terrain ?? savedWorld.Read();
                 var nextRecipe = terrain.Recipe.Copy();
-                SetPreview(terrain, network, network == null ? HeightmapPreviewMode.Relief : HeightmapPreviewMode.Rivers);
+                var savedClimate = savedWorld.ReadClimateSettings();
+                var mode = savedClimate != null ? HeightmapPreviewMode.Temperature
+                    : network == null ? HeightmapPreviewMode.Relief : HeightmapPreviewMode.Rivers;
+                SetPreview(terrain, network, mode, settingsOverride: savedClimate);
+                if (savedClimate != null) climateSettings = savedClimate;
                 if (network != null)
                 {
                     riverCatchment = network.CatchmentPercent;
@@ -433,8 +481,18 @@ namespace GrandStrategy.WorldGeneration.Editor
             public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean. Other submerged samples are lakes. The optional naval image adds navigable river water above sea level and preserves lake pixels.";
             public string Preview = "8-bit PNGs are inspection images; RAW16 and the Unity asset preserve higher precision";
             public HeightmapRecipe Recipe;
+            public bool HasClimate;
+            public ClimateExport Climate;
             public bool HasRivers;
             public RiverExport Rivers;
+        }
+
+        [Serializable] private sealed class ClimateExport
+        {
+            public string TemperatureImage = "temperature.png";
+            public string MoistureImage = "moisture.png";
+            public string Encoding = "Opaque grayscale PNGs, north at top. Temperature 0 to 255 maps linearly to -40 to 45 C. Moisture 0 to 255 maps to the dry-to-wet index.";
+            public ClimateSettings Settings;
         }
 
         [Serializable] private sealed class RiverExport
@@ -504,6 +562,13 @@ namespace GrandStrategy.WorldGeneration.Editor
                         File.WriteAllBytes(Path.Combine(folder, manifest.Rivers.NavalAccessRaster), access.CopyCells());
                     }
                 }
+                if (climate != null)
+                {
+                    manifest.HasClimate = true;
+                    manifest.Climate = new ClimateExport { Settings = climate.Settings };
+                    WritePng(Path.Combine(folder, manifest.Climate.TemperatureImage), HeightmapPreviewMode.Temperature, climateData: true);
+                    WritePng(Path.Combine(folder, manifest.Climate.MoistureImage), HeightmapPreviewMode.Moisture, climateData: true);
+                }
                 File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(manifest, true));
                 status = "Exported to " + folder;
                 EditorUtility.RevealInFinder(folder);
@@ -511,9 +576,9 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch (Exception ex) { status = "Export incomplete at " + folder + ". " + ex.Message; Debug.LogException(ex); }
         }
 
-        private void WritePng(string path, HeightmapPreviewMode mode, RiverNavigation access = null)
+        private void WritePng(string path, HeightmapPreviewMode mode, RiverNavigation access = null, bool climateData = false)
         {
-            var texture = HeightmapPreview.Create(result, mode, water, rivers, access);
+            var texture = HeightmapPreview.Create(result, mode, water, rivers, access, climate, climateData);
             try { File.WriteAllBytes(path, texture.EncodeToPNG()); }
             finally { DestroyImmediate(texture); }
         }
