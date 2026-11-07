@@ -12,11 +12,13 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D colours;
         private Texture2D regions;
         private Texture2D ownership;
+        private MapBorderOverlay borders;
         private GameObject surface;
         private WaterMap water;
         private byte[] rivers;
 
         public ProvinceMap Map { get; }
+        public bool HasTerritories => borders.HasTerritories;
         public float Aspect => (float)Map.Width / Map.Height;
         public Collider Collider { get; private set; }
 
@@ -64,6 +66,7 @@ namespace GrandStrategy.WorldGeneration
                 var collider = surface.GetComponent<MeshCollider>();
                 collider.sharedMesh = mesh;
                 Collider = collider;
+                borders = new MapBorderOverlay(surface, mesh, Map);
             }
             catch
             {
@@ -93,28 +96,19 @@ namespace GrandStrategy.WorldGeneration
 
         private void FillTextures(BiomeMap biomes)
         {
-            var width = Map.Width;
-            var height = Map.Height;
             var raster = Map.ProvinceAt;
             var colourPixels = colours.GetRawTextureData<Color32>();
             var indexPixels = regions.GetRawTextureData<Color32>();
-            for (var y = 0; y < height; y++)
-                for (var x = 0; x < width; x++)
-                {
-                    var cell = y * width + x;
-                    var province = raster[cell];
-                    if (province < -1 || province >= Map.Provinces.Length)
-                        throw new InvalidOperationException("The saved map contains an invalid province index.");
+            for (var cell = 0; cell < raster.Length; cell++)
+            {
+                var province = raster[cell];
+                if (province < -1 || province >= Map.Provinces.Length)
+                    throw new InvalidOperationException("The saved map contains an invalid province index.");
 
-                    // Draw each shared edge on one side. Also outline the northern and eastern map limits.
-                    var border = (x > 0 && raster[cell - 1] != province)
-                        || (y > 0 && raster[cell - width] != province)
-                        || (province >= 0 && (x == 0 || y == 0 || x == width - 1 || y == height - 1));
-                    var kind = SurfaceKind(cell, biomes);
-                    var rgb = BiomeMap.PreviewColour(kind);
-                    colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, border ? (byte)255 : (byte)0);
-                    indexPixels[cell] = EncodeProvince(province);
-                }
+                var rgb = BiomeMap.PreviewColour(SurfaceKind(cell, biomes));
+                colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, 255);
+                indexPixels[cell] = EncodeProvince(province);
+            }
 
             colours.Apply(true, true);
             regions.Apply(false, true);
@@ -147,6 +141,12 @@ namespace GrandStrategy.WorldGeneration
             return hit.point;
         }
 
+        public void SetView(MapViewMode mode)
+        {
+            borders.SetView(mode);
+            material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain ? 0f : 1f);
+        }
+
         public void SetSelection(int selected) => material.SetVector("_Selected", ShaderIndex(selected));
 
         public void SetOwnership(CampaignState campaign, Color tribeColour)
@@ -173,6 +173,7 @@ namespace GrandStrategy.WorldGeneration
 
         public void Dispose()
         {
+            borders?.Dispose();
             UnityEngine.Object.Destroy(surface);
             UnityEngine.Object.Destroy(mesh);
             UnityEngine.Object.Destroy(material);

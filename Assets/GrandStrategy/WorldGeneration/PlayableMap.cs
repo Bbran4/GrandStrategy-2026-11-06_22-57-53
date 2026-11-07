@@ -32,6 +32,7 @@ namespace GrandStrategy.WorldGeneration
         private float zoom = 1f;
         private float targetZoom = 1f;
         private bool dragging;
+        private MapViewMode mapView = MapViewMode.Provinces;
         private bool editingName;
         private int selected = -1;
         private int selectedCell = -1;
@@ -48,7 +49,7 @@ namespace GrandStrategy.WorldGeneration
         private Vector2 detailsScroll;
 
         private float PanelWidth => Mathf.Max(1f, Mathf.Min(325f, (Screen.width - 36f) * .5f));
-        private Rect Panel => new Rect(12, 12, PanelWidth, Mathf.Min(selected >= 0 ? 365 : 112, Screen.height - 24));
+        private Rect Panel => new Rect(12, 12, PanelWidth, Mathf.Min(selected >= 0 ? 392 : 140, Screen.height - 24));
         private Rect CampaignPanel => new Rect(Screen.width - PanelWidth - 12, 12, PanelWidth,
             Mathf.Min(campaign == null ? 118 : 230, Screen.height - 24));
 
@@ -268,7 +269,7 @@ namespace GrandStrategy.WorldGeneration
             }
             if (surface == null) return;
 
-            DrawSettlement();
+            if (mapView != MapViewMode.Terrain) DrawSettlement();
             DrawCampaign();
             var panel = Panel;
             GUI.Box(panel, GUIContent.none);
@@ -276,12 +277,29 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label("GrandStrategy | Playable Map");
             GUILayout.Label("WASD or middle drag to pan. Scroll to zoom.");
             GUILayout.Label("Click a province. Home resets the view.");
+            GUILayout.BeginHorizontal();
+            MapViewButton("Terrain", MapViewMode.Terrain);
+            MapViewButton("Territories", MapViewMode.Territories, surface.HasTerritories);
+            MapViewButton("Provinces", MapViewMode.Provinces);
+            GUILayout.EndHorizontal();
             if (selected < 0)
                 GUILayout.Label(campaign == null ? "Choose a land province to establish a tribe." : "Click a province to inspect it.");
             else
                 DrawProvince(surface.Map.Provinces[selected]);
             GUILayout.EndArea();
             editingName = GUI.GetNameOfFocusedControl() == "TribeName";
+        }
+
+        private void MapViewButton(string label, MapViewMode mode, bool available = true)
+        {
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && available && mapView != mode;
+            if (GUILayout.Button(label))
+            {
+                surface.SetView(mode);
+                mapView = mode;
+            }
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawProvince(ProvinceInfo province)

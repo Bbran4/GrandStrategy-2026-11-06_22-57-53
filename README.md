@@ -10,7 +10,7 @@ The player represents the society itself. Individual characters, rulers, dynasti
 
 **Playable map prototype.** The world authoring tool, OpenGS import, and first Unity gameplay scene are working. Open `Assets/Scenes/PlayableMap.unity` and press **Play** to pan and zoom over the authored world, inspect provinces, and establish a tribe in a land province. The first campaign loop includes a paused start, Pop and ownership, peaceful integration, and local save and load. The campaign loop has been verified in Unity Play Mode.
 
-**Next milestone.** Verify the overhead-to-3D camera transition in Unity, then build crisp borders and the three map modes. See the [development roadmap](#development-roadmap) for the order of work.
+**Next milestone.** Verify the new borders and map modes in Unity, then begin biome materials and nature. See the [development roadmap](#development-roadmap) for the order of work.
 
 - **Engine** · Unity 6000.6.8f1
 - **Rendering** · Universal Render Pipeline (URP)
@@ -283,8 +283,8 @@ Events concern the society and its institutions. Individual-character stories ar
 
 Work through these in order so the camera and political overlays set the scale for terrain detail.
 
-1. **2D to 3D zoom · implemented, Unity verification pending.** Full zoom-out fits the entire map in a straight overhead view. The camera gradually tilts into the terrain as the player zooms in.
-2. **Crisp borders and map modes.** Keep the indexed raster for selection. Trace shared boundaries once, preserve junctions, and render anti-aliased outlines that follow the terrain and stay readable across zoom levels. Prefer original vector outlines if the source provides them. Outlines traced from a PNG retain the source raster's precision.
+1. **2D to 3D zoom · implemented.** Full zoom-out fits the entire map in a straight overhead view. The camera gradually tilts into the terrain as the player zooms in.
+2. **Crisp borders and map modes · implemented, Unity verification pending.** Trace each shared boundary once and preserve junctions. Render smoothed, anti-aliased outlines at a consistent screen width on the terrain. The imported raster still determines selection and limits the source precision.
 
    | Map mode | Presentation |
    | --- | --- |

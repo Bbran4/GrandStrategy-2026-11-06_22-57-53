@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -65,6 +66,7 @@ internal static class Program
         CheckProvinceMap();
         CheckWorldRecipe();
         CheckCampaign();
+        CheckBorderPaths();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, river routing and carving, and campaign integration and restore.");
         if (args.Contains("--benchmark"))
         {
@@ -453,6 +455,30 @@ internal static class Program
             && restored.IntegrationTarget == -1 && restored.Day == CampaignState.IntegrationDuration + 1,
             "Integration must transfer ownership on the scheduled day.");
         Require(restored.TryStartIntegration(2), "A new border must open further integration.");
+    }
+
+    private static void CheckBorderPaths()
+    {
+        var edges = new HashSet<(int, int)>();
+        var junctionEnds = 0;
+        MapBorderPaths.Trace(2, 2, new[] { 0, 1, 1, 0 }, (path, closed) =>
+        {
+            Require(!closed, "A checkerboard path should stop at its junctions.");
+            if (path[0] == 4) junctionEnds++;
+            if (path[path.Count - 1] == 4) junctionEnds++;
+            for (var i = 1; i < path.Count; i++)
+                Require(edges.Add((Math.Min(path[i - 1], path[i]), Math.Max(path[i - 1], path[i]))),
+                    "A shared border was traced twice.");
+        });
+        Require(edges.Count == 12 && junctionEnds == 4, "Border tracing must preserve all arms of a four-way junction.");
+
+        var loops = new List<int>();
+        MapBorderPaths.Trace(3, 3, new[] { 0, 0, 0, 0, -1, 0, 0, 0, 0 }, (path, closed) =>
+        {
+            Require(closed && path[0] == path[path.Count - 1], "A border around a hole must close.");
+            loops.Add(path.Count - 1);
+        });
+        Require(loops.OrderBy(n => n).SequenceEqual(new[] { 4, 12 }), "Both the outer outline and hole must be retained.");
     }
 
     private static void CheckRivers()
