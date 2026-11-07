@@ -93,7 +93,7 @@ Use the world export that produced the OpenGS inputs. Matching dimensions and co
 
 Open `Assets/Scenes/PlayableMap.unity` and press **Play**. The Main Camera's **Playable Map** component references the saved World and Province Map assets. To play another authored map, assign its World asset and the Province Map made from its OpenGS export.
 
-- Pan with **WASD**, the arrow keys, or the middle mouse button. Scroll to zoom and press **Home** to reset the camera.
+- Pan with **WASD**, the arrow keys, or the middle mouse button. Scroll in to gradually tilt into the terrain. Scroll all the way out or press **Home** to return to the full-map overhead view.
 - Click a province to highlight it and inspect its territory, dominant biome, and neighbours.
 - Click a dry spot in a land province, enter a tribe name, pick a colour, and choose **Establish tribe here**. The province becomes the capital and the campaign starts paused.
 - Inspect land provinces to see their Pop and ownership. Choose **Resume** to advance time and click the speed button to cycle through **1×**, **2×**, and **4×**. At **1×**, one real second advances one game day.

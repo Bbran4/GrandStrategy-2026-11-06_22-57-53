@@ -21,12 +21,16 @@ namespace GrandStrategy.WorldGeneration
         };
         private static readonly string[] ColourNames = { "Blue", "Red", "Green", "Violet", "Ochre" };
         private static readonly int[] Speeds = { 1, 2, 4 };
-        private static readonly Quaternion ViewAngle = Quaternion.Euler(65f, 0f, 0f);
+        private const float MinimumZoom = .045f;
+        private const float TiltedZoom = .28f;
+        private const float TiltedPitch = 55f;
+        private const float ZoomResponse = 12f;
 
         private Camera mapCamera;
         private PlayableMapSurface surface;
         private Vector3 focus;
         private float zoom = 1f;
+        private float targetZoom = 1f;
         private bool dragging;
         private bool editingName;
         private int selected = -1;
@@ -65,7 +69,7 @@ namespace GrandStrategy.WorldGeneration
                 mapCamera.backgroundColor = new Color(.045f, .058f, .075f);
                 mapCamera.nearClipPlane = .01f;
                 mapCamera.farClipPlane = 2f * (surface.Aspect + 4f);
-                UpdateCamera();
+                UpdateCamera(0f);
             }
             catch (Exception error)
             {
@@ -79,7 +83,8 @@ namespace GrandStrategy.WorldGeneration
         private void Update()
         {
             if (surface == null || failure != null) return;
-            if (campaign?.Advance(Time.unscaledDeltaTime) == true)
+            var deltaTime = Time.unscaledDeltaTime;
+            if (campaign?.Advance(deltaTime) == true)
                 surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
 
             var keyboard = Keyboard.current;
@@ -88,7 +93,7 @@ namespace GrandStrategy.WorldGeneration
                 if (keyboard.homeKey.wasPressedThisFrame)
                 {
                     focus = Vector3.zero;
-                    zoom = 1f;
+                    targetZoom = 1f;
                 }
 
                 var movement = new Vector3(
@@ -97,7 +102,7 @@ namespace GrandStrategy.WorldGeneration
                     0f,
                     Axis(keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed,
                         keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed));
-                focus += Vector3.ClampMagnitude(movement, 1f) * mapCamera.orthographicSize * Time.unscaledDeltaTime;
+                focus += Vector3.ClampMagnitude(movement, 1f) * mapCamera.orthographicSize * deltaTime;
             }
 
             var mouse = Mouse.current;
@@ -112,35 +117,53 @@ namespace GrandStrategy.WorldGeneration
                 {
                     var delta = mouse.delta.ReadValue();
                     var units = 2f * mapCamera.orthographicSize / Mathf.Max(1, Screen.height);
-                    focus -= new Vector3(delta.x, 0f, delta.y / Mathf.Sin(65f * Mathf.Deg2Rad)) * units;
+                    var groundProjection = mapCamera.transform.up.z;
+                    focus -= new Vector3(delta.x, 0f, delta.y / groundProjection) * units;
                 }
                 var scroll = mouse.scroll.ReadValue().y;
                 if (!overPanel && scroll != 0f)
                 {
                     var step = Mathf.Clamp(Mathf.Abs(scroll) * .0015f, .045f, .25f);
-                    zoom = Mathf.Clamp(zoom * Mathf.Exp(-Mathf.Sign(scroll) * step), .045f, 1.25f);
+                    targetZoom = Mathf.Clamp(targetZoom * Mathf.Exp(-Mathf.Sign(scroll) * step), MinimumZoom, 1f);
                 }
-                UpdateCamera();
+                UpdateCamera(deltaTime);
                 if (!overPanel && !dragging && mouse.leftButton.wasPressedThisFrame)
                     Pick(position);
             }
             else
             {
                 dragging = false;
-                UpdateCamera();
+                UpdateCamera(deltaTime);
             }
         }
 
         private static int Axis(bool negative, bool positive) => (positive ? 1 : 0) - (negative ? 1 : 0);
 
-        private void UpdateCamera()
+        private void UpdateCamera(float deltaTime)
         {
-            var aspect = surface.Aspect;
-            focus.x = Mathf.Clamp(focus.x, -.5f * aspect, .5f * aspect);
-            focus.z = Mathf.Clamp(focus.z, -.5f, .5f);
-            mapCamera.orthographicSize = Mathf.Max(.60f, .58f * aspect / Mathf.Max(.1f, mapCamera.aspect)) * zoom;
-            var distance = aspect + 4f;
-            mapCamera.transform.SetPositionAndRotation(focus + ViewAngle * Vector3.back * distance, ViewAngle);
+            zoom = Mathf.Lerp(zoom, targetZoom, 1f - Mathf.Exp(-ZoomResponse * deltaTime));
+            if (Mathf.Abs(zoom - targetZoom) < .0001f) zoom = targetZoom;
+
+            var tilt = 1f - Mathf.InverseLerp(TiltedZoom, 1f, zoom);
+            var pitch = Mathf.SmoothStep(90f, TiltedPitch, tilt);
+            var rotation = Quaternion.Euler(pitch, 0f, 0f);
+            var groundProjection = Mathf.Sin(pitch * Mathf.Deg2Rad);
+
+            var mapAspect = surface.Aspect;
+            var viewAspect = Mathf.Max(.001f, mapCamera.aspect);
+            // At full zoom-out the padded fit covers both map axes, including in a tall Game view.
+            var overviewSize = .54f * Mathf.Max(1f, mapAspect / viewAspect);
+            mapCamera.orthographicSize = overviewSize * zoom;
+
+            var halfWidth = mapCamera.orthographicSize * viewAspect;
+            var halfDepth = mapCamera.orthographicSize / groundProjection;
+            var panX = Mathf.Max(0f, mapAspect * .5f - halfWidth);
+            var panZ = Mathf.Max(0f, .5f - halfDepth);
+            focus.x = Mathf.Clamp(focus.x, -panX, panX);
+            focus.z = Mathf.Clamp(focus.z, -panZ, panZ);
+
+            var distance = mapAspect + 4f;
+            mapCamera.transform.SetPositionAndRotation(focus + rotation * Vector3.back * distance, rotation);
         }
 
         private void Pick(Vector2 position)
