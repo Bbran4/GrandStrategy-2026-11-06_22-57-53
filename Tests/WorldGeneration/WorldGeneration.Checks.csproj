@@ -11,5 +11,6 @@
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/HeightmapGenerator.cs" Link="HeightmapGenerator.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/HeightmapEncoding.cs" Link="HeightmapEncoding.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/WaterMap.cs" Link="WaterMap.cs" />
+    <Compile Include="../../Assets/GrandStrategy/WorldGeneration/RiverGenerator.cs" Link="RiverGenerator.cs" />
   </ItemGroup>
 </Project>

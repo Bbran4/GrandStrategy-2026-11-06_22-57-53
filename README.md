@@ -22,9 +22,9 @@ This README records the initial agreed direction. Proposed implementation detail
 
 Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024 × 512**, choose a seed, and click **Generate**. The window also supports 2048 × 1024 and 3072 × 2048. Toggle **3D** to orbit the terrain, scroll to zoom, and adjust the Height slider. Saving the world or exporting it records the selected terrain height scale.
 
-**LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean RGB (5,20,18), lake RGB (0,255,0), and white land. Boundary-connected water is ocean; enclosed below-sea-level water is lake. Physical lake filling and river routing remain future work.
+**LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean RGB (5,20,18), lake RGB (0,255,0), and white land. Boundary-connected water is ocean; enclosed below-sea-level water is lake. River generation uses the existing oceans and lakes as outlets.
 
-See [World generation](docs/world-generation.md) for controls, export formats, validation evidence, and limitations. This increment provides elevation and topological water classification; river routing, lake filling and elevations, climate, biomes, and snow simulation are not implemented.
+See [World generation](docs/world-generation.md) for controls, export formats, validation evidence, and limitations. Generate the base terrain, then select **Generate Rivers**. Save or export the carved world to retain the base heightmap, river directions, and final terrain. Climate, biomes, and snow are future steps.
 
 ## Design pillars
 
@@ -88,7 +88,7 @@ Climate and hydrology will use practical approximations appropriate to a strateg
 - Keep elevation, water, climate, biomes, snow, provinces, and political ownership as distinct data layers.
 - Use a shared coordinate convention so exports, imports, terrain, and province selection align.
 - Store authoritative geographic information separately from visual materials.
-- Give lakes their own surface elevations rather than placing every lake at sea level.
+- Use existing lake basins as outlets for rivers.
 - Base river generation on drainage and water flow.
 - Treat geography regeneration as an explicit operation once provinces or settlements depend on it.
 - Set world-size and generation-time budgets before selecting production resolutions.
@@ -296,7 +296,7 @@ Milestone 1 has an initial heightmap implementation. Later milestones remain pla
 - [ ] Define world dimensions, coordinates, saved data, and performance budgets.
 - [x] Create a Unity Editor authoring window with seed and settings (compiled; interactive verification pending).
 - [x] Implement seeded elevation generation and elevation previews with adjustable sea level (visual Editor verification pending).
-- [ ] Generate drainage, rivers, and lakes.
+- [ ] Verify drainage and carved rivers in the Unity Editor. Rivers use existing lakes.
 - [ ] Derive climate and biomes.
 - [ ] Add permanent snow coverage.
 - [ ] Verify saving and reloading authored worlds in the Unity Editor (asset support implemented).

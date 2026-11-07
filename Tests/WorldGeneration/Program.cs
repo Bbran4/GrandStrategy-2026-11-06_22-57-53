@@ -56,7 +56,8 @@ internal static class Program
             Require(raw[256] == 0 && raw[257] == 128 && raw[raw.Length - 2] == 0 && raw[raw.Length - 1] == 64, "RAW orientation/endianness invalid.");
         }
         CheckWater();
-        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, and OpenGS palette.");
+        CheckRivers();
+        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
         if (args.Contains("--benchmark"))
         {
             foreach (var dimensions in new[] { (1024, 512), (2048, 1024), (3072, 2048) })
@@ -69,6 +70,12 @@ internal static class Program
                     cpu = process.TotalProcessorTime; timer.Restart();
                     var water = WaterMap.Classify(world); timer.Stop(); process.Refresh();
                     Console.WriteLine($"  classify elapsed={timer.Elapsed.TotalSeconds:F3}s cpu={(process.TotalProcessorTime - cpu).TotalSeconds:F3}s processPeak={process.PeakWorkingSet64 / 1048576.0:F1}MiB ocean={water.OceanCount} lake={water.LakeCount}");
+                    cpu = process.TotalProcessorTime;
+                    timer.Restart();
+                    var network = RiverGenerator.Generate(world);
+                    timer.Stop();
+                    process.Refresh();
+                    Console.WriteLine($"  rivers elapsed={timer.Elapsed.TotalSeconds:F3}s cpu={(process.TotalProcessorTime - cpu).TotalSeconds:F3}s processPeak={process.PeakWorkingSet64 / 1048576.0:F1}MiB channels={network.ChannelCells}");
                     if (settings.Width == 1024 && run == 0 && args.Length > 1)
                     {
                         var directory = args.Last(); Directory.CreateDirectory(directory);
@@ -76,6 +83,66 @@ internal static class Program
                     }
                 }
         }
+    }
+
+    private static void CheckRivers()
+    {
+        var recipe = Small();
+        recipe.Width = 32;
+        recipe.Height = 32;
+        var sea = recipe.SeaLevel;
+
+        foreach (var outlet in new[] { 0, 16 * 32 + 16 })
+        {
+            var elevations = Enumerable.Repeat(sea + .25f, 1024).ToArray();
+            elevations[outlet] = sea / 2;
+            // A dry depression inside a flat catchment must drain without becoming a lake.
+            elevations[15 * 32 + 14] = sea + .02f;
+            var original = (float[])elevations.Clone();
+            var world = new HeightmapResult(recipe, elevations);
+            var water = WaterMap.Classify(world);
+            var rivers = RiverGenerator.Generate(world);
+            var repeat = RiverGenerator.Generate(world);
+            Require(rivers.ChannelCells > 0, "A catchment with one water outlet should produce rivers.");
+            Require(rivers.Directions.SequenceEqual(repeat.Directions)
+                && rivers.Terrain.Elevations.SequenceEqual(repeat.Terrain.Elevations), "River generation must be deterministic.");
+            Require(world.Elevations.SequenceEqual(original), "River generation modified the base world.");
+            Require(rivers.Terrain.Elevations.Where((value, i) => value < original[i]).Any(), "River generation should carve terrain.");
+            var carvedWater = WaterMap.Classify(rivers.Terrain);
+            for (var i = 0; i < elevations.Length; i++)
+            {
+                Require(carvedWater[i] == water[i], "River carving changed the OpenGS water classification.");
+                Require(rivers.Terrain.Elevations[i] <= original[i], "Carving raised the terrain.");
+                if (rivers.Directions[i] == 0) continue;
+
+                var cell = i;
+                var steps = 0;
+                while (cell != outlet && steps++ < elevations.Length)
+                {
+                    var next = rivers.DownstreamIndex(cell);
+                    Require(next >= 0, "River stopped before reaching its existing outlet.");
+                    Require(rivers.Terrain.Elevations[next] <= rivers.Terrain.Elevations[cell], "A carved river flows uphill.");
+                    cell = next;
+                }
+                Require(cell == outlet, "River flow contains a cycle or misses the outlet.");
+            }
+
+            try
+            {
+                RiverGenerator.Generate(world, progress: (fraction, _) => fraction < .92f);
+                throw new Exception("Late river cancellation was ignored.");
+            }
+            catch (OperationCanceledException)
+            {
+                Require(world.Elevations.SequenceEqual(original), "Cancelling rivers modified the base world.");
+            }
+        }
+
+        var dry = new HeightmapResult(recipe, Enumerable.Repeat(sea + .25f, 1024).ToArray());
+        Require(RiverGenerator.Generate(dry).ChannelCells == 0, "A world without water cannot have an outlet.");
+        var flooded = new HeightmapResult(recipe, new float[1024]);
+        Require(RiverGenerator.Generate(flooded).ChannelCells == 0, "A world without land cannot have channels.");
+        Reject(() => RiverGenerator.Generate(dry, carveDepth: float.NaN), "Invalid river depth accepted.");
     }
 
     private static void CheckWater()
