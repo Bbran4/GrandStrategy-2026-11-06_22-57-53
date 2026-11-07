@@ -141,7 +141,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (GUILayout.Button("Save displayed world as asset...")) SaveWorld();
                 if (GUILayout.Button("Export displayed world...")) Export();
             }
-            EditorGUILayout.HelpBox("OpenGS masks use RGB (5,20,18) for ocean and included rivers, (0,255,0) for lakes, and white for land. Naval Access includes ship corridors.", MessageType.Info);
+            EditorGUILayout.HelpBox("LandAndWater shows ocean, lakes, and land. Naval Access adds full-width navigable rivers in the ocean colour.", MessageType.Info);
         }
 
         private void DrawRiverSettings()
@@ -429,8 +429,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             public string RawEncoding = "unsigned 16-bit little-endian; no header; first row south; normalized 0-65535";
             public string ElevationUnits = "normalized 0-1, not metres";
             public float TerrainHeightScale;
-            public string WaterMask = "OpenGS Land Image. Ocean and all river water RGB (5,20,18), lakes (0,255,0), land (255,255,255). The optional naval image uses the same palette with ship corridors.";
-            public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean. Other submerged samples are lakes. The export adds river water above sea level without changing lake pixels.";
+            public string WaterMask = "OpenGS Land Image. Ocean RGB (5,20,18), lakes (0,255,0), land (255,255,255). The optional naval image adds full-width ship corridors in the ocean colour.";
+            public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean. Other submerged samples are lakes. The optional naval image adds navigable river water above sea level and preserves lake pixels.";
             public string Preview = "8-bit PNGs are inspection images; RAW16 and the Unity asset preserve higher precision";
             public HeightmapRecipe Recipe;
             public bool HasRivers;

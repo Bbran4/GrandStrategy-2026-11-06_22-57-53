@@ -14,7 +14,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (water == null) water = WaterMap.Classify(result);
                 if (!ReferenceEquals(water.Source, result)) throw new System.ArgumentException("Water classification belongs to a different world.");
             }
-            var showRiverSurface = mode == HeightmapPreviewMode.Rivers || mode == HeightmapPreviewMode.LandAndWater;
+            var showRiverSurface = mode == HeightmapPreviewMode.Rivers;
             if (showRiverSurface && rivers != null && !ReferenceEquals(rivers.Terrain, result))
                 throw new System.ArgumentException("River data belongs to a different world.");
             var width = result.Recipe.Width; var height = result.Recipe.Height;
@@ -33,8 +33,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                         if (showMask)
                         {
                             var riverWater = mode == HeightmapPreviewMode.NavalAccess
-                                ? navigation != null && navigation[index] != 0
-                                : riverSurface != null && riverSurface[index] != 0;
+                                && navigation != null && navigation[index] != 0;
                             var rgb = OpenGsLandPalette.Color(water[index], riverWater);
                             colours[index] = new Color32(rgb.R, rgb.G, rgb.B, 255);
                             continue;

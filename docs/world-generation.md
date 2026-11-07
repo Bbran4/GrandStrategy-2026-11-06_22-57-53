@@ -123,7 +123,7 @@ Each export creates a new uniquely named subfolder under the chosen parent. An i
 | rivers.png | Inspection image of the channel network over carved relief, included when rivers are present |
 | heightmap-preview.png | 8-bit grayscale inspection image, not the precision source |
 | relief.png | Coloured elevation inspection image |
-| land-mask.png | OpenGS Land Image with all visible river water, ocean, lakes, and land |
+| land-mask.png | OpenGS Land Image with ocean, lakes, and land. River channels are land in this mask |
 | manifest.json | Recipe, dimensions, sea level, terrain height scale, format version, encoding, and coordinate documentation |
 
 Authoritative Unity asset samples are normalized floats from 0 to 1. They are not elevations in metres. RAW16 quantizes those floats to 0–65535. Values at or above sea level are land.
@@ -140,7 +140,7 @@ Import **land-mask.png** into OpenGS MapTool's **Land Image** tab.
 | Lake | (0, 255, 0) |
 | Land | (255, 255, 255) |
 
-Both OpenGS views and exports use the same palette. LandAndWater includes all river water. NavalAccess includes the marked ship corridors, with other river reaches treated as land. Lake pixels always take priority over river markings. Data pixels are written directly as opaque bytes, without terrain shading, interpolation, or colour conversion. The data texture uses point filtering. Relief retains its illustrative elevation colours and is not the OpenGS input. On-screen graphics colour management is not a substitute for checking PNG bytes.
+Both OpenGS views and exports use the same palette. LandAndWater classifies ocean, lakes, and land. NavalAccess adds the full-width ship corridors in the ocean colour. Lake pixels always take priority over river markings. Data pixels are written directly as opaque bytes, without terrain shading, interpolation, or colour conversion. The data texture uses point filtering. Relief retains its illustrative elevation colours and is not the OpenGS input. On-screen graphics colour management is not a substitute for checking PNG bytes.
 
 Classification uses four-neighbour raster connectivity: below-sea-level samples connected to any map boundary are ocean; other submerged samples are lakes. Diagonal-only contact does not open a sea passage. Classification is computed once for the displayed result and reused by previews and exports; it does not change elevation samples.
 

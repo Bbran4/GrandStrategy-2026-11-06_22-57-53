@@ -57,7 +57,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                         var png = texture.EncodeToPNG();
                         if (png.Length < 1000) throw new Exception("Preview PNG unexpectedly empty.");
                         if (mode == HeightmapPreviewMode.LandAndWater)
-                            CheckMaskPixels(png, water, loadedNetwork.BuildSurfaceMask());
+                            CheckMaskPixels(png, water);
                         if (mode == HeightmapPreviewMode.NavalAccess)
                             CheckMaskPixels(png, water, access.CopyCells());
                         File.WriteAllBytes(Path.Combine(output, mode + ".png"), png);
