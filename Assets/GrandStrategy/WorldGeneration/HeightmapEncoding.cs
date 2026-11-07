@@ -14,5 +14,15 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var value in result.Elevations)
                     writer.Write((ushort)Math.Round(HeightmapGenerator.Clamp(value) * 65535, MidpointRounding.AwayFromZero));
         }
+
+        /// <summary>Little-endian float32 cut elevations in the same sample order as RAW16.</summary>
+        public static void WriteRiverCuts(RiverMap rivers, Stream destination)
+        {
+            if (rivers == null) throw new ArgumentNullException(nameof(rivers));
+            if (destination == null) throw new ArgumentNullException(nameof(destination));
+            using (var writer = new BinaryWriter(destination, System.Text.Encoding.UTF8, true))
+                foreach (var value in rivers.CutElevations)
+                    writer.Write(value);
+        }
     }
 }

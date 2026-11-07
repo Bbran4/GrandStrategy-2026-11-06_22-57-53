@@ -15,7 +15,10 @@ namespace GrandStrategy.WorldGeneration.Editor
         [SerializeField] private int selectedStep;
         [SerializeField] private bool show3D;
         [SerializeField] private float heightScale = WorldHeightmap.DefaultHeightScale;
+        [SerializeField] private float riverCatchment = RiverGenerator.DefaultCatchmentPercent;
+        [SerializeField] private float riverDepth = RiverGenerator.DefaultCarveDepth;
         private HeightmapResult result;
+        private RiverMap rivers;
         private WaterMap water;
         private Texture2D preview;
         private Heightmap3DPreview preview3D;
@@ -88,6 +91,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 { recipe.Seed = BitConverter.ToInt32(Guid.NewGuid().ToByteArray(), 0); settingsChanged = true; Generate(); }
             }
             EditorGUILayout.Space(10);
+            DrawRiverSettings();
+            EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("TEMPLATE STEPS", EditorStyles.boldLabel);
             EditorGUILayout.LabelField("Executed from top to bottom. Positions are %.", EditorStyles.miniLabel);
             for (var i = 0; i < recipe.Steps.Count; i++)
@@ -132,7 +137,25 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (GUILayout.Button("Save displayed world as asset...")) SaveWorld();
                 if (GUILayout.Button("Export displayed world...")) Export();
             }
-            EditorGUILayout.HelpBox("LandAndWater uses OpenGS colours: ocean (5,20,18), lakes (0,255,0), land white. Lakes are enclosed below-sea-level basins for now; lake elevations, rivers, climate, and biomes come later.", MessageType.Info);
+            EditorGUILayout.HelpBox("LandAndWater uses OpenGS colours: ocean (5,20,18), lakes (0,255,0), land white. River carving preserves the existing ocean and lake mask.", MessageType.Info);
+        }
+
+        private void DrawRiverSettings()
+        {
+            EditorGUILayout.LabelField("RIVERS", EditorStyles.boldLabel);
+            riverCatchment = EditorGUILayout.Slider(new GUIContent("Catchment (%)", "Smaller thresholds generate more tributaries."),
+                riverCatchment, RiverGenerator.MinimumCatchmentPercent, RiverGenerator.MaximumCatchmentPercent);
+            riverDepth = EditorGUILayout.Slider(new GUIContent("Channel depth", "Typical cut in normalized height units. Saddles may need deeper cuts."),
+                riverDepth, RiverGenerator.MinimumCarveDepth, RiverGenerator.MaximumCarveDepth);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(result == null))
+                    if (GUILayout.Button("Generate Rivers")) GenerateRivers();
+                using (new EditorGUI.DisabledScope(rivers == null))
+                    if (GUILayout.Button("Clear Rivers")) ClearRivers();
+            }
+            if (rivers != null)
+                EditorGUILayout.LabelField($"{rivers.ChannelCells:N0} channel samples", EditorStyles.miniLabel);
         }
 
         private void DrawStep(HeightmapStep step)
@@ -169,9 +192,16 @@ namespace GrandStrategy.WorldGeneration.Editor
         {
             using (new EditorGUILayout.HorizontalScope(EditorStyles.toolbar))
             {
-                EditorGUI.BeginChangeCheck();
-                previewMode = (HeightmapPreviewMode)EditorGUILayout.EnumPopup(previewMode, EditorStyles.toolbarPopup, GUILayout.Width(150));
-                if (EditorGUI.EndChangeCheck() && result != null) RefreshPreview();
+                var selectedMode = (HeightmapPreviewMode)EditorGUILayout.EnumPopup(previewMode, EditorStyles.toolbarPopup, GUILayout.Width(150));
+                if (selectedMode != previewMode)
+                {
+                    try
+                    {
+                        if (result == null) previewMode = selectedMode;
+                        else SetPreview(result, rivers, selectedMode);
+                    }
+                    catch (Exception ex) { ShowError(ex); }
+                }
                 var oldShow3D = show3D; var oldHeightScale = heightScale;
                 show3D = GUILayout.Toggle(show3D, "3D", EditorStyles.toolbarButton, GUILayout.Width(35));
                 if (show3D)
@@ -232,7 +262,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             {
                 var timer = Stopwatch.StartNew();
                 var next = HeightmapGenerator.Generate(recipe, (fraction, label) => !EditorUtility.DisplayCancelableProgressBar("Generating Old World", label, fraction));
-                result = next; settingsChanged = false; RefreshPreview();
+                SetPreview(next, null, previewMode == HeightmapPreviewMode.Rivers ? HeightmapPreviewMode.Relief : previewMode);
+                settingsChanged = false;
                 status = $"Generated in {timer.Elapsed.TotalSeconds:F2}s. Save an asset to preserve this world across editor reloads.";
             }
             catch (OperationCanceledException) { status = "Generation cancelled. The previous completed world is retained."; }
@@ -240,24 +271,59 @@ namespace GrandStrategy.WorldGeneration.Editor
             finally { EditorUtility.ClearProgressBar(); Repaint(); }
         }
 
-        private void RefreshPreview()
+        private void GenerateRivers()
         {
-            var nextWater = water != null && ReferenceEquals(water.Source, result) ? water : WaterMap.Classify(result);
-            var next = HeightmapPreview.Create(result, previewMode, nextWater);
+            try
+            {
+                var next = RiverGenerator.Generate(rivers?.Base ?? result, riverCatchment, riverDepth,
+                    (fraction, label) => !EditorUtility.DisplayCancelableProgressBar("Generating rivers", label, fraction));
+                if (next.ChannelCells == 0)
+                {
+                    SetPreview(next.Base, null, HeightmapPreviewMode.Relief);
+                    status = "No channels reached the catchment threshold. Try a lower threshold or a world with water outlets.";
+                    return;
+                }
+                SetPreview(next.Terrain, next, HeightmapPreviewMode.Rivers);
+                status = $"Carved {next.ChannelCells:N0} river samples. Save or export to retain the carved terrain.";
+            }
+            catch (OperationCanceledException) { status = "River generation cancelled. The previous terrain is still displayed."; }
+            catch (Exception ex) { ShowError(ex); }
+            finally { EditorUtility.ClearProgressBar(); Repaint(); }
+        }
+
+        private void ClearRivers()
+        {
+            try
+            {
+                SetPreview(rivers.Base, null, HeightmapPreviewMode.Relief);
+                status = "Base terrain restored.";
+            }
+            catch (Exception ex) { ShowError(ex); }
+        }
+
+        private void SetPreview(HeightmapResult terrain, RiverMap network, HeightmapPreviewMode mode)
+        {
+            var nextWater = water != null && ReferenceEquals(water.Source, terrain) ? water : WaterMap.Classify(terrain);
+            var next = HeightmapPreview.Create(terrain, mode, nextWater, network);
             if (preview != null) DestroyImmediate(preview);
-            water = nextWater; preview = next; wantsMouseMove = true;
+            result = terrain;
+            rivers = network;
+            previewMode = mode;
+            water = nextWater;
+            preview = next;
+            wantsMouseMove = true;
         }
 
         private void SaveWorld()
         {
-            var path = EditorUtility.SaveFilePanelInProject("Save world heightmap", $"OldWorld-{result.Recipe.Seed}", "asset", "Save the displayed elevations, generation recipe, and terrain height scale.");
+            var path = EditorUtility.SaveFilePanelInProject("Save world heightmap", $"OldWorld-{result.Recipe.Seed}", "asset", "Save the terrain, river data, generation recipe, and height scale.");
             if (string.IsNullOrEmpty(path)) return;
             // New assets only: never silently replace an authored world or its GUID.
             if (File.Exists(path)) { status = "Choose a new filename to preserve the existing world."; return; }
             WorldHeightmap asset = null;
             try
             {
-                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result, heightScale);
+                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result, heightScale, rivers);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 savedWorld = asset; EditorGUIUtility.PingObject(asset); status = "Saved " + path;
             }
@@ -268,10 +334,20 @@ namespace GrandStrategy.WorldGeneration.Editor
         {
             try
             {
-                var next = savedWorld.Read();
+                var network = savedWorld.ReadRivers();
+                var terrain = network?.Terrain ?? savedWorld.Read();
+                var nextRecipe = terrain.Recipe.Copy();
+                SetPreview(terrain, network, network == null ? HeightmapPreviewMode.Relief : HeightmapPreviewMode.Rivers);
+                if (network != null)
+                {
+                    riverCatchment = network.CatchmentPercent;
+                    riverDepth = network.CarveDepth;
+                }
                 heightScale = savedWorld.HeightScale;
-                result = next; recipe = next.Recipe.Copy(); selectedStep = 0; settingsChanged = false; RefreshPreview();
-                status = "Loaded saved world. Its elevations are preserved; Generate explicitly replaces the displayed result.";
+                recipe = nextRecipe;
+                selectedStep = 0;
+                settingsChanged = false;
+                status = "Loaded saved world.";
             }
             catch (Exception ex) { ShowError(ex); }
         }
@@ -315,6 +391,20 @@ namespace GrandStrategy.WorldGeneration.Editor
             public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean; remaining submerged samples are lakes. No above-sea-level lake filling yet.";
             public string Preview = "8-bit PNGs are inspection images; RAW16 and the Unity asset preserve higher precision";
             public HeightmapRecipe Recipe;
+            public bool HasRivers;
+            public RiverExport Rivers;
+        }
+
+        [Serializable] private sealed class RiverExport
+        {
+            public string BaseHeightmap = "heightmap-base.raw";
+            public string CutElevations = "river-cuts.f32";
+            public string CutEncoding = "Little-endian float32 per sample in RAW16 order. Zero keeps the base sample. Positive values replace it with the normalized cut elevation before RAW16 quantization.";
+            public string Directions = "river-directions.raw";
+            public string DirectionEncoding = "One byte per sample, aligned with heightmap.raw. 0=none; 1=E, 2=NE, 3=N, 4=NW, 5=W, 6=SW, 7=S, 8=SE.";
+            public int ChannelCells;
+            public float CatchmentPercent;
+            public float CarveDepth;
         }
 
         private void Export()
@@ -329,7 +419,24 @@ namespace GrandStrategy.WorldGeneration.Editor
                 WritePng(Path.Combine(folder, "heightmap-preview.png"), HeightmapPreviewMode.Grayscale);
                 WritePng(Path.Combine(folder, "relief.png"), HeightmapPreviewMode.Relief);
                 WritePng(Path.Combine(folder, "land-mask.png"), HeightmapPreviewMode.LandAndWater);
-                File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(new ExportManifest { Recipe = result.Recipe, TerrainHeightScale = heightScale }, true));
+                var manifest = new ExportManifest { Recipe = result.Recipe, TerrainHeightScale = heightScale };
+                if (rivers != null)
+                {
+                    manifest.HasRivers = true;
+                    manifest.Rivers = new RiverExport
+                    {
+                        ChannelCells = rivers.ChannelCells,
+                        CatchmentPercent = rivers.CatchmentPercent,
+                        CarveDepth = rivers.CarveDepth
+                    };
+                    using (var stream = new FileStream(Path.Combine(folder, manifest.Rivers.BaseHeightmap), FileMode.CreateNew))
+                        HeightmapEncoding.WriteRaw16(rivers.Base, stream);
+                    using (var stream = new FileStream(Path.Combine(folder, manifest.Rivers.CutElevations), FileMode.CreateNew))
+                        HeightmapEncoding.WriteRiverCuts(rivers, stream);
+                    File.WriteAllBytes(Path.Combine(folder, manifest.Rivers.Directions), rivers.Directions);
+                    WritePng(Path.Combine(folder, "rivers.png"), HeightmapPreviewMode.Rivers);
+                }
+                File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(manifest, true));
                 status = "Exported to " + folder;
                 EditorUtility.RevealInFinder(folder);
             }
@@ -338,7 +445,7 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         private void WritePng(string path, HeightmapPreviewMode mode)
         {
-            var texture = HeightmapPreview.Create(result, mode, water);
+            var texture = HeightmapPreview.Create(result, mode, water, rivers);
             try { File.WriteAllBytes(path, texture.EncodeToPNG()); }
             finally { DestroyImmediate(texture); }
         }

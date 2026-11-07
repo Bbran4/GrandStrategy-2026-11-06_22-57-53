@@ -2,17 +2,19 @@ using UnityEngine;
 
 namespace GrandStrategy.WorldGeneration.Editor
 {
-    public enum HeightmapPreviewMode { Relief, Grayscale, LandAndWater }
+    public enum HeightmapPreviewMode { Relief, Grayscale, LandAndWater, Rivers }
 
     internal static class HeightmapPreview
     {
-        public static Texture2D Create(HeightmapResult result, HeightmapPreviewMode mode, WaterMap water = null)
+        public static Texture2D Create(HeightmapResult result, HeightmapPreviewMode mode, WaterMap water = null, RiverMap rivers = null)
         {
             if (mode == HeightmapPreviewMode.LandAndWater)
             {
                 if (water == null) water = WaterMap.Classify(result);
                 if (!ReferenceEquals(water.Source, result)) throw new System.ArgumentException("Water classification belongs to a different world.");
             }
+            if (mode == HeightmapPreviewMode.Rivers && rivers != null && !ReferenceEquals(rivers.Terrain, result))
+                throw new System.ArgumentException("River data belongs to a different world.");
             var width = result.Recipe.Width; var height = result.Recipe.Height;
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
                 { name = "Heightmap preview", hideFlags = HideFlags.HideAndDontSave, wrapMode = TextureWrapMode.Clamp,
@@ -51,6 +53,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                             var light = Vector3.Dot(normal, new Vector3(-.5f, .6f, .8f).normalized);
                             colour *= Mathf.Clamp(.7f + .4f * light, .4f, 1.1f);
                         }
+                        if (mode == HeightmapPreviewMode.Rivers && rivers != null && rivers.Directions[index] != 0)
+                            colour = new Color(.08f, .59f, .79f);
                         colour.a = 1; colours[index] = colour;
                     }
                 texture.SetPixels32(colours); texture.Apply(false, false);

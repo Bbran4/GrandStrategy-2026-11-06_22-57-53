@@ -22,25 +22,34 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var regenerated = HeightmapGenerator.Generate(restored);
                 for (var i = 0; i < world.Elevations.Length; i++)
                     if (world.Elevations[i] != regenerated.Elevations[i]) throw new Exception("Recipe JSON changed generation.");
+                var network = RiverGenerator.Generate(world, RiverGenerator.MinimumCatchmentPercent);
+                if (network.ChannelCells == 0) throw new Exception("The smoke-check world did not generate rivers.");
                 const float authoredHeightScale = .17f;
                 asset = ScriptableObject.CreateInstance<WorldHeightmap>();
                 if (asset.HeightScale != WorldHeightmap.DefaultHeightScale)
                     throw new Exception("An asset without a serialized height scale should use the original preview default.");
-                asset.Initialize(world, authoredHeightScale);
+                asset.Initialize(network.Terrain, authoredHeightScale, network);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 Resources.UnloadAsset(asset); asset = null;
                 asset = AssetDatabase.LoadAssetAtPath<WorldHeightmap>(path);
                 var loaded = asset.Read();
-                if (loaded.Elevations[123456] != expected || loaded.Elevations.Length != 1024 * 512)
-                    throw new Exception("Asset disk round-trip failed.");
+                var loadedNetwork = asset.ReadRivers();
+                if (loadedNetwork == null || loadedNetwork.Base.Elevations[123456] != expected
+                    || loadedNetwork.ChannelCells != network.ChannelCells || loaded.Elevations.Length != 1024 * 512)
+                    throw new Exception("River asset disk round-trip failed.");
+                for (var i = 0; i < loaded.Elevations.Length; i++)
+                    if (loaded.Elevations[i] != network.Terrain.Elevations[i]
+                        || loadedNetwork.CutElevations[i] != network.CutElevations[i]
+                        || loadedNetwork.Directions[i] != network.Directions[i])
+                        throw new Exception("Saved river geometry, cut layer, or direction changed.");
                 if (asset.HeightScale != authoredHeightScale)
                     throw new Exception("Terrain height scale did not survive the asset disk round-trip.");
                 var output = Path.Combine(Path.GetTempPath(), "GrandStrategy-worldgen-qa");
                 Directory.CreateDirectory(output);
-                var water = WaterMap.Classify(loaded);
+                var water = WaterMap.Classify(loadedNetwork.Terrain);
                 foreach (HeightmapPreviewMode mode in Enum.GetValues(typeof(HeightmapPreviewMode)))
                 {
-                    var texture = HeightmapPreview.Create(loaded, mode, water);
+                    var texture = HeightmapPreview.Create(loadedNetwork.Terrain, mode, water, loadedNetwork);
                     try
                     {
                         var png = texture.EncodeToPNG();
@@ -61,7 +70,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 }
                 finally { UnityEngine.Object.DestroyImmediate(mesh); }
                 WorldGeneratorWindow.Open();
-                Debug.Log($"WORLDGEN_SMOKE_PASS: 1024x512 seed={recipe.Seed} land={world.LandFraction:P1}; recipe regeneration, disk asset round-trip, three preview modes, exact OpenGS PNG round-trip, 3D mesh, window creation. PNGs: {output}");
+                Debug.Log($"WORLDGEN_SMOKE_PASS: 1024x512 seed={recipe.Seed} land={world.LandFraction:P1}; recipe regeneration, disk asset round-trip, preview modes including rivers, exact OpenGS PNG round-trip, 3D mesh, window creation. PNGs: {output}");
             }
             finally
             {

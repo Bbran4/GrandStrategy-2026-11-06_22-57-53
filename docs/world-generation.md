@@ -1,6 +1,6 @@
 # World-generation tool: Old World heightmaps
 
-The tool implements heightmap authoring, an orbitable 3D preview, and an OpenGS land-image export. It does not implement gameplay, production 3D world rendering, hydraulic erosion, river routing, physically filled lakes, climate, biomes, or seasonal snow.
+The tool authors heightmaps, carves rivers, previews terrain in 3D, and exports an OpenGS land image. Rivers use a uniform-runoff approximation on the generated terrain.
 
 ## Quick start
 
@@ -21,7 +21,23 @@ Click **3D** in the preview toolbar after generating or loading a world. Drag wi
 
 The preview uses a private scene with URP materials and a downsampled mesh, at most 257 vertices on either axis. Normalized heightmap coordinates map west-to-east along +X and south-to-north along +Z. The longest raster axis determines mesh sampling density. Texture and mesh use the same orientation.
 
-Water samples are displayed at sea level in this initial preview. Separate lake surface elevations will follow with hydrology. Small features can be absent from the coarse preview mesh even though they remain present in the full-resolution heightmap and export. No preview objects are added to the open game scene, and preview resources are released when the window closes.
+The preview displays existing water at sea level. Small features can be absent from the coarse preview mesh even though they remain present in the full-resolution heightmap and export. No preview objects are added to the open game scene, and preview resources are released when the window closes.
+
+### Carving rivers
+
+Generate or load terrain, then click **Generate Rivers**. Lower **Catchment (%)** to include smaller tributaries. **Channel depth** controls typical incision. The **Rivers** view highlights centerlines on the carved terrain in 2D and 3D. **Clear Rivers** restores the base. Generating rivers again always starts from that base.
+
+Routing starts at existing water and uses an eight-neighbour adaptation of Priority-Flood. A temporary spill priority lets flow cross dry saddles while the base samples stay intact. Contributing area sets the channel threshold and width. A final pass grades channel beds toward their outlets, which can require deeper cuts through saddles. Flat bed sections can occur. Carving stays at or above sea level on land so existing oceans and lakes keep their footprints. [Priority-Flood paper](https://doi.org/10.1016/j.cageo.2013.04.024)
+
+The world asset stores the original samples, cut elevations, flow directions, and river settings as separate layers. The preview, gameplay read, and export use the same composition rule. A zero cut keeps the original sample. A positive cut supplies the final normalized elevation at that sample, including the cut banks around a channel. Existing river assets recover their cut layer from the saved base and carved terrain on load. Saving a new world asset writes the separate layers.
+
+Standalone Linux measurements for the initial river implementation used seed 271828, a fresh process per preset, and two passes per process. The baseline generated terrain and classified water. The river workflow also carved channels and classified the final terrain. CPU and peak memory cover both passes in each process. The separate cut layer, Editor rendering, and export costs are outside these measurements.
+
+| Preset | Baseline first / repeat | River workflow first / repeat | Process CPU baseline / rivers | Process peak baseline / rivers |
+| --- | --- | --- | --- | --- |
+| 1024 x 512 | 0.523s / 0.482s | 0.553s / 0.475s | 1.070s / 1.088s | 47.7 / 61.5 MiB |
+| 2048 x 1024 | 1.818s / 1.751s | 2.024s / 2.016s | 3.622s / 4.108s | 107.6 / 157.5 MiB |
+| 3072 x 2048 | 5.509s / 5.925s | 6.104s / 6.058s | 11.499s / 12.201s | 247.9 / 295.5 MiB |
 
 ## Resolution
 
@@ -67,7 +83,7 @@ For shaped features, count and strength are drawn within the selected ranges. Fo
 
 Operations are ordered and can intentionally undo or soften earlier changes. Reordering changes the recipe. Disabling a step preserves the random stream assigned to later step indices; inserting or moving steps changes those indices.
 
-The realism goal is more coherent relief, multi-scale coastlines, and less abrupt slopes. This is **not a physical tectonic, climate, or hydraulic simulation**. Deep depressions remain potential water basins awaiting hydrology. In Relief, white high-elevation colours are an elevation palette, not a snow model, and green colours are not biome assignments. In LandAndWater, bright green specifically identifies a lake for OpenGS.
+The realism goal is more coherent relief, multi-scale coastlines, and less abrupt slopes. This is **not a physical tectonic, climate, or hydraulic simulation**. Dry depressions can feed channels through their lowest available outlet. In Relief, white high-elevation colours are an elevation palette, not a snow model, and green colours are not biome assignments. In LandAndWater, bright green specifically identifies a lake for OpenGS.
 
 ## Preservation and cancellation
 
@@ -86,7 +102,11 @@ Each export creates a new uniquely named subfolder under the chosen parent. An i
 
 | File | Meaning |
 | --- | --- |
-| heightmap.raw | Headerless unsigned 16-bit little-endian elevation samples |
+| heightmap.raw | Final terrain, including any channel cuts, as headerless unsigned 16-bit little-endian samples |
+| heightmap-base.raw | Original samples in the same format, included when rivers are present |
+| river-cuts.f32 | One little-endian float32 per sample when rivers are present, aligned with the base and final rasters. Zero keeps the base value. Positive values give the final cut elevation before RAW16 quantization |
+| river-directions.raw | One byte per sample when rivers are present. Zero means no channel. Values 1–8 run counterclockwise from east in 45-degree increments |
+| rivers.png | Inspection image of the channel network over carved relief, included when rivers are present |
 | heightmap-preview.png | 8-bit grayscale inspection image, not the precision source |
 | relief.png | Coloured elevation inspection image |
 | land-mask.png | OpenGS Land Image: exact ocean, lake, and land RGB values |
@@ -110,7 +130,7 @@ The LandAndWater view and PNG export share one palette. Data pixels are written 
 
 Classification uses four-neighbour raster connectivity: below-sea-level samples connected to any map boundary are ocean; other submerged samples are lakes. Diagonal-only contact does not open a sea passage. Classification is computed once for the displayed result and reused by previews and exports; it does not change elevation samples.
 
-This is a topological classification, not completed hydrology. Inland seas without an ocean connection are currently classified as lakes, including tiny enclosed depressions. Above-sea-level lakes and separate lake elevations require drainage and basin filling, which are still pending. No minimum-area filter silently removes small lakes. The original world asset stays compatible because the water map is derived from its saved elevation and sea level.
+This is a topological classification, not completed hydrology. Inland seas without an ocean connection are currently classified as lakes, including tiny enclosed depressions. Rivers use these existing submerged basins as outlets. No minimum-area filter silently removes small lakes. The original world asset stays compatible because the water map is derived from its saved elevation and sea level.
 
 The manifest includes `TerrainHeightScale` alongside the normalized RAW16 samples. The preview multiplies the normalized elevation above sea level by this scale, using the map's north-to-south span as one unit. A consumer of an older export can use 0.35 when the field is absent. Scale is recorded separately so the height samples and OpenGS classification stay consistent.
 
@@ -120,6 +140,7 @@ The manifest is version **2** to describe the OpenGS palette and connectivity ru
 
 - **HeightmapRecipe:** serializable settings, default recipe, and validation.
 - **HeightmapGenerator:** Unity-independent seeded generation and completed results.
+- **RiverGenerator:** drainage routing, channel selection, carving, and the base/final terrain pair.
 - **HeightmapEncoding:** RAW16 serialization and documented byte/row order.
 - **WaterMap / OpenGsLandPalette:** water topology, coverage counts, and the exact shared data colours.
 - **WorldHeightmap:** Unity asset preservation and validation of saved samples.
@@ -190,7 +211,7 @@ In the development session, the full source compiled against the installed Unity
 ## Next increments
 
 1. Verify the authoring workflow in the Editor and refine landforms from visual feedback.
-2. Add drainage, above-sea-level lake surfaces, and river routing using the existing ocean connectivity.
+2. Check channel density, channel depth, and the saved/exported river terrain in Unity.
 3. Add climate, biomes, and permanent snow as separate data layers.
 4. Add deliberate terrain rendering and shared map/world coordinates.
 5. Add validated OpenGS inputs and province-map import.
