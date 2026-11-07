@@ -15,6 +15,8 @@ namespace GrandStrategy.WorldGeneration
         public float SourceY;
         public int PixelCount;
         public int RiverSamples;
+        public int RiverWaterSamples;
+        public int RiverBankEdges;
         public bool TouchesOpenSea;
         public int[] Neighbours;
         public int[] BiomeCounts;
@@ -41,21 +43,25 @@ namespace GrandStrategy.WorldGeneration
         public int[] ProvinceAt;
         public int UnassignedPixels;
         public bool HasRiverData;
+        public bool HasRiverFootprint;
         public bool HasCoastData;
 
         public static ProvinceMap Build(HeightmapRecipe recipe, int[] rgb, ProvinceInfo[] provinces,
-            TerritoryInfo[] territories = null, byte[] biomes = null, byte[] rivers = null, byte[] ocean = null)
+            TerritoryInfo[] territories = null, byte[] biomes = null, byte[] rivers = null,
+            WaterKind[] water = null, byte[] riverWidths = null)
         {
             recipe.Validate();
             var width = recipe.Width;
             var height = recipe.Height;
             var length = width * height;
             if (rgb == null || rgb.Length != length || (biomes != null && biomes.Length != length)
-                || (rivers != null && rivers.Length != length) || (ocean != null && ocean.Length != length))
+                || (rivers != null && rivers.Length != length) || (water != null && water.Length != length))
                 throw new ArgumentException("Province and world layers must have identical dimensions.");
             if (provinces == null || provinces.Length == 0 || provinces.Length > length)
                 throw new ArgumentException("Province definitions are missing or exceed the number of samples.");
 
+            var riverSurface = rivers == null ? null : RiverMap.RasterizeSurface(recipe, rivers, riverWidths,
+                cell => water == null || water[cell] == WaterKind.Land);
             var byColor = new Dictionary<int, int>();
             var ids = new HashSet<string>(StringComparer.Ordinal);
             var neighbours = new HashSet<int>[provinces.Length];
@@ -91,12 +97,13 @@ namespace GrandStrategy.WorldGeneration
                     }
                     // Reuse the packed RGB buffer for the owned province-index raster.
                     rgb[cell] = index;
-                    if (x > 0) Connect(index, rgb[cell - 1], cell, cell - 1, ocean, records, neighbours);
-                    if (y > 0) Connect(index, rgb[cell - width], cell, cell - width, ocean, records, neighbours);
+                    if (x > 0) Connect(index, rgb[cell - 1], cell, cell - 1, water, riverSurface, records, neighbours);
+                    if (y > 0) Connect(index, rgb[cell - width], cell, cell - width, water, riverSurface, records, neighbours);
                     if (index < 0) continue;
                     var record = records[index];
                     record.PixelCount++;
                     if (rivers != null && rivers[cell] != 0) record.RiverSamples++;
+                    if (riverSurface != null && riverSurface[cell] != 0) record.RiverWaterSamples++;
                     if (biomes == null) continue;
                     var biome = biomes[cell];
                     if (biome >= biomeCount) throw new ArgumentException($"Unknown biome ID {biome} at sample {cell}.");
@@ -118,12 +125,12 @@ namespace GrandStrategy.WorldGeneration
                 Width = width, Height = height, Provinces = records,
                 Territories = territories ?? Array.Empty<TerritoryInfo>(),
                 ProvinceAt = rgb, UnassignedPixels = unassigned,
-                HasRiverData = rivers != null, HasCoastData = ocean != null
+                HasRiverData = rivers != null, HasRiverFootprint = riverSurface != null, HasCoastData = water != null
             };
         }
 
-        private static void Connect(int a, int b, int aCell, int bCell, byte[] ocean,
-            ProvinceInfo[] records, HashSet<int>[] neighbours)
+        private static void Connect(int a, int b, int aCell, int bCell, WaterKind[] water,
+            byte[] riverSurface, ProvinceInfo[] records, HashSet<int>[] neighbours)
         {
             if (a == b) return;
             if (a >= 0 && b >= 0)
@@ -131,9 +138,17 @@ namespace GrandStrategy.WorldGeneration
                 neighbours[a].Add(b);
                 neighbours[b].Add(a);
             }
-            if (ocean == null) return;
-            if (a >= 0 && records[a].Type == "land" && ocean[bCell] != 0) records[a].TouchesOpenSea = true;
-            if (b >= 0 && records[b].Type == "land" && ocean[aCell] != 0) records[b].TouchesOpenSea = true;
+            CountWaterBorder(a, aCell, bCell, water, riverSurface, records);
+            CountWaterBorder(b, bCell, aCell, water, riverSurface, records);
+        }
+
+        private static void CountWaterBorder(int index, int inside, int outside, WaterKind[] water,
+            byte[] riverSurface, ProvinceInfo[] records)
+        {
+            if (index < 0 || records[index].Type != "land") return;
+            if (water != null && water[outside] == WaterKind.Ocean) records[index].TouchesOpenSea = true;
+            if (riverSurface != null && riverSurface[inside] == 0 && riverSurface[outside] != 0)
+                records[index].RiverBankEdges++;
         }
     }
 }

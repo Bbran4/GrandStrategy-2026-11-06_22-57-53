@@ -19,6 +19,13 @@ namespace GrandStrategy.WorldGeneration.Editor
             public HeightmapRecipe Recipe;
             public bool HasBiomes;
             public bool HasRivers;
+            public RiverExport Rivers;
+        }
+
+        [Serializable]
+        private sealed class RiverExport
+        {
+            public string Widths;
         }
 
         public static ProvinceMap Read(string worldManifest, string provinceImage, string provinceDefinitions,
@@ -53,12 +60,12 @@ namespace GrandStrategy.WorldGeneration.Editor
                 terrain = HeightmapEncoding.ReadRaw16(export.Recipe, source);
             var biomes = export.HasBiomes ? ReadBytes(Path.Combine(folder, "biomes.raw"), length) : null;
             var rivers = export.HasRivers ? ReadBytes(Path.Combine(folder, "river-directions.raw"), length) : null;
-            if (rivers != null && rivers.Any(direction => direction > 8))
-                throw new InvalidDataException("The river raster contains an unknown direction.");
+            var widths = rivers != null && export.Rivers?.Widths == "river-widths.raw"
+                ? ReadBytes(Path.Combine(folder, "river-widths.raw"), length) : null;
 
-            var ocean = ReadOcean(Path.Combine(folder, "land-mask.png"), width, height);
+            var water = ReadWater(Path.Combine(folder, "land-mask.png"), width, height);
             return ProvinceMap.Build(export.Recipe, ReadPng(provinceImage, width, height),
-                provinces, territories, biomes, rivers, ocean);
+                provinces, territories, biomes, rivers, water, widths);
         }
 
         private static TerritoryInfo[] ReadTerritories(string image, string definitions, string history,
@@ -211,16 +218,18 @@ namespace GrandStrategy.WorldGeneration.Editor
             return File.ReadAllBytes(path);
         }
 
-        private static byte[] ReadOcean(string path, int width, int height)
+        private static WaterKind[] ReadWater(string path, int width, int height)
         {
             var rgb = ReadPng(path, width, height);
-            var result = new byte[rgb.Length];
-            var ocean = OpenGsLandPalette.Color(WaterKind.Ocean);
-            var color = ocean.R << 16 | ocean.G << 8 | ocean.B;
+            var result = new WaterKind[rgb.Length];
+            var ocean = PackRgb(OpenGsLandPalette.Color(WaterKind.Ocean));
+            var lake = PackRgb(OpenGsLandPalette.Color(WaterKind.Lake));
             for (var i = 0; i < rgb.Length; i++)
-                if (rgb[i] == color) result[i] = 1;
+                result[i] = rgb[i] == ocean ? WaterKind.Ocean : rgb[i] == lake ? WaterKind.Lake : WaterKind.Land;
             return result;
         }
+
+        private static int PackRgb(Rgb24 colour) => colour.R << 16 | colour.G << 8 | colour.B;
 
         private static int[] ReadPng(string path, int width, int height)
         {

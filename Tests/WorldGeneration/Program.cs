@@ -298,9 +298,9 @@ internal static class Program
         biomes[0] = (byte)BiomeKind.TemperateForest;
         var rivers = new byte[1024];
         rivers[0] = 1;
-        var ocean = new byte[1024];
-        ocean[1] = 1;
-        var map = ProvinceMap.Build(recipe, (int[])colors.Clone(), provinces, biomes: biomes, rivers: rivers, ocean: ocean);
+        var water = new WaterKind[1024];
+        water[1] = WaterKind.Ocean;
+        var map = ProvinceMap.Build(recipe, (int[])colors.Clone(), provinces, biomes: biomes, rivers: rivers, water: water);
         Require(map.Provinces[0].Id == "PRV000014" && map.Provinces[0].TerritoryId == "TRT000002",
             "Province identity and territory membership must survive indexing.");
         Require(map.ProvinceAt[0] == 0 && map.ProvinceAt[1] == 1 && map.ProvinceAt[34] == 2
@@ -310,6 +310,24 @@ internal static class Program
             && map.Provinces[2].Neighbours.Length == 0, "Neighbours must share an edge.");
         Require(map.Provinces[0].TouchesOpenSea && map.Provinces[0].RiverSamples == 1
             && map.Provinces[0].BiomeCounts[(int)BiomeKind.TemperateForest] == 1, "Geographic summaries are misaligned.");
+        // The water is assigned to a naval province, leaving the land province on the bank.
+        var navalColors = new int[1024];
+        var centre = 8 * recipe.Width + 7;
+        navalColors[centre] = navalColors[centre + 1] = provinces[1].Rgb;
+        navalColors[centre + 2] = provinces[0].Rgb;
+        navalColors[700] = provinces[2].Rgb;
+        var navalWater = new WaterKind[1024];
+        navalWater[centre - 1] = WaterKind.Ocean;
+        var navalDirections = new byte[1024];
+        navalDirections[centre] = 5;
+        var widths = new byte[1024];
+        widths[centre] = 2;
+        var naval = ProvinceMap.Build(recipe, navalColors, provinces, rivers: navalDirections, water: navalWater, riverWidths: widths);
+        Require(naval.Provinces[0].RiverSamples == 0 && naval.Provinces[0].RiverWaterSamples == 0
+            && naval.Provinces[0].RiverBankEdges == 1, "A province beside a wide naval river should report its bank.");
+        Require(naval.Provinces[1].RiverSamples == 1 && naval.Provinces[1].RiverWaterSamples == 2,
+            "The naval province should report the river surface inside it.");
+
         colors[10] = 0xabcdef;
         Reject(() => ProvinceMap.Build(recipe, colors, provinces), "Unknown province RGB accepted.");
 

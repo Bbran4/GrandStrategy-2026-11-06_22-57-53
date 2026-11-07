@@ -115,7 +115,18 @@ namespace GrandStrategy.WorldGeneration.Editor
             EditorGUILayout.LabelField("OpenGS terrain", string.IsNullOrEmpty(province.Terrain) ? "Unavailable" : province.Terrain);
             EditorGUILayout.LabelField("Territory", province.TerritoryId ?? "Unassigned");
             EditorGUILayout.LabelField("Samples", province.PixelCount.ToString("N0"));
-            if (map.HasRiverData) EditorGUILayout.LabelField("River route samples", province.RiverSamples.ToString("N0"));
+            if (map.HasRiverFootprint)
+            {
+                var presence = province.RiverWaterSamples > 0
+                    ? province.RiverBankEdges > 0 ? "Inside and along border" : "Inside province"
+                    : province.RiverBankEdges > 0 ? "Along province border" : "None";
+                EditorGUILayout.LabelField("River", presence);
+                EditorGUILayout.LabelField("River water inside", province.RiverWaterSamples.ToString("N0"));
+                if (province.Type == "land")
+                    EditorGUILayout.LabelField("River bank edges", province.RiverBankEdges.ToString("N0"));
+            }
+            else if (map.HasRiverData)
+                EditorGUILayout.LabelField("River banks", "Reimport to calculate");
             if (map.HasCoastData && province.Type == "land")
                 EditorGUILayout.LabelField("Borders open sea", province.TouchesOpenSea ? "Yes" : "No");
             if (province.BiomeCounts != null)
