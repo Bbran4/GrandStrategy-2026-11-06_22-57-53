@@ -16,6 +16,8 @@ namespace GrandStrategy.WorldGeneration
         // Kept for loading worlds saved before the explicit cut layer.
         [SerializeField, HideInInspector] private float[] carvedElevations;
         [SerializeField, HideInInspector] private byte[] riverDirections;
+        [SerializeField, HideInInspector] private byte[] riverWidths;
+        [SerializeField, HideInInspector] private float riverWidthScale;
         [SerializeField, HideInInspector] private float riverCatchmentPercent;
         [SerializeField, HideInInspector] private float riverCarveDepth;
 
@@ -42,6 +44,8 @@ namespace GrandStrategy.WorldGeneration
             riverDirections = rivers == null ? null : (byte[])rivers.Directions.Clone();
             riverCatchmentPercent = rivers?.CatchmentPercent ?? 0f;
             riverCarveDepth = rivers?.CarveDepth ?? 0f;
+            riverWidths = (byte[])rivers?.Widths?.Clone();
+            riverWidthScale = rivers?.WidthScale ?? 0f;
             this.heightScale = heightScale;
         }
 
@@ -54,7 +58,9 @@ namespace GrandStrategy.WorldGeneration
             var cuts = (riverCutElevations?.Length ?? 0) > 0
                 ? (float[])riverCutElevations.Clone() : RecoverLegacyCuts(world);
             var directions = (byte[])riverDirections?.Clone();
-            return RiverMap.Compose(world, cuts, directions, riverCatchmentPercent, riverCarveDepth);
+            var widths = (riverWidths?.Length ?? 0) > 0 ? (byte[])riverWidths.Clone() : null;
+            var widthScale = riverWidthScale == 0f ? RiverGenerator.DefaultWidthScale : riverWidthScale;
+            return RiverMap.Compose(world, cuts, directions, riverCatchmentPercent, riverCarveDepth, widths, widthScale);
         }
 
         private float[] RecoverLegacyCuts(HeightmapResult world)

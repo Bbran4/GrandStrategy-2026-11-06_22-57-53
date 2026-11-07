@@ -21,6 +21,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         [SerializeField] private bool exportNavalMask;
         private RiverNavigation navigation;
         private HeightmapResult result;
+        [SerializeField] private float riverWidthScale = RiverGenerator.DefaultWidthScale;
         private RiverMap rivers;
         private WaterMap water;
         private Texture2D preview;
@@ -150,6 +151,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 riverCatchment, RiverGenerator.MinimumCatchmentPercent, RiverGenerator.MaximumCatchmentPercent);
             riverDepth = EditorGUILayout.Slider(new GUIContent("Channel depth", "Typical cut in normalized height units. Saddles may need deeper cuts."),
                 riverDepth, RiverGenerator.MinimumCarveDepth, RiverGenerator.MaximumCarveDepth);
+            riverWidthScale = EditorGUILayout.Slider(new GUIContent("Channel width", "Multiplier for river water and carved banks. Tributaries widen the river downstream."),
+                riverWidthScale, RiverGenerator.MinimumWidthScale, RiverGenerator.MaximumWidthScale);
             using (new EditorGUILayout.HorizontalScope())
             {
                 using (new EditorGUI.DisabledScope(result == null))
@@ -311,7 +314,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             try
             {
                 var next = RiverGenerator.Generate(rivers?.Base ?? result, riverCatchment, riverDepth,
-                    (fraction, label) => !EditorUtility.DisplayCancelableProgressBar("Generating rivers", label, fraction));
+                    (fraction, label) => !EditorUtility.DisplayCancelableProgressBar("Generating rivers", label, fraction), riverWidthScale);
                 if (next.ChannelCells == 0)
                 {
                     SetPreview(next.Base, null, HeightmapPreviewMode.Relief);
@@ -380,6 +383,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 {
                     riverCatchment = network.CatchmentPercent;
                     riverDepth = network.CarveDepth;
+                    riverWidthScale = network.WidthScale;
                 }
                 heightScale = savedWorld.HeightScale;
                 recipe = nextRecipe;
@@ -443,6 +447,9 @@ namespace GrandStrategy.WorldGeneration.Editor
             public int ChannelCells;
             public float CatchmentPercent;
             public float CarveDepth;
+            public float WidthScale;
+            public string Widths;
+            public string WidthEncoding;
             public string NavalLandMask;
             public string NavalAccessRaster;
             public string NavalAccessEncoding;
@@ -470,13 +477,20 @@ namespace GrandStrategy.WorldGeneration.Editor
                     {
                         ChannelCells = rivers.ChannelCells,
                         CatchmentPercent = rivers.CatchmentPercent,
-                        CarveDepth = rivers.CarveDepth
+                        CarveDepth = rivers.CarveDepth,
+                        WidthScale = rivers.WidthScale
                     };
                     using (var stream = new FileStream(Path.Combine(folder, manifest.Rivers.BaseHeightmap), FileMode.CreateNew))
                         HeightmapEncoding.WriteRaw16(rivers.Base, stream);
                     using (var stream = new FileStream(Path.Combine(folder, manifest.Rivers.CutElevations), FileMode.CreateNew))
                         HeightmapEncoding.WriteRiverCuts(rivers, stream);
                     File.WriteAllBytes(Path.Combine(folder, manifest.Rivers.Directions), rivers.Directions);
+                    if (rivers.Widths != null)
+                    {
+                        manifest.Rivers.Widths = "river-widths.raw";
+                        manifest.Rivers.WidthEncoding = "Unsigned byte per sample in RAW16 order. Zero is off-channel. Positive values give the full river width in raster samples.";
+                        File.WriteAllBytes(Path.Combine(folder, manifest.Rivers.Widths), rivers.Widths);
+                    }
                     WritePng(Path.Combine(folder, "rivers.png"), HeightmapPreviewMode.Rivers);
                     if (exportNavalMask)
                     {

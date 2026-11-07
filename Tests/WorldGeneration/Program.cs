@@ -57,6 +57,7 @@ internal static class Program
         }
         CheckWater();
         CheckRivers();
+        CheckRiverWidths();
         CheckNavalAccess();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
         if (args.Contains("--benchmark"))
@@ -124,6 +125,33 @@ internal static class Program
             "A higher rise limit should extend an existing ocean route.");
         Require(water[mouth] == WaterKind.Land && water[lake] == WaterKind.Lake,
             "Naval access must preserve the source geography.");
+    }
+
+    private static void CheckRiverWidths()
+    {
+        var recipe = Small();
+        recipe.Width = 256;
+        recipe.Height = 128;
+        var heights = Enumerable.Repeat(recipe.SeaLevel + .25f, recipe.Width * recipe.Height).ToArray();
+        heights[0] = recipe.SeaLevel / 2;
+        var world = new HeightmapResult(recipe, heights);
+        var narrow = RiverGenerator.Generate(world, widthScale: RiverGenerator.MinimumWidthScale);
+        var wide = RiverGenerator.Generate(world, widthScale: RiverGenerator.MaximumWidthScale);
+        Require(wide.Directions.SequenceEqual(narrow.Directions), "Width must preserve the drainage routes.");
+        Require(wide.Widths.Max() > wide.Widths.Where(width => width > 0).Min(),
+            "The river mouth should be wider than headwaters.");
+        for (var i = 0; i < wide.Directions.Length; i++)
+        {
+            if (wide.Directions[i] == 0) continue;
+            var downstream = wide.DownstreamIndex(i);
+            if (wide.Directions[downstream] != 0)
+                Require(wide.Widths[downstream] >= wide.Widths[i], "A river narrowed downstream.");
+        }
+        Require(wide.BuildSurfaceMask().Count(cell => cell != 0) > narrow.BuildSurfaceMask().Count(cell => cell != 0),
+            "The width control should widen the visible river surface.");
+        Require(wide.CutElevations.Count(cut => cut != 0) > narrow.CutElevations.Count(cut => cut != 0),
+            "The width control should widen the carved channel.");
+        Require(wide.BuildSurfaceMask()[0] == 0, "The river surface must preserve the ocean at its outlet.");
     }
 
     private static void CheckRivers()

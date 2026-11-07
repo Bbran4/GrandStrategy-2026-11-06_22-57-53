@@ -25,7 +25,7 @@ The preview displays existing water at sea level. Small features can be absent f
 
 ### Carving rivers
 
-Generate or load terrain, then click **Generate Rivers**. Lower **Catchment (%)** to include smaller tributaries. **Channel depth** controls typical incision. The **Rivers** view highlights centerlines on the carved terrain in 2D and 3D. **Clear Rivers** restores the base. Generating rivers again always starts from that base.
+Generate or load terrain, then click **Generate Rivers**. Lower **Catchment (%)** to include smaller tributaries. **Channel depth** controls typical incision. **Channel width** scales both the visible water and the carved banks. Contributing area makes headwaters narrow and widens the river toward its mouth. Generate rivers again to apply changes. The **Rivers** view shows the resulting water footprint in 2D and 3D. Older river assets keep their centerline preview until regenerated. **Clear Rivers** restores the base. Generating rivers again always starts from that base.
 
 Routing starts at existing water and uses an eight-neighbour adaptation of Priority-Flood. A temporary spill priority lets flow cross dry saddles while the base samples stay intact. Contributing area sets the channel threshold and width. A final pass grades channel beds toward their outlets, which can require deeper cuts through saddles. Flat bed sections can occur. Carving stays at or above sea level on land so existing oceans and lakes keep their footprints. [Priority-Flood paper](https://doi.org/10.1016/j.cageo.2013.04.024)
 
@@ -119,6 +119,7 @@ Each export creates a new uniquely named subfolder under the chosen parent. An i
 | heightmap-base.raw | Original samples in the same format, included when rivers are present |
 | river-cuts.f32 | One little-endian float32 per sample when rivers are present, aligned with the base and final rasters. Zero keeps the base value. Positive values give the final cut elevation before RAW16 quantization |
 | river-directions.raw | One byte per sample when rivers are present. Zero means no channel. Values 1–8 run counterclockwise from east in 45-degree increments |
+| river-widths.raw | One unsigned byte per sample when a width layer is present. Zero means off-channel. Positive values give full river width in raster samples |
 | rivers.png | Inspection image of the channel network over carved relief, included when rivers are present |
 | heightmap-preview.png | 8-bit grayscale inspection image, not the precision source |
 | relief.png | Coloured elevation inspection image |

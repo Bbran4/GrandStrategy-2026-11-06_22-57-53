@@ -40,8 +40,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                 for (var i = 0; i < loaded.Elevations.Length; i++)
                     if (loaded.Elevations[i] != network.Terrain.Elevations[i]
                         || loadedNetwork.CutElevations[i] != network.CutElevations[i]
-                        || loadedNetwork.Directions[i] != network.Directions[i])
-                        throw new Exception("Saved river geometry, cut layer, or direction changed.");
+                        || loadedNetwork.Directions[i] != network.Directions[i]
+                        || loadedNetwork.Widths[i] != network.Widths[i])
+                        throw new Exception("Saved river geometry, cut layer, direction, or width changed.");
                 if (asset.HeightScale != authoredHeightScale)
                     throw new Exception("Terrain height scale did not survive the asset disk round-trip.");
                 var output = Path.Combine(Path.GetTempPath(), "GrandStrategy-worldgen-qa");

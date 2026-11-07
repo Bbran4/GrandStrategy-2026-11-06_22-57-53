@@ -23,6 +23,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             try
             {
                 var colours = new Color32[width * height];
+                var riverSurface = mode == HeightmapPreviewMode.Rivers ? rivers?.BuildSurfaceMask() : null;
                 var sea = result.Recipe.SeaLevel;
                 for (var y = 0; y < height; y++)
                     for (var x = 0; x < width; x++)
@@ -56,7 +57,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                             var light = Vector3.Dot(normal, new Vector3(-.5f, .6f, .8f).normalized);
                             colour *= Mathf.Clamp(.7f + .4f * light, .4f, 1.1f);
                         }
-                        if (mode == HeightmapPreviewMode.Rivers && rivers != null && rivers.Directions[index] != 0)
+                        if (riverSurface != null && riverSurface[index] != 0)
                             colour = new Color(.08f, .59f, .79f);
                         colour.a = 1; colours[index] = colour;
                     }

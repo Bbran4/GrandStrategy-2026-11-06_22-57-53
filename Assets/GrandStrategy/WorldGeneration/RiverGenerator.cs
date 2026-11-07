@@ -10,12 +10,15 @@ namespace GrandStrategy.WorldGeneration
         public float[] CutElevations { get; }
         // Zero is outside the network. 1–8 run counterclockwise from east, in 45-degree increments.
         public byte[] Directions { get; }
+        // Full water width in raster samples. Zero is off-channel. Older assets omit the layer.
+        public byte[] Widths { get; }
+        public float WidthScale { get; }
         public int ChannelCells { get; }
         public float CatchmentPercent { get; }
         public float CarveDepth { get; }
 
         private RiverMap(HeightmapResult world, HeightmapResult terrain, float[] cuts, byte[] directions,
-            int channelCells, float catchmentPercent, float carveDepth)
+            int channelCells, float catchmentPercent, float carveDepth, byte[] widths, float widthScale)
         {
             Base = world;
             Terrain = terrain;
@@ -24,23 +27,55 @@ namespace GrandStrategy.WorldGeneration
             ChannelCells = channelCells;
             CatchmentPercent = catchmentPercent;
             CarveDepth = carveDepth;
+            Widths = widths;
+            WidthScale = widthScale;
         }
 
         public int DownstreamIndex(int index) => RiverGenerator.Neighbor(index, Directions[index],
             Base.Recipe.Width, Base.Recipe.Height);
 
+        public byte[] BuildSurfaceMask()
+        {
+            var width = Base.Recipe.Width;
+            var height = Base.Recipe.Height;
+            var sea = Base.Recipe.SeaLevel;
+            var surface = new byte[Directions.Length];
+            for (var cell = 0; cell < Directions.Length; cell++)
+            {
+                if (Directions[cell] == 0) continue;
+                var radius = (Widths?[cell] ?? 1) * .5f;
+                var reach = (int)Math.Floor(radius);
+                var x = cell % width;
+                var y = cell / width;
+                var radiusSquared = radius * radius;
+                for (var row = Math.Max(0, y - reach); row <= Math.Min(height - 1, y + reach); row++)
+                    for (var column = Math.Max(0, x - reach); column <= Math.Min(width - 1, x + reach); column++)
+                    {
+                        var dx = column - x;
+                        var dy = row - y;
+                        var index = row * width + column;
+                        if (dx * dx + dy * dy <= radiusSquared && Base.Elevations[index] >= sea)
+                            surface[index] = 1;
+                    }
+            }
+            return surface;
+        }
+
         internal static float ApplyCut(float original, float cut) => cut == 0f ? original : cut;
 
         internal static RiverMap Compose(HeightmapResult world, float[] cuts, byte[] directions,
-            float catchmentPercent, float carveDepth)
+            float catchmentPercent, float carveDepth, byte[] widths = null,
+            float widthScale = RiverGenerator.DefaultWidthScale)
         {
-            RiverGenerator.ValidateSettings(catchmentPercent, carveDepth);
+            RiverGenerator.ValidateSettings(catchmentPercent, carveDepth, widthScale);
             var width = world.Recipe.Width;
             var height = world.Recipe.Height;
             var sea = world.Recipe.SeaLevel;
             var source = world.Elevations;
             if (cuts == null || directions == null || cuts.Length != source.Length || directions.Length != source.Length)
                 throw new InvalidOperationException("River layers do not match the heightmap dimensions.");
+            if (widths != null && widths.Length != source.Length)
+                throw new InvalidOperationException("River widths do not match the heightmap dimensions.");
 
             float[] final = null;
             var channels = 0;
@@ -55,6 +90,8 @@ namespace GrandStrategy.WorldGeneration
                     final[i] = cut;
                 }
 
+                if (widths != null && (widths[i] == 0) != (directions[i] == 0))
+                    throw new InvalidOperationException("River widths must align with channel directions.");
                 if (directions[i] == 0) continue;
                 channels++;
                 var next = RiverGenerator.Neighbor(i, directions[i], width, height);
@@ -64,7 +101,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             var terrain = final == null ? world : new HeightmapResult(world.Recipe.Copy(), final);
-            return new RiverMap(world, terrain, cuts, directions, channels, catchmentPercent, carveDepth);
+            return new RiverMap(world, terrain, cuts, directions, channels, catchmentPercent, carveDepth, widths, widthScale);
         }
     }
 
@@ -76,16 +113,20 @@ namespace GrandStrategy.WorldGeneration
         public const float MinimumCarveDepth = .001f;
         public const float MaximumCarveDepth = .04f;
         public const float DefaultCarveDepth = .012f;
+        public const float MinimumWidthScale = .5f;
+        public const float MaximumWidthScale = 2f;
+        public const float DefaultWidthScale = 1f;
 
         private const int PriorityLevels = 65536;
         private static readonly int[] DeltaX = { 0, 1, 1, 0, -1, -1, -1, 0, 1 };
         private static readonly int[] DeltaY = { 0, 0, 1, 1, 1, 0, -1, -1, -1 };
 
         public static RiverMap Generate(HeightmapResult world, float catchmentPercent = DefaultCatchmentPercent,
-            float carveDepth = DefaultCarveDepth, Func<float, string, bool> progress = null)
+            float carveDepth = DefaultCarveDepth, Func<float, string, bool> progress = null,
+            float widthScale = DefaultWidthScale)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
-            ValidateSettings(catchmentPercent, carveDepth);
+            ValidateSettings(catchmentPercent, carveDepth, widthScale);
             world.Recipe.Validate();
             var width = world.Recipe.Width;
             var height = world.Recipe.Height;
@@ -108,7 +149,7 @@ namespace GrandStrategy.WorldGeneration
             if (landCount == 0 || landCount == length)
             {
                 Report(progress, 1f, "No land-to-water drainage");
-                return RiverMap.Compose(world, new float[length], directions, catchmentPercent, carveDepth);
+                return RiverMap.Compose(world, new float[length], directions, catchmentPercent, carveDepth, widthScale: widthScale);
             }
 
             // Priority-Flood from existing water. The 16-bit priority is routing-only. Each land
@@ -164,6 +205,7 @@ namespace GrandStrategy.WorldGeneration
 
             var threshold = Math.Max(8, (int)Math.Ceiling(landCount * (double)catchmentPercent / 100));
             var cuts = new float[length];
+            var widths = new byte[length];
             var resolutionScale = Math.Sqrt(length / (1024d * 512d));
             for (var i = 0; i < settled; i++)
             {
@@ -174,9 +216,13 @@ namespace GrandStrategy.WorldGeneration
                     directions[cell] = 0;
                     continue;
                 }
-                var size = Math.Min(4d, Math.Sqrt((double)flow[cell] / threshold));
-                var radius = Math.Max(1d, size * resolutionScale);
-                CutChannel(cell, width, height, sea, radius, carveDepth * (float)(.4 + .15 * size), source, cuts);
+                var size = Math.Sqrt((double)flow[cell] / threshold);
+                // Contributing area grows downstream, including at tributary junctions.
+                var diameter = Math.Min(10d, size) * resolutionScale * widthScale;
+                widths[cell] = (byte)Math.Max(1d, Math.Round(diameter, MidpointRounding.AwayFromZero));
+                var bankRadius = .5d + widths[cell] * .8d;
+                var depthFactor = .4 + .15 * Math.Min(4d, size);
+                CutChannel(cell, width, height, sea, bankRadius, carveDepth * (float)depthFactor, source, cuts);
             }
 
             // Propagate the bed level from tributaries toward outlets. Where drainage crosses
@@ -192,17 +238,19 @@ namespace GrandStrategy.WorldGeneration
                     cuts[downstream] = bed;
             }
 
-            var result = RiverMap.Compose(world, cuts, directions, catchmentPercent, carveDepth);
+            var result = RiverMap.Compose(world, cuts, directions, catchmentPercent, carveDepth, widths, widthScale);
             Report(progress, 1f, "Rivers complete");
             return result;
         }
 
-        internal static void ValidateSettings(float catchmentPercent, float carveDepth)
+        internal static void ValidateSettings(float catchmentPercent, float carveDepth, float widthScale)
         {
             if (float.IsNaN(catchmentPercent) || catchmentPercent < MinimumCatchmentPercent || catchmentPercent > MaximumCatchmentPercent)
                 throw new ArgumentOutOfRangeException(nameof(catchmentPercent));
             if (float.IsNaN(carveDepth) || carveDepth < MinimumCarveDepth || carveDepth > MaximumCarveDepth)
                 throw new ArgumentOutOfRangeException(nameof(carveDepth));
+            if (float.IsNaN(widthScale) || widthScale < MinimumWidthScale || widthScale > MaximumWidthScale)
+                throw new ArgumentOutOfRangeException(nameof(widthScale));
         }
 
         internal static int Neighbor(int cell, byte direction, int width, int height)
