@@ -14,7 +14,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         [SerializeField] private HeightmapPreviewMode previewMode;
         [SerializeField] private int selectedStep;
         [SerializeField] private bool show3D;
-        [SerializeField] private float heightScale = .35f;
+        [SerializeField] private float heightScale = WorldHeightmap.DefaultHeightScale;
         private HeightmapResult result;
         private WaterMap water;
         private Texture2D preview;
@@ -176,8 +176,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 show3D = GUILayout.Toggle(show3D, "3D", EditorStyles.toolbarButton, GUILayout.Width(35));
                 if (show3D)
                 {
-                    GUILayout.Label("Height", GUILayout.Width(40));
-                    heightScale = GUILayout.HorizontalSlider(heightScale, .05f, 1, GUILayout.Width(95));
+                    GUILayout.Label(new GUIContent("Height", "Terrain height scale. Saved with the world and included in exports."), GUILayout.Width(40));
+                    heightScale = GUILayout.HorizontalSlider(heightScale, WorldHeightmap.MinimumHeightScale, WorldHeightmap.MaximumHeightScale, GUILayout.Width(95));
                     if (GUILayout.Button("Reset view", EditorStyles.toolbarButton, GUILayout.Width(70))) preview3D?.ResetView();
                 }
                 else if (preview3D != null) { preview3D.Dispose(); preview3D = null; }
@@ -195,7 +195,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     preview3D.SetWorld(result, preview, heightScale, previewMode == HeightmapPreviewMode.LandAndWater);
                     if (preview3D.HandleInput(area)) Repaint();
                     preview3D.Draw(area);
-                    GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), "Drag to orbit | Scroll to zoom | Height changes preview only", EditorStyles.whiteMiniLabel);
+                    GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), "Drag to orbit | Scroll to zoom | Height is saved with the world", EditorStyles.whiteMiniLabel);
                 }
                 catch (Exception ex) { show3D = false; ShowError(ex); }
             }
@@ -250,14 +250,14 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         private void SaveWorld()
         {
-            var path = EditorUtility.SaveFilePanelInProject("Save world heightmap", $"OldWorld-{result.Recipe.Seed}", "asset", "Save the displayed elevations and their generation recipe.");
+            var path = EditorUtility.SaveFilePanelInProject("Save world heightmap", $"OldWorld-{result.Recipe.Seed}", "asset", "Save the displayed elevations, generation recipe, and terrain height scale.");
             if (string.IsNullOrEmpty(path)) return;
             // New assets only: never silently replace an authored world or its GUID.
             if (File.Exists(path)) { status = "Choose a new filename to preserve the existing world."; return; }
             WorldHeightmap asset = null;
             try
             {
-                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result);
+                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result, heightScale);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 savedWorld = asset; EditorGUIUtility.PingObject(asset); status = "Saved " + path;
             }
@@ -269,6 +269,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             try
             {
                 var next = savedWorld.Read();
+                heightScale = savedWorld.HeightScale;
                 result = next; recipe = next.Recipe.Copy(); selectedStep = 0; settingsChanged = false; RefreshPreview();
                 status = "Loaded saved world. Its elevations are preserved; Generate explicitly replaces the displayed result.";
             }
@@ -309,6 +310,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             public string Coordinates = "X west to east; Y south to north; row-major. PNG top corresponds to north.";
             public string RawEncoding = "unsigned 16-bit little-endian; no header; first row south; normalized 0-65535";
             public string ElevationUnits = "normalized 0-1, not metres";
+            public float TerrainHeightScale;
             public string WaterMask = "OpenGS Land Image: RGB ocean (5,20,18), lakes (0,255,0), land (255,255,255). Exact unshaded PNG bytes.";
             public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean; remaining submerged samples are lakes. No above-sea-level lake filling yet.";
             public string Preview = "8-bit PNGs are inspection images; RAW16 and the Unity asset preserve higher precision";
@@ -327,7 +329,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 WritePng(Path.Combine(folder, "heightmap-preview.png"), HeightmapPreviewMode.Grayscale);
                 WritePng(Path.Combine(folder, "relief.png"), HeightmapPreviewMode.Relief);
                 WritePng(Path.Combine(folder, "land-mask.png"), HeightmapPreviewMode.LandAndWater);
-                File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(new ExportManifest { Recipe = result.Recipe }, true));
+                File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(new ExportManifest { Recipe = result.Recipe, TerrainHeightScale = heightScale }, true));
                 status = "Exported to " + folder;
                 EditorUtility.RevealInFinder(folder);
             }

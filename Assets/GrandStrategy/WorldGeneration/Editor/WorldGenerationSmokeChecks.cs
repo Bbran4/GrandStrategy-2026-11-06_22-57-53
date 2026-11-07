@@ -22,13 +22,19 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var regenerated = HeightmapGenerator.Generate(restored);
                 for (var i = 0; i < world.Elevations.Length; i++)
                     if (world.Elevations[i] != regenerated.Elevations[i]) throw new Exception("Recipe JSON changed generation.");
-                asset = ScriptableObject.CreateInstance<WorldHeightmap>(); asset.Initialize(world);
+                const float authoredHeightScale = .17f;
+                asset = ScriptableObject.CreateInstance<WorldHeightmap>();
+                if (asset.HeightScale != WorldHeightmap.DefaultHeightScale)
+                    throw new Exception("An asset without a serialized height scale should use the original preview default.");
+                asset.Initialize(world, authoredHeightScale);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 Resources.UnloadAsset(asset); asset = null;
                 asset = AssetDatabase.LoadAssetAtPath<WorldHeightmap>(path);
                 var loaded = asset.Read();
                 if (loaded.Elevations[123456] != expected || loaded.Elevations.Length != 1024 * 512)
                     throw new Exception("Asset disk round-trip failed.");
+                if (asset.HeightScale != authoredHeightScale)
+                    throw new Exception("Terrain height scale did not survive the asset disk round-trip.");
                 var output = Path.Combine(Path.GetTempPath(), "GrandStrategy-worldgen-qa");
                 Directory.CreateDirectory(output);
                 var water = WaterMap.Classify(loaded);
@@ -44,7 +50,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     finally { UnityEngine.Object.DestroyImmediate(texture); }
                 }
                 CheckOpenGsPng(output);
-                var mesh = Heightmap3DPreview.CreateMesh(loaded, .35f);
+                var mesh = Heightmap3DPreview.CreateMesh(loaded, asset.HeightScale);
                 try
                 {
                     if (mesh.vertexCount != 257 * 129 || Math.Abs(mesh.bounds.size.x - 2) > .00001f || Math.Abs(mesh.bounds.size.z - 1) > .00001f)
