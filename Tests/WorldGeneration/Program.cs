@@ -125,6 +125,24 @@ internal static class Program
             "A higher rise limit should extend an existing ocean route.");
         Require(water[mouth] == WaterKind.Land && water[lake] == WaterKind.Lake,
             "Naval access must preserve the source geography.");
+
+        var widths = new byte[directions.Length];
+        widths[mouth] = widths[inland] = widths[upland] = widths[lakeReach] = 4;
+        var wideRiver = RiverMap.Compose(world, cuts, directions,
+            RiverGenerator.DefaultCatchmentPercent, RiverGenerator.DefaultCarveDepth, widths);
+        var wideAccess = RiverNavigation.Build(wideRiver, WaterMap.Classify(wideRiver.Terrain), .08f);
+        var waterSurface = wideRiver.BuildSurfaceMask();
+        var bankwardWater = 2 * recipe.Width + 4;
+        var uplandOnlyWater = 3 * recipe.Width + 5;
+        Require(wideAccess.ChannelCount == 2, "Wider water must keep the same two route nodes.");
+        Require(waterSurface[bankwardWater] != 0 && wideAccess[bankwardWater] == RiverNavigation.WaterFootprint,
+            "Naval corridors must include the full width of their river water.");
+        Require(waterSurface[uplandOnlyWater] != 0 && wideAccess[uplandOnlyWater] == 0,
+            "A wide upland river must not gain naval access.");
+        Require(wideAccess[lake] == 0, "A wide naval mask must preserve lakes.");
+        for (var i = 0; i < waterSurface.Length; i++)
+            Require((wideAccess[i] & RiverNavigation.WaterFootprint) == 0 || waterSurface[i] != 0,
+                "Naval river width must follow the shared river surface.");
     }
 
     private static void CheckRiverWidths()

@@ -10,6 +10,7 @@ namespace GrandStrategy.WorldGeneration
         public const float MaximumRiseLimit = .25f;
         public const byte Channel = 1;
         public const byte Connector = 2;
+        public const byte WaterFootprint = 4;
 
         private readonly byte[] cells;
         public int ChannelCount { get; }
@@ -60,6 +61,9 @@ namespace GrandStrategy.WorldGeneration
                     AddChannel(candidate, cell, width, water, cells, upstream);
                 }
             }
+
+            foreach (var cell in upstream)
+                rivers.StampSurface(cells, cell, WaterFootprint);
 
             return new RiverNavigation(cells, upstream.Count);
         }

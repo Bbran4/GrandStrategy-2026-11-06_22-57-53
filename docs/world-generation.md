@@ -47,8 +47,8 @@ Enable **Export naval mask** to include two optional files. The export manifest 
 
 | File | Contents |
 | --- | --- |
-| naval-land-mask.png | An alternate OpenGS Land Image. Accepted reaches use ocean RGB (5,20,18), with cardinal connections for diagonal reaches. Existing lakes keep their lake colour. |
-| river-naval-access.raw | One byte per sample in heightmap order. Bit 0 marks a route cell and bit 1 marks a mask-only connector. Route cells use the original river directions for movement. |
+| naval-land-mask.png | An alternate OpenGS Land Image. Accepted reaches use the full river water width and ocean RGB (5,20,18), with cardinal connections for diagonal reaches. Existing lakes keep their lake colour. |
+| river-naval-access.raw | One byte per sample in heightmap order. Bit 0 marks a route cell, bit 1 marks a mask-only connector, and bit 2 marks the shared river water footprint. Route cells use the original river directions for movement. |
 
 Use the alternate image in OpenGS to try generating ocean provinces along the river. OpenGS decides province boundaries and grouping, so inspect whether narrow reaches receive useful province shapes. Use the regular land mask when authoring land provinces and keep naval access as a separate gameplay layer if the same area needs land ownership and ship access. [OpenGS MapTool](https://github.com/Thomas-Holtvedt/opengs-maptool#readme)
 

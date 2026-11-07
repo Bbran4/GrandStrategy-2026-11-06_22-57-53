@@ -36,29 +36,34 @@ namespace GrandStrategy.WorldGeneration
 
         public byte[] BuildSurfaceMask()
         {
+            var surface = new byte[Directions.Length];
+            for (var cell = 0; cell < Directions.Length; cell++)
+                if (Directions[cell] != 0) StampSurface(surface, cell, 1);
+            return surface;
+        }
+
+        internal void StampSurface(byte[] destination, int cell, byte flag)
+        {
             var width = Base.Recipe.Width;
             var height = Base.Recipe.Height;
             var sea = Base.Recipe.SeaLevel;
-            var surface = new byte[Directions.Length];
-            for (var cell = 0; cell < Directions.Length; cell++)
-            {
-                if (Directions[cell] == 0) continue;
-                var radius = (Widths?[cell] ?? 1) * .5f;
-                var reach = (int)Math.Floor(radius);
-                var x = cell % width;
-                var y = cell / width;
-                var radiusSquared = radius * radius;
-                for (var row = Math.Max(0, y - reach); row <= Math.Min(height - 1, y + reach); row++)
-                    for (var column = Math.Max(0, x - reach); column <= Math.Min(width - 1, x + reach); column++)
-                    {
-                        var dx = column - x;
-                        var dy = row - y;
-                        var index = row * width + column;
-                        if (dx * dx + dy * dy <= radiusSquared && Base.Elevations[index] >= sea)
-                            surface[index] = 1;
-                    }
-            }
-            return surface;
+            var radius = (Widths?[cell] ?? 1) * .5f;
+            var reach = (int)Math.Floor(radius);
+            var x = cell % width;
+            var y = cell / width;
+            var radiusSquared = radius * radius;
+            var firstColumn = Math.Max(0, x - reach);
+            var lastColumn = Math.Min(width - 1, x + reach);
+            var lastRow = Math.Min(height - 1, y + reach);
+            for (var row = Math.Max(0, y - reach); row <= lastRow; row++)
+                for (var column = firstColumn; column <= lastColumn; column++)
+                {
+                    var dx = column - x;
+                    var dy = row - y;
+                    var index = row * width + column;
+                    if (dx * dx + dy * dy <= radiusSquared && Base.Elevations[index] >= sea)
+                        destination[index] |= flag;
+                }
         }
 
         internal static float ApplyCut(float original, float cut) => cut == 0f ? original : cut;

@@ -497,7 +497,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                         var access = navigation ?? RiverNavigation.Build(rivers, water, maximumNavalRise);
                         manifest.Rivers.NavalLandMask = "naval-land-mask.png";
                         manifest.Rivers.NavalAccessRaster = "river-naval-access.raw";
-                        manifest.Rivers.NavalAccessEncoding = "One byte per sample in RAW16 order. Bit 0 marks a ship route. Bit 1 marks a mask-only connector.";
+                        manifest.Rivers.NavalAccessEncoding = "One byte per sample in RAW16 order. Bit 0 marks a ship route. Bit 1 marks a mask-only connector. Bit 2 marks the shared river water footprint.";
                         manifest.Rivers.NavalMaximumRise = maximumNavalRise;
                         manifest.Rivers.NavalChannelCells = access.ChannelCount;
                         WritePng(Path.Combine(folder, manifest.Rivers.NavalLandMask), HeightmapPreviewMode.NavalAccess, access);
