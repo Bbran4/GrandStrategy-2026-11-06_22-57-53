@@ -21,19 +21,22 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField, HideInInspector] private float riverCatchmentPercent;
         [SerializeField, HideInInspector] private float riverCarveDepth;
         [SerializeField, HideInInspector] private bool hasClimate;
+        [SerializeField, HideInInspector] private bool hasBiomes;
         [SerializeField, HideInInspector] private ClimateSettings climateSettings;
 
         public int Width => recipe == null ? 0 : recipe.Width;
         public int Height => recipe == null ? 0 : recipe.Height;
         public int Seed => recipe == null ? 0 : recipe.Seed;
         public float SeaLevel => recipe == null ? 0 : recipe.SeaLevel;
+        public bool HasBiomes => hasBiomes;
         public bool HasRivers => (riverDirections?.Length ?? 0) > 0
             || (riverCutElevations?.Length ?? 0) > 0 || (carvedElevations?.Length ?? 0) > 0;
 
         // Assets saved before height scale was introduced have no serialized value.
         public float HeightScale => heightScale == 0f ? DefaultHeightScale : heightScale;
 
-        public void Initialize(HeightmapResult result, float heightScale = DefaultHeightScale, RiverMap rivers = null, ClimateMap climate = null)
+        public void Initialize(HeightmapResult result, float heightScale = DefaultHeightScale, RiverMap rivers = null, ClimateMap climate = null,
+            BiomeMap biomes = null)
         {
             if (result == null) throw new ArgumentNullException(nameof(result));
             ValidateHeightScale(heightScale);
@@ -41,6 +44,8 @@ namespace GrandStrategy.WorldGeneration
                 throw new ArgumentException("The river network belongs to a different terrain.", nameof(rivers));
             if (climate != null && !ReferenceEquals(climate.Source, result))
                 throw new ArgumentException("The climate belongs to a different terrain.", nameof(climate));
+            if (biomes != null && !ReferenceEquals(biomes.Climate, climate))
+                throw new ArgumentException("The biomes belong to a different climate.", nameof(biomes));
             recipe = result.Recipe.Copy();
             elevations = (float[])(rivers?.Base ?? result).Elevations.Clone();
             riverCutElevations = rivers == null ? null : (float[])rivers.CutElevations.Clone();
@@ -51,6 +56,7 @@ namespace GrandStrategy.WorldGeneration
             riverWidths = (byte[])rivers?.Widths?.Clone();
             riverWidthScale = rivers?.WidthScale ?? 0f;
             hasClimate = climate != null;
+            hasBiomes = biomes != null;
             climateSettings = climate?.Settings.Copy();
             this.heightScale = heightScale;
         }

@@ -56,7 +56,7 @@ Use the alternate image in OpenGS to try generating ocean provinces along the ri
 
 Generate or load terrain and click **Generate Climate**. Switch between **Temperature** and **Moisture** to inspect the results. Hover over the top-down map to see the estimated temperature and moisture index for a sample. Adjust the equator, elevation cooling, coastal reach, or wind and generate climate again to compare settings on the same world.
 
-Temperature is estimated from latitude and the final terrain elevation. The equator starts 15% of the way up from the south edge. Moisture uses distance to the nearest ocean and one prevailing wind. Uphill terrain removes moisture from the air, which dries out the downwind side. The model uses a fixed annual climate and a relative moisture index. Biomes and seasonal snow come later.
+Temperature is estimated from latitude and the final terrain elevation. The equator starts 15% of the way up from the south edge. Moisture uses distance to the nearest ocean and one prevailing wind. Uphill terrain removes moisture from the air, which dries out the downwind side. The model uses a fixed annual climate and a relative moisture index. The biome pass uses both values. Seasonal snow is a later step.
 
 Saving a world records the settings used by the displayed climate. Loading the world regenerates those layers from its saved terrain and settings. Worlds without climate settings can generate climate from the displayed terrain.
 
@@ -66,6 +66,18 @@ Climate exports include two opaque grayscale data images with the same dimension
 | --- | --- |
 | temperature.png | Grayscale 0 to 255 maps linearly from -40 to 45 C |
 | moisture.png | Grayscale 0 to 255 maps from dry to wet |
+
+### Assigning biomes and exporting Terrain
+
+Generate climate, then click **Generate Biomes**. The biome view shows oceans, lakes, rivers, wetlands, desert, grassland, temperate forest, tropical forest, boreal forest, tundra, and alpine terrain. Low ground near rivers and lakes can become wetland. Generating a new climate clears the previous biome result, so generate biomes again after tuning climate. Saved worlds with biomes regenerate them from their terrain, rivers, and saved climate on load.
+
+| File | Use |
+| --- | --- |
+| biomes.raw | Detailed biome IDs for gameplay. One unsigned byte per sample, in heightmap order. The manifest contains the ID legend |
+| terrain.png | OpenGS Terrain image paired with land-mask.png |
+| terrain-naval.png | OpenGS Terrain image paired with naval-land-mask.png when Export naval mask is enabled |
+
+Use the matching Land Image and Terrain Image in OpenGS. Mountains and hills use elevation bands, boreal and temperate forests share the forest colour, tropical forest uses jungle, wetlands use marsh, and tundra lowlands use plains. River cells count as marsh in the ordinary Terrain image and navigable water uses shallow sea in the naval image. OpenGS assigns terrain using the pixel at a province's centre. [OpenGS MapTool](https://github.com/Thomas-Holtvedt/opengs-maptool#readme)
 
 ## Resolution
 

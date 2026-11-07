@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace GrandStrategy.WorldGeneration.Editor
 {
-    public enum HeightmapPreviewMode { Relief, Grayscale, LandAndWater, Rivers, NavalAccess, Temperature, Moisture }
+    public enum HeightmapPreviewMode { Relief, Grayscale, LandAndWater, Rivers, NavalAccess, Temperature, Moisture, Biomes }
 
     internal static class HeightmapPreview
     {
@@ -10,7 +10,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             mode == HeightmapPreviewMode.Temperature || mode == HeightmapPreviewMode.Moisture;
 
         public static Texture2D Create(HeightmapResult result, HeightmapPreviewMode mode, WaterMap water = null, RiverMap rivers = null, RiverNavigation navigation = null,
-            ClimateMap climate = null, bool climateData = false)
+            ClimateMap climate = null, bool dataColors = false, BiomeMap biomes = null)
         {
             var showMask = mode == HeightmapPreviewMode.LandAndWater || mode == HeightmapPreviewMode.NavalAccess;
             if (showMask)
@@ -21,6 +21,9 @@ namespace GrandStrategy.WorldGeneration.Editor
             var showRiverSurface = mode == HeightmapPreviewMode.Rivers;
             if (showRiverSurface && rivers != null && !ReferenceEquals(rivers.Terrain, result))
                 throw new System.ArgumentException("River data belongs to a different world.");
+            var showBiomes = mode == HeightmapPreviewMode.Biomes;
+            if (showBiomes && (biomes == null || !ReferenceEquals(biomes.Source, result)))
+                throw new System.ArgumentException("Biome data must describe the displayed terrain.");
             var showClimate = IsClimateMode(mode);
             if (showClimate && (climate == null || !ReferenceEquals(climate.Source, result)))
                 throw new System.ArgumentException("Climate data must describe the displayed terrain.");
@@ -29,7 +32,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             var width = result.Recipe.Width; var height = result.Recipe.Height;
             var texture = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
                 { name = "Heightmap preview", hideFlags = HideFlags.HideAndDontSave, wrapMode = TextureWrapMode.Clamp,
-                    filterMode = showMask || climateData ? FilterMode.Point : FilterMode.Bilinear };
+                    filterMode = showMask || showBiomes || dataColors ? FilterMode.Point : FilterMode.Bilinear };
             try
             {
                 var colours = new Color32[width * height];
@@ -47,10 +50,18 @@ namespace GrandStrategy.WorldGeneration.Editor
                             colours[index] = new Color32(rgb.R, rgb.G, rgb.B, 255);
                             continue;
                         }
+                        if (showBiomes)
+                        {
+                            var rgb = dataColors
+                                ? biomes.OpenGsTerrainColour(index, navigation != null && navigation[index] != 0)
+                                : BiomeMap.PreviewColour(biomes[index]);
+                            colours[index] = new Color32(rgb.R, rgb.G, rgb.B, 255);
+                            continue;
+                        }
                         if (showClimate)
                         {
                             var value = climateSamples[index];
-                            colours[index] = climateData ? new Color32(value, value, value, 255) : ClimateColour(mode, value);
+                            colours[index] = dataColors ? new Color32(value, value, value, 255) : ClimateColour(mode, value);
                             continue;
                         }
                         var h = result.Elevations[index];

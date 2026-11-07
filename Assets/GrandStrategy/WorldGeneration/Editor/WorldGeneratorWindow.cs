@@ -22,6 +22,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private RiverNavigation navigation;
         [SerializeField] private ClimateSettings climateSettings = new ClimateSettings();
         private ClimateMap climate;
+        private BiomeMap biomes;
         private HeightmapResult result;
         [SerializeField] private float riverWidthScale = RiverGenerator.DefaultWidthScale;
         private RiverMap rivers;
@@ -160,7 +161,18 @@ namespace GrandStrategy.WorldGeneration.Editor
             climateSettings.MoistureReach = EditorGUILayout.Slider("Coastal moisture reach (%)", climateSettings.MoistureReach * 100f, 5f, 100f) / 100f;
             climateSettings.Wind = (PrevailingWind)EditorGUILayout.EnumPopup("Prevailing wind", climateSettings.Wind);
             using (new EditorGUI.DisabledScope(result == null))
+            {
                 if (GUILayout.Button("Generate Climate")) GenerateClimate();
+                if (GUILayout.Button("Generate Biomes"))
+                {
+                    try
+                    {
+                        SetPreview(result, rivers, HeightmapPreviewMode.Biomes);
+                        status = "Biomes generated. Export the world to get the OpenGS Terrain image.";
+                    }
+                    catch (Exception ex) { ShowError(ex); }
+                }
+            }
         }
 
         private void GenerateClimate()
@@ -295,7 +307,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     if (preview3D == null) preview3D = new Heightmap3DPreview();
                     preview3D.SetWorld(result, preview, heightScale,
                         previewMode == HeightmapPreviewMode.LandAndWater || previewMode == HeightmapPreviewMode.NavalAccess
-                        || HeightmapPreview.IsClimateMode(previewMode));
+                        || HeightmapPreview.IsClimateMode(previewMode) || previewMode == HeightmapPreviewMode.Biomes);
                     if (preview3D.HandleInput(area)) Repaint();
                     preview3D.Draw(area);
                     GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), "Drag to orbit | Scroll to zoom | Height is saved with the world", EditorStyles.whiteMiniLabel);
@@ -318,6 +330,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                     var detail = HeightmapPreview.IsClimateMode(previewMode) && climate != null
                         ? $"Temperature {climate.TemperatureCelsius(sample):F1} C | Moisture {climate.Moisture[sample] / 255f:P0}"
                         : $"Elevation {elevation:F4} | {(elevation >= result.Recipe.SeaLevel ? "Land" : "Water")}";
+                    if (previewMode == HeightmapPreviewMode.Biomes && biomes != null)
+                        detail = $"{biomes[sample]} | {climate.TemperatureCelsius(sample):F1} C | Moisture {climate.Moisture[sample] / 255f:P0}";
                     GUI.Label(new Rect(area.x + 12, area.yMax - 25, area.width - 24, 20), $"X {x} | Y {y} | {detail}", EditorStyles.whiteMiniLabel);
                     if (Event.current.type == EventType.MouseMove) Repaint();
                 }
@@ -385,14 +399,19 @@ namespace GrandStrategy.WorldGeneration.Editor
             var nextNavigation = mode == HeightmapPreviewMode.NavalAccess && network != null
                 ? RiverNavigation.Build(network, nextWater, maximumNavalRise) : null;
             var nextClimate = climateOverride ?? (ReferenceEquals(climate?.Source, terrain) ? climate : null);
-            if (HeightmapPreview.IsClimateMode(mode) && nextClimate == null)
+            if ((HeightmapPreview.IsClimateMode(mode) || mode == HeightmapPreviewMode.Biomes) && nextClimate == null)
                 nextClimate = ClimateGenerator.Generate(terrain, nextWater, settingsOverride ?? climateSettings);
-            var next = HeightmapPreview.Create(terrain, mode, nextWater, network, nextNavigation, nextClimate);
+            var nextBiomes = ReferenceEquals(biomes?.Climate, nextClimate) ? biomes : null;
+            if (mode == HeightmapPreviewMode.Biomes && nextBiomes == null)
+                nextBiomes = BiomeGenerator.Generate(nextClimate, nextWater, network);
+            var next = HeightmapPreview.Create(terrain, mode, nextWater, network, nextNavigation, nextClimate,
+                biomes: nextBiomes);
             if (preview != null) DestroyImmediate(preview);
             result = terrain;
             rivers = network;
             navigation = nextNavigation;
             climate = nextClimate;
+            biomes = nextBiomes;
             previewMode = mode;
             water = nextWater;
             preview = next;
@@ -408,7 +427,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             WorldHeightmap asset = null;
             try
             {
-                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result, heightScale, rivers, climate);
+                asset = CreateInstance<WorldHeightmap>(); asset.Initialize(result, heightScale, rivers, climate, biomes);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 savedWorld = asset; EditorGUIUtility.PingObject(asset); status = "Saved " + path;
             }
@@ -423,7 +442,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var terrain = network?.Terrain ?? savedWorld.Read();
                 var nextRecipe = terrain.Recipe.Copy();
                 var savedClimate = savedWorld.ReadClimateSettings();
-                var mode = savedClimate != null ? HeightmapPreviewMode.Temperature
+                var mode = savedWorld.HasBiomes ? HeightmapPreviewMode.Biomes
+                    : savedClimate != null ? HeightmapPreviewMode.Temperature
                     : network == null ? HeightmapPreviewMode.Relief : HeightmapPreviewMode.Rivers;
                 SetPreview(terrain, network, mode, settingsOverride: savedClimate);
                 if (savedClimate != null) climateSettings = savedClimate;
@@ -481,10 +501,21 @@ namespace GrandStrategy.WorldGeneration.Editor
             public string WaterClassification = "Below-sea-level samples connected to any map edge by four-neighbour paths are ocean. Other submerged samples are lakes. The optional naval image adds navigable river water above sea level and preserves lake pixels.";
             public string Preview = "8-bit PNGs are inspection images; RAW16 and the Unity asset preserve higher precision";
             public HeightmapRecipe Recipe;
+            public bool HasBiomes;
+            public BiomeExport Biomes;
             public bool HasClimate;
             public ClimateExport Climate;
             public bool HasRivers;
             public RiverExport Rivers;
+        }
+
+        [Serializable] private sealed class BiomeExport
+        {
+            public string Raster = "biomes.raw";
+            public string Encoding = "Unsigned byte per sample in RAW16 order. Each byte indexes the legend.";
+            public string[] Legend = Enum.GetNames(typeof(BiomeKind));
+            public string TerrainImage = "terrain.png";
+            public string NavalTerrainImage;
         }
 
         [Serializable] private sealed class ClimateExport
@@ -528,6 +559,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 WritePng(Path.Combine(folder, "relief.png"), HeightmapPreviewMode.Relief);
                 WritePng(Path.Combine(folder, "land-mask.png"), HeightmapPreviewMode.LandAndWater);
                 var manifest = new ExportManifest { Recipe = result.Recipe, TerrainHeightScale = heightScale };
+                RiverNavigation exportedAccess = null;
                 if (rivers != null)
                 {
                     manifest.HasRivers = true;
@@ -553,6 +585,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     if (exportNavalMask)
                     {
                         var access = navigation ?? RiverNavigation.Build(rivers, water, maximumNavalRise);
+                        exportedAccess = access;
                         manifest.Rivers.NavalLandMask = "naval-land-mask.png";
                         manifest.Rivers.NavalAccessRaster = "river-naval-access.raw";
                         manifest.Rivers.NavalAccessEncoding = "One byte per sample in RAW16 order. Bit 0 marks a ship route. Bit 1 marks a mask-only connector. Bit 2 marks the shared river water footprint.";
@@ -566,8 +599,21 @@ namespace GrandStrategy.WorldGeneration.Editor
                 {
                     manifest.HasClimate = true;
                     manifest.Climate = new ClimateExport { Settings = climate.Settings };
-                    WritePng(Path.Combine(folder, manifest.Climate.TemperatureImage), HeightmapPreviewMode.Temperature, climateData: true);
-                    WritePng(Path.Combine(folder, manifest.Climate.MoistureImage), HeightmapPreviewMode.Moisture, climateData: true);
+                    WritePng(Path.Combine(folder, manifest.Climate.TemperatureImage), HeightmapPreviewMode.Temperature, dataColors: true);
+                    WritePng(Path.Combine(folder, manifest.Climate.MoistureImage), HeightmapPreviewMode.Moisture, dataColors: true);
+                }
+                if (biomes != null)
+                {
+                    manifest.HasBiomes = true;
+                    manifest.Biomes = new BiomeExport();
+                    File.WriteAllBytes(Path.Combine(folder, manifest.Biomes.Raster), biomes.Samples);
+                    WritePng(Path.Combine(folder, manifest.Biomes.TerrainImage), HeightmapPreviewMode.Biomes, dataColors: true);
+                    if (exportedAccess != null)
+                    {
+                        manifest.Biomes.NavalTerrainImage = "terrain-naval.png";
+                        WritePng(Path.Combine(folder, manifest.Biomes.NavalTerrainImage), HeightmapPreviewMode.Biomes,
+                            exportedAccess, dataColors: true);
+                    }
                 }
                 File.WriteAllText(Path.Combine(folder, "manifest.json"), JsonUtility.ToJson(manifest, true));
                 status = "Exported to " + folder;
@@ -576,9 +622,9 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch (Exception ex) { status = "Export incomplete at " + folder + ". " + ex.Message; Debug.LogException(ex); }
         }
 
-        private void WritePng(string path, HeightmapPreviewMode mode, RiverNavigation access = null, bool climateData = false)
+        private void WritePng(string path, HeightmapPreviewMode mode, RiverNavigation access = null, bool dataColors = false)
         {
-            var texture = HeightmapPreview.Create(result, mode, water, rivers, access, climate, climateData);
+            var texture = HeightmapPreview.Create(result, mode, water, rivers, access, climate, dataColors, biomes);
             try { File.WriteAllBytes(path, texture.EncodeToPNG()); }
             finally { DestroyImmediate(texture); }
         }

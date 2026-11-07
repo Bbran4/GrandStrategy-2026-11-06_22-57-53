@@ -60,6 +60,7 @@ internal static class Program
         CheckRiverWidths();
         CheckNavalAccess();
         CheckClimate();
+        CheckBiomes();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
         if (args.Contains("--benchmark"))
         {
@@ -215,6 +216,66 @@ internal static class Program
 
         settings.Equator = float.NaN;
         Reject(() => ClimateGenerator.Generate(source, water, settings), "Invalid climate settings accepted.");
+    }
+
+    private static void CheckBiomes()
+    {
+        var recipe = Small();
+        recipe.Width = 32;
+        recipe.Height = 32;
+        var sea = recipe.SeaLevel;
+        var heights = Enumerable.Repeat(sea + .04f, 1024).ToArray();
+        var temperature = Enumerable.Repeat((byte)180, heights.Length).ToArray();
+        var moisture = Enumerable.Repeat((byte)100, heights.Length).ToArray();
+        const int riverCell = 32;
+        const int lake = 20 * 32 + 20;
+        const int wetland = lake - 1;
+        heights[0] = 0;
+        heights[1] = sea * .85f;
+        heights[lake] = sea / 2;
+        moisture[wetland] = 155;
+        moisture[100] = 30;
+        temperature[101] = 98;
+        temperature[102] = 130;
+        moisture[102] = 160;
+        temperature[103] = 210;
+        moisture[103] = 190;
+        moisture[104] = 160;
+        heights[105] = .9f;
+        temperature[105] = 100;
+
+        var cuts = new float[heights.Length];
+        var directions = new byte[heights.Length];
+        cuts[riverCell] = sea + .01f;
+        directions[riverCell] = 7;
+        var rivers = RiverMap.Compose(new HeightmapResult(recipe, heights), cuts, directions,
+            RiverGenerator.DefaultCatchmentPercent, RiverGenerator.DefaultCarveDepth);
+        var water = WaterMap.Classify(rivers.Terrain);
+        var climate = new ClimateMap(rivers.Terrain, new ClimateSettings(), temperature, moisture);
+        var map = BiomeGenerator.Generate(climate, water, rivers);
+        Require(map[0] == BiomeKind.DeepOcean && map[1] == BiomeKind.ShallowSea && map[lake] == BiomeKind.Lake,
+            "The biome layer must retain the existing water classes.");
+        Require(map[riverCell] == BiomeKind.River && map[wetland] == BiomeKind.Wetland,
+            "River water and freshwater wetlands should be represented.");
+        Require(map[100] == BiomeKind.Desert && map[101] == BiomeKind.Tundra
+            && map[102] == BiomeKind.BorealForest && map[103] == BiomeKind.TropicalForest
+            && map[104] == BiomeKind.TemperateForest && map[105] == BiomeKind.Alpine,
+            "Temperature, moisture, and relief must select the intended land biomes.");
+
+        RequireRgb(map.OpenGsTerrainColour(0), 2, 38, 150, "deep ocean");
+        RequireRgb(map.OpenGsTerrainColour(lake, navigableRiver: true), 58, 91, 255, "lake priority");
+        RequireRgb(map.OpenGsTerrainColour(riverCell), 76, 96, 35, "land-mask river");
+        RequireRgb(map.OpenGsTerrainColour(riverCell, navigableRiver: true), 56, 118, 217, "naval-mask river");
+        RequireRgb(map.OpenGsTerrainColour(102), 89, 199, 85, "boreal forest");
+        RequireRgb(map.OpenGsTerrainColour(103), 127, 191, 0, "jungle");
+        RequireRgb(map.OpenGsTerrainColour(105), 157, 192, 208, "mountain");
+        Require(map.Samples.SequenceEqual(BiomeGenerator.Generate(climate, water, rivers).Samples),
+            "Biome generation should reproduce the same raster.");
+    }
+
+    private static void RequireRgb(Rgb24 colour, byte r, byte g, byte b, string name)
+    {
+        Require(colour.R == r && colour.G == g && colour.B == b, $"Wrong OpenGS Terrain colour for {name}.");
     }
 
     private static void CheckRivers()

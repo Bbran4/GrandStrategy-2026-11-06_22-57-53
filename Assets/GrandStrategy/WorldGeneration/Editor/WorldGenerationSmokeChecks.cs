@@ -30,7 +30,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                     throw new Exception("An asset without a serialized height scale should use the original preview default.");
                 var authoredClimate = ClimateGenerator.Generate(network.Terrain, WaterMap.Classify(network.Terrain),
                     new ClimateSettings { Wind = PrevailingWind.NorthToSouth });
-                asset.Initialize(network.Terrain, authoredHeightScale, network, authoredClimate);
+                var authoredBiomes = BiomeGenerator.Generate(authoredClimate, WaterMap.Classify(network.Terrain), network);
+                asset.Initialize(network.Terrain, authoredHeightScale, network, authoredClimate, authoredBiomes);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 Resources.UnloadAsset(asset); asset = null;
                 asset = AssetDatabase.LoadAssetAtPath<WorldHeightmap>(path);
@@ -59,10 +60,15 @@ namespace GrandStrategy.WorldGeneration.Editor
                     if (climate.Temperature[i] != authoredClimate.Temperature[i]
                         || climate.Moisture[i] != authoredClimate.Moisture[i])
                         throw new Exception("Loaded climate differs from the authored climate.");
+                if (!asset.HasBiomes) throw new Exception("Biome settings were not retained.");
+                var biomes = BiomeGenerator.Generate(climate, water, loadedNetwork);
+                for (var i = 0; i < biomes.Samples.Length; i++)
+                    if (biomes.Samples[i] != authoredBiomes.Samples[i])
+                        throw new Exception("Loaded biomes differ from the authored biomes.");
                 foreach (HeightmapPreviewMode mode in Enum.GetValues(typeof(HeightmapPreviewMode)))
                 {
                     var texture = HeightmapPreview.Create(loadedNetwork.Terrain, mode, water, loadedNetwork, access, climate,
-                        climateData: HeightmapPreview.IsClimateMode(mode));
+                        dataColors: HeightmapPreview.IsClimateMode(mode), biomes: biomes);
                     try
                     {
                         var png = texture.EncodeToPNG();
@@ -78,6 +84,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                     }
                     finally { UnityEngine.Object.DestroyImmediate(texture); }
                 }
+                CheckTerrainPng(output, biomes);
+                CheckTerrainPng(output, biomes, access);
                 CheckOpenGsPng(output);
                 var mesh = Heightmap3DPreview.CreateMesh(loaded, asset.HeightScale);
                 try
@@ -117,6 +125,34 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var bytes = texture.EncodeToPNG();
                 CheckMaskPixels(bytes, water);
                 File.WriteAllBytes(Path.Combine(output, "OpenGS-sentinel.png"), bytes);
+            }
+            finally { UnityEngine.Object.DestroyImmediate(texture); }
+        }
+
+        private static void CheckTerrainPng(string output, BiomeMap biomes, RiverNavigation access = null)
+        {
+            var texture = HeightmapPreview.Create(biomes.Source, HeightmapPreviewMode.Biomes,
+                navigation: access, dataColors: true, biomes: biomes);
+            try
+            {
+                var bytes = texture.EncodeToPNG();
+                var decoded = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+                try
+                {
+                    if (!ImageConversion.LoadImage(decoded, bytes)
+                        || decoded.width != biomes.Source.Recipe.Width || decoded.height != biomes.Source.Recipe.Height)
+                        throw new Exception("OpenGS Terrain PNG has incorrect dimensions or could not be decoded.");
+                    var pixels = decoded.GetPixels32();
+                    for (var i = 0; i < pixels.Length; i++)
+                    {
+                        var expected = biomes.OpenGsTerrainColour(i, access != null && access[i] != 0);
+                        var pixel = pixels[i];
+                        if (pixel.r != expected.R || pixel.g != expected.G || pixel.b != expected.B || pixel.a != 255)
+                            throw new Exception($"Wrong OpenGS Terrain colour at sample {i}.");
+                    }
+                }
+                finally { UnityEngine.Object.DestroyImmediate(decoded); }
+                File.WriteAllBytes(Path.Combine(output, access == null ? "terrain.png" : "terrain-naval.png"), bytes);
             }
             finally { UnityEngine.Object.DestroyImmediate(texture); }
         }
