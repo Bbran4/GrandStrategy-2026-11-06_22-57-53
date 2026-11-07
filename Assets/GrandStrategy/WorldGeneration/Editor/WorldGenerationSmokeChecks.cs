@@ -31,6 +31,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var authoredClimate = ClimateGenerator.Generate(network.Terrain, WaterMap.Classify(network.Terrain),
                     new ClimateSettings { Wind = PrevailingWind.NorthToSouth });
                 var authoredBiomes = BiomeGenerator.Generate(authoredClimate, WaterMap.Classify(network.Terrain), network);
+                CheckRecipeRoundTrip(recipe, network, authoredClimate, authoredBiomes);
                 asset.Initialize(network.Terrain, authoredHeightScale, network, authoredClimate, authoredBiomes);
                 AssetDatabase.CreateAsset(asset, path); AssetDatabase.SaveAssets();
                 Resources.UnloadAsset(asset); asset = null;
@@ -127,6 +128,40 @@ namespace GrandStrategy.WorldGeneration.Editor
                 File.WriteAllBytes(Path.Combine(output, "OpenGS-sentinel.png"), bytes);
             }
             finally { UnityEngine.Object.DestroyImmediate(texture); }
+        }
+
+        private static void CheckRecipeRoundTrip(HeightmapRecipe terrain, RiverMap rivers, ClimateMap climate, BiomeMap biomes)
+        {
+            var file = new WorldRecipe
+            {
+                Format = WorldRecipe.FormatId,
+                Version = WorldRecipe.CurrentVersion,
+                Recipe = terrain,
+                HeightScale = .17f,
+                BuildRivers = true,
+                RiverCatchment = rivers.CatchmentPercent,
+                RiverDepth = rivers.CarveDepth,
+                RiverWidthScale = rivers.WidthScale,
+                BuildClimate = true,
+                Climate = climate.Settings,
+                BuildBiomes = true,
+                MaximumNavalRise = .12f,
+                ExportNavalMask = true
+            };
+            var restored = JsonUtility.FromJson<WorldRecipe>(JsonUtility.ToJson(file));
+            if (restored.HeightScale != file.HeightScale || restored.MaximumNavalRise != file.MaximumNavalRise
+                || !restored.ExportNavalMask || restored.Climate.Wind != file.Climate.Wind)
+                throw new Exception("World recipe lost its saved controls.");
+            var rebuilt = restored.Rebuild();
+            if (rebuilt.Rivers == null || rebuilt.Climate == null || rebuilt.Biomes == null)
+                throw new Exception("World recipe lost its saved stages.");
+            for (var i = 0; i < rebuilt.Terrain.Elevations.Length; i++)
+                if (rebuilt.Terrain.Elevations[i] != rivers.Terrain.Elevations[i]
+                    || rebuilt.Rivers.Widths[i] != rivers.Widths[i]
+                    || rebuilt.Climate.Temperature[i] != climate.Temperature[i]
+                    || rebuilt.Climate.Moisture[i] != climate.Moisture[i]
+                    || rebuilt.Biomes.Samples[i] != biomes.Samples[i])
+                    throw new Exception("World recipe JSON did not reproduce all world layers.");
         }
 
         private static void CheckTerrainPng(string output, BiomeMap biomes, RiverNavigation access = null)

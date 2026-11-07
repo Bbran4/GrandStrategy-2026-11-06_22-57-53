@@ -5,9 +5,9 @@ namespace GrandStrategy.WorldGeneration
 {
     public sealed class WorldHeightmap : ScriptableObject
     {
-        public const float DefaultHeightScale = .35f;
-        public const float MinimumHeightScale = .05f;
-        public const float MaximumHeightScale = 1f;
+        public const float DefaultHeightScale = WorldRecipe.DefaultHeightScale;
+        public const float MinimumHeightScale = WorldRecipe.MinimumHeightScale;
+        public const float MaximumHeightScale = WorldRecipe.MaximumHeightScale;
 
         [SerializeField, HideInInspector] private HeightmapRecipe recipe;
         [SerializeField, HideInInspector] private float heightScale;

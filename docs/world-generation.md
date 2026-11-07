@@ -132,7 +132,8 @@ The realism goal is more coherent relief, multi-scale coastlines, and less abrup
 - Editing settings does not alter the displayed world. A warning indicates pending regeneration.
 - Saving and exporting use the displayed result and its original recipe, even when current controls have changed.
 - Saving a world creates a new asset; existing authored assets are not silently replaced.
-- Recipe JSON stores settings, not elevation samples. Save the world asset to retain the exact terrain.
+- **Save recipe JSON** records the current terrain controls and ordered steps, height scale, river and climate controls, naval export options, and which generation stages are present. Apply edited settings before saving if you want the recipe to match the displayed world.
+- **Load & Generate Recipe** restores the controls and rebuilds the saved stages from the seed. Older recipes restore terrain only. Generate the missing stages and save a new recipe to retain them. Save a world asset to keep the exact terrain samples.
 - The window's unsaved terrain preview is transient and can be lost on script/domain reload. Saved world assets can be reopened.
 - Generator changes may change regenerated results. Preserve authored sample data rather than relying on a seed alone.
 
@@ -245,7 +246,7 @@ In the development session, the full source compiled against the installed Unity
 - Change settings and confirm the displayed result remains unchanged until regeneration.
 - Cancel generation and confirm the previous completed result remains available.
 - Save an asset, reload scripts, and reopen that asset.
-- Save/load a recipe and confirm regenerated terrain matches.
+- Save a recipe after generating rivers, climate, and biomes. Load it and confirm all four layers and the authoring controls match.
 - Export and independently read RAW16 plus its manifest; verify the PNG orientation against it.
 - Inspect multiple seeds for excessive fragmentation, clipped peaks, or implausible features.
 

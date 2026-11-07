@@ -61,6 +61,7 @@ internal static class Program
         CheckNavalAccess();
         CheckClimate();
         CheckBiomes();
+        CheckWorldRecipe();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, and river routing and carving.");
         if (args.Contains("--benchmark"))
         {
@@ -276,6 +277,50 @@ internal static class Program
     private static void RequireRgb(Rgb24 colour, byte r, byte g, byte b, string name)
     {
         Require(colour.R == r && colour.G == g && colour.B == b, $"Wrong OpenGS Terrain colour for {name}.");
+    }
+
+    private static void CheckWorldRecipe()
+    {
+        var settings = Small();
+        settings.SeaLevel = .28f;
+        settings.CoastWarp = .10f;
+        settings.Steps[0].Enabled = false;
+        var recipe = new WorldRecipe
+        {
+            Format = WorldRecipe.FormatId,
+            Version = WorldRecipe.CurrentVersion,
+            Recipe = settings,
+            HeightScale = .19f,
+            BuildRivers = true,
+            RiverCatchment = RiverGenerator.MinimumCatchmentPercent,
+            RiverDepth = .02f,
+            RiverWidthScale = 1.5f,
+            BuildClimate = true,
+            Climate = new ClimateSettings { Equator = .32f, Wind = PrevailingWind.NorthToSouth },
+            BuildBiomes = true,
+            MaximumNavalRise = .12f,
+            ExportNavalMask = true
+        };
+
+        var baseTerrain = HeightmapGenerator.Generate(settings);
+        var expectedRivers = RiverGenerator.Generate(baseTerrain, recipe.RiverCatchment, recipe.RiverDepth,
+            widthScale: recipe.RiverWidthScale);
+        var rebuilt = recipe.Rebuild();
+        Require(rebuilt.Terrain.Elevations.SequenceEqual(expectedRivers.Terrain.Elevations),
+            "A full recipe must apply its terrain and river controls in order.");
+        if (expectedRivers.ChannelCells > 0)
+            Require(rebuilt.Rivers.WidthScale == 1.5f
+                && rebuilt.Rivers.Widths.SequenceEqual(expectedRivers.Widths), "River widths must reproduce.");
+        Require(ReferenceEquals(rebuilt.Climate.Source, rebuilt.Terrain)
+            && rebuilt.Climate.Settings.Equator == .32f && rebuilt.Climate.Settings.Wind == PrevailingWind.NorthToSouth,
+            "Climate must apply its saved settings to the rebuilt final terrain.");
+        Require(ReferenceEquals(rebuilt.Biomes.Climate, rebuilt.Climate), "Biomes must use the rebuilt climate.");
+
+        var legacy = new WorldRecipe { Format = WorldRecipe.FormatId, Recipe = settings }.Rebuild();
+        Require(legacy.Rivers == null && legacy.Climate == null && legacy.Biomes == null
+            && legacy.Terrain.Elevations.SequenceEqual(baseTerrain.Elevations), "Legacy recipes must restore their terrain.");
+        recipe.BuildClimate = false;
+        Reject(() => recipe.Rebuild(), "A biome recipe without climate was accepted.");
     }
 
     private static void CheckRivers()

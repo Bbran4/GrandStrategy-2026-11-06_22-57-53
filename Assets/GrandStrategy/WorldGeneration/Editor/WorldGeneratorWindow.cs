@@ -138,7 +138,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             using (new EditorGUILayout.HorizontalScope())
             {
                 if (GUILayout.Button("Save recipe JSON")) SaveRecipe();
-                if (GUILayout.Button("Load recipe JSON")) LoadRecipe();
+                if (GUILayout.Button("Load & Generate Recipe")) LoadRecipe();
             }
             EditorGUILayout.Space(10);
             EditorGUILayout.LabelField("SAVED WORLD", EditorStyles.boldLabel);
@@ -396,14 +396,20 @@ namespace GrandStrategy.WorldGeneration.Editor
             ClimateMap climateOverride = null, ClimateSettings settingsOverride = null)
         {
             var nextWater = water != null && ReferenceEquals(water.Source, terrain) ? water : WaterMap.Classify(terrain);
-            var nextNavigation = mode == HeightmapPreviewMode.NavalAccess && network != null
-                ? RiverNavigation.Build(network, nextWater, maximumNavalRise) : null;
             var nextClimate = climateOverride ?? (ReferenceEquals(climate?.Source, terrain) ? climate : null);
             if ((HeightmapPreview.IsClimateMode(mode) || mode == HeightmapPreviewMode.Biomes) && nextClimate == null)
                 nextClimate = ClimateGenerator.Generate(terrain, nextWater, settingsOverride ?? climateSettings);
             var nextBiomes = ReferenceEquals(biomes?.Climate, nextClimate) ? biomes : null;
             if (mode == HeightmapPreviewMode.Biomes && nextBiomes == null)
                 nextBiomes = BiomeGenerator.Generate(nextClimate, nextWater, network);
+            PublishPreview(terrain, network, mode, nextWater, nextClimate, nextBiomes);
+        }
+
+        private void PublishPreview(HeightmapResult terrain, RiverMap network, HeightmapPreviewMode mode,
+            WaterMap nextWater, ClimateMap nextClimate, BiomeMap nextBiomes)
+        {
+            var nextNavigation = mode == HeightmapPreviewMode.NavalAccess && network != null
+                ? RiverNavigation.Build(network, nextWater, maximumNavalRise) : null;
             var next = HeightmapPreview.Create(terrain, mode, nextWater, network, nextNavigation, nextClimate,
                 biomes: nextBiomes);
             if (preview != null) DestroyImmediate(preview);
@@ -462,31 +468,70 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch (Exception ex) { ShowError(ex); }
         }
 
-        [Serializable] private sealed class RecipeFile
-        { public string Format = "GrandStrategy.HeightmapRecipe"; public HeightmapRecipe Recipe; }
-
         private void SaveRecipe()
         {
-            var path = EditorUtility.SaveFilePanel("Save generation recipe", "", "OldWorld-recipe", "json");
+            var path = EditorUtility.SaveFilePanel("Save world recipe", "", "OldWorld-recipe", "json");
             if (string.IsNullOrEmpty(path)) return;
-            try { recipe.Validate(); File.WriteAllText(path, JsonUtility.ToJson(new RecipeFile { Recipe = recipe }, true)); status = "Saved recipe settings (not elevation data)."; }
+            try
+            {
+                var file = new WorldRecipe
+                {
+                    Format = WorldRecipe.FormatId,
+                    Version = WorldRecipe.CurrentVersion,
+                    Recipe = recipe.Copy(),
+                    HeightScale = heightScale,
+                    BuildRivers = rivers != null,
+                    RiverCatchment = riverCatchment,
+                    RiverDepth = riverDepth,
+                    RiverWidthScale = riverWidthScale,
+                    BuildClimate = climate != null,
+                    Climate = climateSettings.Copy(),
+                    BuildBiomes = biomes != null,
+                    MaximumNavalRise = maximumNavalRise,
+                    ExportNavalMask = exportNavalMask
+                };
+                file.Validate();
+                File.WriteAllText(path, JsonUtility.ToJson(file, true));
+                status = "Saved the current world controls and enabled generation stages.";
+            }
             catch (Exception ex) { ShowError(ex); }
         }
 
         private void LoadRecipe()
         {
-            var path = EditorUtility.OpenFilePanel("Load generation recipe", "", "json");
+            var path = EditorUtility.OpenFilePanel("Load and generate world recipe", "", "json");
             if (string.IsNullOrEmpty(path)) return;
             try
             {
                 if (new FileInfo(path).Length > 262144) throw new InvalidDataException("Recipe file exceeds the 256 KiB limit.");
-                var file = JsonUtility.FromJson<RecipeFile>(File.ReadAllText(path));
-                if (file == null || file.Format != "GrandStrategy.HeightmapRecipe" || file.Recipe == null)
-                    throw new InvalidDataException("Not a GrandStrategy heightmap recipe.");
-                file.Recipe.Validate(); recipe = file.Recipe; selectedStep = 0; settingsChanged = true;
-                status = "Loaded recipe. Generate to apply it.";
+                var file = JsonUtility.FromJson<WorldRecipe>(File.ReadAllText(path));
+                if (file == null) throw new InvalidDataException("The recipe file is empty.");
+                var next = file.Rebuild((fraction, label) =>
+                    !EditorUtility.DisplayCancelableProgressBar("Rebuilding world recipe", label, fraction));
+                var mode = next.Biomes != null ? HeightmapPreviewMode.Biomes
+                    : next.Climate != null ? HeightmapPreviewMode.Temperature
+                    : next.Rivers != null ? HeightmapPreviewMode.Rivers : HeightmapPreviewMode.Relief;
+
+                PublishPreview(next.Terrain, next.Rivers, mode, next.Water, next.Climate, next.Biomes);
+                recipe = file.Recipe.Copy();
+                if (!file.IsLegacy)
+                {
+                    heightScale = file.HeightScale;
+                    riverCatchment = file.RiverCatchment;
+                    riverDepth = file.RiverDepth;
+                    riverWidthScale = file.RiverWidthScale;
+                    climateSettings = file.Climate.Copy();
+                    maximumNavalRise = file.MaximumNavalRise;
+                    exportNavalMask = file.ExportNavalMask;
+                }
+                selectedStep = 0;
+                settingsChanged = false;
+                status = file.IsLegacy ? "Loaded a terrain-only recipe. Generate rivers and climate, then save a new recipe to retain them."
+                    : "Loaded the recipe and rebuilt its saved generation stages.";
             }
+            catch (OperationCanceledException) { status = "Recipe generation cancelled. The previous world is still displayed."; }
             catch (Exception ex) { ShowError(ex); }
+            finally { EditorUtility.ClearProgressBar(); Repaint(); }
         }
 
         [Serializable] private sealed class ExportManifest

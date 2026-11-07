@@ -15,5 +15,6 @@
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/RiverNavigation.cs" Link="RiverNavigation.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/ClimateGenerator.cs" Link="ClimateGenerator.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/BiomeGenerator.cs" Link="BiomeGenerator.cs" />
+    <Compile Include="../../Assets/GrandStrategy/WorldGeneration/WorldRecipe.cs" Link="WorldRecipe.cs" />
   </ItemGroup>
 </Project>
