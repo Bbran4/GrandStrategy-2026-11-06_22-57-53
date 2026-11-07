@@ -8,15 +8,14 @@ The player represents the society itself. Individual characters, rulers, dynasti
 
 ## Project status
 
-**World-generation prototype.** The project now includes an Old World heightmap authoring window with seeded generation, editable recipe steps, elevation previews, asset saving, and RAW16 export. Gameplay systems described below remain planned. Unity Editor interaction and asset round-tripping still require verification; see the [world-generation guide](docs/world-generation.md).
+**Playable map prototype.** The world authoring tool, OpenGS import, and first Unity gameplay scene are working. Open `Assets/Scenes/PlayableMap.unity` and press **Play** to pan and zoom over the authored world, inspect provinces, and establish a tribe in a land province. Founding currently lasts for one Play session.
 
-- **Engine:** Unity 6000.6.8f1
-- **Rendering:** Universal Render Pipeline (URP)
-- **Development automation:** Unity Pipeline package
-- **Source control:** GitHub with Git LFS configured for binary assets
-- **First implementation priority:** World-generation tool
+**Next milestone.** Turn that starting province into the capital of a running campaign, then bring one neighbouring independent province into the tribe through peaceful integration. See the [development roadmap](#development-roadmap) for the order of work.
 
-This README records the initial agreed direction. Proposed implementation details and unresolved decisions are identified separately.
+- **Engine** · Unity 6000.6.8f1
+- **Rendering** · Universal Render Pipeline (URP)
+- **Development automation** · Unity Pipeline package
+- **Source control** · GitHub with Git LFS configured for binary assets
 
 ## World-generation tool
 
@@ -24,7 +23,7 @@ Open **Tools → GrandStrategy → World Generator** in Unity. Start with **1024
 
 **LandAndWater** and the exported **land-mask.png** use OpenGS's exact data colours: ocean RGB (5,20,18), lake RGB (0,255,0), and white land. The optional naval mask adds full-width navigable rivers in the ocean colour. Boundary-connected water is ocean; enclosed below-sea-level water is lake. River generation uses the existing oceans and lakes as outlets.
 
-Generate the base terrain, then select **Generate Rivers**. Saved worlds store the base terrain, river cuts, and flow directions. The game and export use the heightmap composed from the base and cuts. Generate climate to preview temperature and moisture and export both data layers. Generate biomes to preview land cover and export the OpenGS Terrain image paired with either land mask. Snow is a future step. [World generation](docs/world-generation.md)
+Generate the base terrain, then select **Generate Rivers**. Saved worlds store the base terrain, river cuts, and flow directions. The game and export use the heightmap composed from the base and cuts. Generate climate to preview temperature and moisture and export both data layers. Generate biomes to preview land cover and export the OpenGS Terrain image paired with either land mask. Save the recipe JSON to rebuild the configured stages, or save the World asset to retain the exact terrain samples. Snow coverage is planned with the terrain presentation work. [World generation](docs/world-generation.md)
 
 ## Design pillars
 
@@ -55,60 +54,28 @@ Exact map dimensions, calendar rules, speed settings, and starting conditions re
 
 ## World generation
 
-The first milestone is a tool for creating the physical world before provinces and societies are added.
-
-### Required world features
-
-| Feature | Purpose |
-| --- | --- |
-| Heightmap | Define continents, mountains, valleys, and seabed |
-| Sea level | Establish coastlines and ocean coverage |
-| Rivers | Represent drainage routes and strategically significant waterways |
-| Lakes | Represent inland water bodies |
-| Climate | Provide temperature and moisture information |
-| Biomes | Classify environments such as forests, grasslands, deserts, and tundra |
-| Snow | Represent cold and high-altitude snow coverage |
-
-### Proposed authoring workflow
-
-1. Choose a seed and world settings.
-2. Generate landforms and elevation.
-3. Establish sea level, drainage, and inland water.
-4. Derive climate, river flow, biomes, and snow through appropriate generation stages.
-5. Inspect the world using separate preview layers.
-6. Refine and save an approved world.
-7. Export aligned inputs for province authoring.
-
-The proposed interface is a Unity Editor window with generation controls and previews. Seeded generation, manual refinement, and saved world data should support repeatable development. Exact algorithms, formats, resolution, and terrain rendering implementation remain open.
-
-Climate and hydrology will use practical approximations appropriate to a strategy map. Seasonal snow and weather simulation are not required for the first milestone; permanent snow coverage comes first.
+The editor tool authors the physical world before provinces and societies are added. It generates the base heightmap, classifies oceans and lakes, carves rivers, and derives climate and biomes. It saves the World asset and exports aligned inputs for OpenGS.
 
 ### World-data principles
 
 - Keep elevation, water, climate, biomes, snow, provinces, and political ownership as distinct data layers.
 - Use a shared coordinate convention so exports, imports, terrain, and province selection align.
-- Store authoritative geographic information separately from visual materials.
-- Use existing lake basins as outlets for rivers.
-- Base river generation on drainage and water flow.
-- Treat geography regeneration as an explicit operation once provinces or settlements depend on it.
+- Keep authoritative geographic data separate from visual materials.
+- Base river generation on drainage and flow, using existing oceans and lakes as outlets.
+- Regenerate geography explicitly once provinces or settlements depend on it.
 - Set world-size and generation-time budgets before selecting production resolutions.
-
-These are proposed engineering requirements, not claims about existing functionality.
 
 ## Provinces and OpenGS MapTool
 
-Province authoring will use [OpenGS MapTool](https://github.com/Thomas-Holtvedt/opengs-maptool).
+Province authoring uses [OpenGS MapTool](https://github.com/Thomas-Holtvedt/opengs-maptool).
 
-The intended first workflow is:
-
-1. Generate and approve geography in Unity.
-2. Export compatible land/lake masks and other useful map inputs.
+1. Generate and approve the world in Unity.
+2. Export the aligned land or naval mask and biome-based terrain image.
 3. Create territories and provinces in OpenGS MapTool.
-4. Export province maps and associated data.
-5. Import and validate those outputs in Unity.
-6. Establish province selection, adjacency, and movement connections.
+4. Import the map rasters and definitions in Unity, with territory history where available.
+5. Save a Province Map asset and use it with its matching World asset in the playable scene.
 
-OpenGS is an external authoring tool. Unity importers and game systems still need to be implemented. Its documented terrain assignment samples a province’s centre, so detailed biome and geographic data should remain available independently.
+The Unity importer indexes the province and territory rasters and derives province adjacency from shared edges. It also records biome counts and river and coast summaries. OpenGS assigns terrain using the province centre, so the game keeps the underlying biome and geography layers available for finer detail.
 
 Province boundaries form the geographic gameplay structure. Ownership changes independently of those boundaries.
 
@@ -289,46 +256,50 @@ Events concern the society and its institutions. Individual-character stories ar
 
 ## Development roadmap
 
-Milestone 1 has an initial heightmap implementation. Later milestones remain planned; unchecked items include unfinished work and required verification.
+### 1. World authoring · working
 
-### 1. World-generation foundation — first priority
+- [x] Generate and preview an editable, seeded heightmap with adjustable sea level and height scale.
+- [x] Classify oceans and lakes, carve rivers, and keep the base and cuts separate from the final heightmap.
+- [x] Generate climate and biomes.
+- [x] Save World assets and recipes, and export aligned OpenGS land, naval, and terrain inputs.
 
-- [ ] Define world dimensions, coordinates, saved data, and performance budgets.
-- [x] Create a Unity Editor authoring window with seed and settings (compiled; interactive verification pending).
-- [x] Implement seeded elevation generation and elevation previews with adjustable sea level (visual Editor verification pending).
-- [ ] Verify drainage and carved rivers in the Unity Editor. Rivers use existing lakes.
-- [ ] Derive climate and biomes.
-- [ ] Add permanent snow coverage.
-- [ ] Verify saving and reloading authored worlds in the Unity Editor (asset support implemented).
-- [ ] Provide a terrain preview and aligned OpenGS-compatible exports.
+### 2. OpenGS import and playable map · working
 
-**Completion target:** Generate, inspect, save, reload, and export a coherent world with aligned geographic layers.
+- [x] Import provinces and territories, preview both in the editor, and save a Province Map asset.
+- [x] Derive province neighbours, biome counts, and water and river summaries.
+- [x] Open an authored map in Play Mode, pan and zoom, and select and inspect provinces.
+- [x] Name a tribe, choose a colour, and place a starting settlement for the current Play session.
 
-### 2. Provinces and map interaction
+### 3. First campaign loop · next
 
-- [ ] Establish a repeatable OpenGS authoring workflow.
-- [ ] Import province maps and metadata.
-- [ ] Validate identities, dimensions, alignment, and coverage.
-- [ ] Build and validate province adjacency and movement connections.
-- [ ] Add map navigation, selection, borders, and province inspection.
+1. **Found a society.** Turn the starting province into the capital. Give land provinces abstract Pop and track ownership in campaign state. Unclaimed land starts with independent populations. Keep campaign state separate from the reusable map assets.
+2. **Start the clock.** Begin paused after founding. Add a date, pause and speed controls, and daily simulation updates.
+3. **Integrate one neighbour.** Spend coin to establish ties with a neighbouring independent community. Show progress in its province panel. When it joins, update the province owner and map colour. Use a simple coin budget for this first pass.
+4. **Save and resume.** Persist the tribe, ownership, Pop, date, and integration progress separately from world data.
 
-**Completion target:** Navigate an authored world and select connected provinces accurately.
+**Completion target.** Found a tribe, bring one neighbour into it through peaceful integration, and resume that campaign from a save.
 
-### 3. Campaign foundation and societies
+### 4. Map presentation · after the first campaign loop
 
-- [ ] Add the simulation clock, pause, and speed controls.
-- [ ] Allow starting-province selection and tribe establishment.
-- [ ] Represent independent communities and rival societies.
-- [ ] Add population and province ownership.
-- [ ] Add basic civilization name, colour, and banner identity.
-- [ ] Save and reload campaign state.
+Work through these in order so the camera and political overlays set the scale for terrain detail.
 
-**Completion target:** Start and resume a campaign with persistent societies, population, and advancing time.
+1. **2D to 3D zoom.** Fit the entire map at full zoom-out in a straight overhead 2D view. Gradually tilt into 3D terrain as the player zooms in.
+2. **Crisp borders and map modes.** Keep the indexed raster for selection. Trace shared boundaries once, preserve junctions, and render anti-aliased outlines that follow the terrain and stay readable across zoom levels. Prefer original vector outlines if the source provides them. Outlines traced from a PNG retain the source raster's precision.
 
-### 4. Development and economy
+   | Map mode | Presentation |
+   | --- | --- |
+   | Terrain | Show geography without political borders or tribe colours. |
+   | Territories | Show territory borders and tribe colours. When tribes share a territory, show each tribe's holdings inside its outer border. |
+   | Provinces | Show individual province borders and tribe colours. |
 
-- [ ] Add the initial resource roster and production.
-- [ ] Add taxation, construction, and basic buildings.
+3. **Biome materials and nature.** Give forests, grasslands, deserts, and wetlands distinct ground textures and blend their edges. Use slope to expose rock on steep ground. Scatter trees, rocks, and wetland plants according to biome and slope, keeping rivers and settlements clear. Keep distant views readable with broad biome colours, then reveal finer textures and vegetation as the player zooms in. Add permanent snow coverage.
+
+**Completion target.** Inspect the whole map overhead, zoom into detailed terrain, and switch between geographic and political views while borders stay clear.
+
+### 5. Development and economy
+
+- [ ] Expand the prototype coin budget into taxation, goods production, and the initial resource roster.
+- [ ] Add construction and basic buildings.
 - [ ] Add food reserves and population growth.
 - [ ] Add automatic resource exchange and a national summary.
 - [ ] Add initial settlement visuals tied to development.
@@ -336,7 +307,7 @@ Milestone 1 has an initial heightmap implementation. Later milestones remain pla
 
 **Completion target:** Develop provinces and sustain a growing society without manual shipment management.
 
-### 5. Military and territorial control
+### 6. Military and territorial control
 
 - [ ] Add recruitment, upkeep, and province-based army movement.
 - [ ] Add field battles and initial rival military behaviour.
@@ -346,9 +317,9 @@ Milestone 1 has an initial heightmap implementation. Later milestones remain pla
 
 **Completion target:** Conduct a campaign involving movement, battle, occupation, siege, and lasting territorial change.
 
-### 6. Diplomacy, culture, and integration
+### 7. Diplomacy, culture, and integration
 
-- [ ] Add communication and agreements with independent and rival societies.
+- [ ] Expand the first integration action into diplomacy and agreements with independent and rival societies.
 - [ ] Add foreign trade access.
 - [ ] Add cultural influence and acceptance.
 - [ ] Add incorporation, subjugation, and resistance.
@@ -356,7 +327,7 @@ Milestone 1 has an initial heightmap implementation. Later milestones remain pla
 
 **Completion target:** Expand and maintain relationships through meaningful military and non-military choices.
 
-### 7. Institutions and long-term progression
+### 8. Institutions and long-term progression
 
 - [ ] Add research.
 - [ ] Add government, military, and economic laws.
@@ -366,17 +337,16 @@ Milestone 1 has an initial heightmap implementation. Later milestones remain pla
 
 **Completion target:** Support distinct development paths from tribal beginnings to a large, sustainable empire.
 
-### 8. Presentation and cosmetics
+### 9. Presentation and cosmetics
 
 - [ ] Expand settlement growth and building visuals.
 - [ ] Expand flags and symbols.
 - [ ] Add selectable building and soldier appearances.
 - [ ] Add statues and decorative customization.
-- [ ] Refine terrain and political-map presentation.
 
 ## Working with the project
 
-Open the repository’s project folder through Unity Hub using **Unity 6000.6.8f1**.
+Open the repository’s project folder through Unity Hub using **Unity 6000.6.8f1**. Open `Assets/Scenes/PlayableMap.unity` to try the current prototype.
 
 Keep source assets and their `.meta` files, `Packages`, and `ProjectSettings` in version control. Generated folders such as `Library`, `Temp`, and `Logs` are excluded by the Unity `.gitignore`.
 
@@ -389,8 +359,7 @@ The pure C# heightmap checks run with `dotnet run -c Release` from `Tests/WorldG
 Before implementing their respective systems, define:
 
 - World size, target hardware, map resolution, and performance budgets.
-- Terrain rendering, authoring controls, and generation algorithms.
-- Geographic export/import formats and OpenGS version compatibility.
+- Terrain detail and border rendering budgets, plus OpenGS compatibility as the authoring pipeline evolves.
 - Population scale, starting conditions, and settlement rules.
 - Economic formulas, storage, trade capacity, and pricing.
 - Unit roster, battle resolution, sieges, and supply.
