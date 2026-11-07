@@ -49,7 +49,7 @@ namespace GrandStrategy.WorldGeneration
         private Vector2 detailsScroll;
 
         private float PanelWidth => Mathf.Max(1f, Mathf.Min(325f, (Screen.width - 36f) * .5f));
-        private Rect Panel => new Rect(12, 12, PanelWidth, Mathf.Min(selected >= 0 ? 392 : 140, Screen.height - 24));
+        private Rect Panel => new Rect(12, 12, PanelWidth, Mathf.Min(selected >= 0 ? 412 : 160, Screen.height - 24));
         private Rect CampaignPanel => new Rect(Screen.width - PanelWidth - 12, 12, PanelWidth,
             Mathf.Min(campaign == null ? 118 : 230, Screen.height - 24));
 
@@ -187,11 +187,23 @@ namespace GrandStrategy.WorldGeneration
             surface.SetSelection(selected);
         }
 
+        private string SelectedTerritoryId()
+        {
+            var map = surface.Map;
+            if (map.HasTerritoryPreview)
+            {
+                var index = map.TerritoryAt[selectedCell];
+                return index >= 0 && index < map.Territories.Length ? map.Territories[index]?.Id : null;
+            }
+
+            // Older maps can store territory membership without a separate territory raster.
+            return selected >= 0 ? map.Provinces[selected].TerritoryId : null;
+        }
+
         private string Describe(ProvinceInfo province)
         {
             var text = new StringBuilder();
             text.AppendLine("Type: " + (province.Type ?? "Unknown"));
-            text.AppendLine("Territory: " + (string.IsNullOrEmpty(province.TerritoryId) ? "None" : province.TerritoryId));
             text.AppendLine("Dominant biome: " + DominantBiome(province));
             if (!string.IsNullOrEmpty(province.Terrain)) text.AppendLine("OpenGS terrain: " + province.Terrain);
             text.AppendLine("Neighbours:");
@@ -282,10 +294,17 @@ namespace GrandStrategy.WorldGeneration
             MapViewButton("Territories", MapViewMode.Territories, surface.HasTerritories);
             MapViewButton("Provinces", MapViewMode.Provinces);
             GUILayout.EndHorizontal();
-            if (selected < 0)
-                GUILayout.Label(campaign == null ? "Choose a land province to establish a tribe." : "Click a province to inspect it.");
-            else
+            if (selectedCell >= 0)
+            {
+                var territory = SelectedTerritoryId();
+                GUILayout.Label("Territory: " + (string.IsNullOrEmpty(territory) ? "None" : territory));
+            }
+            if (selected >= 0)
                 DrawProvince(surface.Map.Provinces[selected]);
+            else if (selectedCell >= 0)
+                GUILayout.Label("No province at this location.");
+            else
+                GUILayout.Label(campaign == null ? "Choose a land province to establish a tribe." : "Click a province to inspect it.");
             GUILayout.EndArea();
             editingName = GUI.GetNameOfFocusedControl() == "TribeName";
         }
