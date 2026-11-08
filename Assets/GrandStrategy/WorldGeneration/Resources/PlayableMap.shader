@@ -3,7 +3,8 @@ Shader "GrandStrategy/Playable Map"
     Properties
     {
         _MapColours ("Base colours and land coverage", 2D) = "white" {}
-        _LandTint ("Land colours and coverage", 2D) = "black" {}
+        _LandTint ("Filtered land colours and coverage", 2D) = "black" {}
+        _LandMaterials ("Filtered land material weights", 2D) = "black" {}
         _PlainsGrass ("Plains grass variants", 2D) = "gray" {}
         _ForestFloor ("Forest floor variants", 2D) = "gray" {}
         _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
@@ -41,6 +42,8 @@ Shader "GrandStrategy/Playable Map"
             SAMPLER(sampler_MapColours);
             TEXTURE2D(_LandTint);
             SAMPLER(sampler_LandTint);
+            TEXTURE2D(_LandMaterials);
+            SAMPLER(sampler_LandMaterials);
             TEXTURE2D(_PlainsGrass);
             SAMPLER(sampler_PlainsGrass);
             TEXTURE2D(_ForestFloor);
@@ -165,28 +168,16 @@ Shader "GrandStrategy/Playable Map"
                 float2 ground = input.groundPosition;
                 float4 broad = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 3.7);
                 float4 patches = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 17.0);
-                // Move only material sampling, never the land mask or any gameplay lookup.
-                float2 warp = ((broad.rb - 0.5) * 0.024 + (patches.ag - 0.5) * 0.010)
+                // Warp the prefiltered visual fields. The actual terrain and province masks stay aligned.
+                float2 warp = ((broad.rb - 0.5) * 0.054 + (patches.ag - 0.5) * 0.022)
                     * float2(_GroundGrid.z, 1.0);
-                float2 screenX = ddx(input.uv) * _GroundGrid.xy;
-                float2 screenY = ddy(input.uv) * _GroundGrid.xy;
-                float screenFootprint = max(length(screenX), length(screenY));
-                float landLod = log2(max(max(1.0, _GroundGrid.y * 0.007), screenFootprint));
                 float2 materialUV = input.uv + warp;
-                float4 palette = SAMPLE_TEXTURE2D_LOD(_LandTint, sampler_LandTint, materialUV, landLod);
-                if (palette.a < 0.12)
-                {
-                    materialUV = input.uv;
-                    palette = SAMPLE_TEXTURE2D_LOD(_LandTint, sampler_LandTint, materialUV, landLod);
-                }
-
-                float3 materials = biomes.rgb / max(map.a, 0.0001);
-                float3 landColour = map.rgb;
-                if (palette.a >= 0.12 && max(palette.r, max(palette.g, palette.b)) > 0.002)
-                {
-                    landColour = palette.rgb / palette.a;
-                    materials = SAMPLE_TEXTURE2D_LOD(_BiomeWeights, sampler_BiomeWeights, materialUV, landLod).rgb / palette.a;
-                }
+                float4 palette = SAMPLE_TEXTURE2D(_LandTint, sampler_LandTint, materialUV);
+                float4 landWeights = SAMPLE_TEXTURE2D(_LandMaterials, sampler_LandMaterials, materialUV);
+                float coverage = smoothstep(0.06, 0.30, min(palette.a, landWeights.a));
+                float3 materials = lerp(biomes.rgb / max(map.a, 0.0001),
+                    landWeights.rgb / max(landWeights.a, 0.0001), coverage);
+                float3 landColour = lerp(map.rgb, palette.rgb / max(palette.a, 0.0001), coverage);
                 float forestWeight = saturate(materials.r);
                 float sandWeight = saturate(materials.g);
                 float wetlandWeight = saturate(materials.b);
@@ -247,7 +238,9 @@ Shader "GrandStrategy/Playable Map"
                 float diffuse = saturate(dot(normal, normalize(_MapSun.xyz)));
                 land *= 0.55 + 0.66 * diffuse * (1.0 - shade * 0.89);
                 float ripple = (patches.g - 0.5) * 0.13 + (broad.a - 0.5) * 0.11;
-                float waterLod = max(landLod, log2(max(1.0, _GroundGrid.y * 0.011)));
+                float2 screenX = ddx(input.uv) * _GroundGrid.xy;
+                float2 screenY = ddy(input.uv) * _GroundGrid.xy;
+                float waterLod = log2(max(max(length(screenX), length(screenY)), max(1.0, _GroundGrid.y * 0.011)));
                 float4 waterField = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv, waterLod);
                 float wideWater = 1.0 - waterField.a;
                 float3 water = lerp(map.rgb, waterField.rgb, smoothstep(0.92, 0.999, wideWater)) * (1.0 + ripple);

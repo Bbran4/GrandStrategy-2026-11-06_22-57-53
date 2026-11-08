@@ -17,6 +17,7 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D biomeWeights;
         private Texture2D groundPatterns;
         private Texture2D landTint;
+        private Texture2D landMaterials;
         private Texture2D plainsGrass;
         private Texture2D forestFloor;
         private Texture2D terrainShadow;
@@ -56,7 +57,6 @@ namespace GrandStrategy.WorldGeneration
 
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
                 colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
-                landTint = CreateTexture("Land colours and coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
                 biomeWeights = CreateTexture("Biome material weights", true, FilterMode.Trilinear, true);
                 groundPatterns = MapGroundPatterns.Create();
@@ -68,6 +68,7 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_BiomeWeights", biomeWeights);
                 material.SetTexture("_GroundPatterns", groundPatterns);
                 material.SetTexture("_LandTint", landTint);
+                material.SetTexture("_LandMaterials", landMaterials);
                 material.SetTexture("_PlainsGrass", plainsGrass);
                 material.SetTexture("_ForestFloor", forestFloor);
                 material.SetVector("_GroundGrid", new Vector4(Map.Width, Map.Height, 1f / Aspect, 0f));
@@ -134,7 +135,6 @@ namespace GrandStrategy.WorldGeneration
         {
             var raster = Map.ProvinceAt;
             var colourPixels = colours.GetRawTextureData<Color32>();
-            var landPixels = landTint.GetRawTextureData<Color32>();
             var indexPixels = regions.GetRawTextureData<Color32>();
             var weightPixels = biomeWeights.GetRawTextureData<Color32>();
             for (var cell = 0; cell < raster.Length; cell++)
@@ -148,7 +148,6 @@ namespace GrandStrategy.WorldGeneration
                 var rgb = MapGroundPatterns.Palette(kind);
                 // Keep the full base palette available when a blended land sample is invalid.
                 colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
-                landPixels[cell] = dry ? new Color32(rgb.R, rgb.G, rgb.B, 255) : new Color32(0, 0, 0, 0);
                 weightPixels[cell] = new Color32(
                     MapNatureRules.IsForest(kind) ? (byte)255 : (byte)0,
                     kind == BiomeKind.Desert ? (byte)255 : (byte)0,
@@ -160,8 +159,8 @@ namespace GrandStrategy.WorldGeneration
                 indexPixels[cell] = indexColour;
             }
 
+            MapGroundBlend.Bake(Map.Width, Map.Height, colourPixels, weightPixels, out landTint, out landMaterials);
             colours.Apply(true, true);
-            landTint.Apply(true, true);
             regions.Apply(false, true);
             biomeWeights.Apply(true, true);
         }
@@ -283,6 +282,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(biomeWeights);
             UnityEngine.Object.Destroy(groundPatterns);
             UnityEngine.Object.Destroy(landTint);
+            UnityEngine.Object.Destroy(landMaterials);
             UnityEngine.Object.Destroy(plainsGrass);
             UnityEngine.Object.Destroy(forestFloor);
             UnityEngine.Object.Destroy(terrainShadow);
