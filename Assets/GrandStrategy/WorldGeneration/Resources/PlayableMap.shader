@@ -2,7 +2,11 @@ Shader "GrandStrategy/Playable Map"
 {
     Properties
     {
-        _MapColours ("Map colours and dry land", 2D) = "white" {}
+        _MapColours ("Water colours and land coverage", 2D) = "white" {}
+        _LandTint ("Land colours and coverage", 2D) = "black" {}
+        _PlainsGrass ("Plains grass variants", 2D) = "gray" {}
+        _ForestFloor ("Forest floor variants", 2D) = "gray" {}
+        _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
         _BiomeWeights ("Biome weights and snow", 2D) = "black" {}
         _GroundPatterns ("Ground patterns", 2D) = "gray" {}
         _ForestCanopy ("Forest canopy and shadow", 2D) = "black" {}
@@ -35,6 +39,12 @@ Shader "GrandStrategy/Playable Map"
 
             TEXTURE2D(_MapColours);
             SAMPLER(sampler_MapColours);
+            TEXTURE2D(_LandTint);
+            SAMPLER(sampler_LandTint);
+            TEXTURE2D(_PlainsGrass);
+            SAMPLER(sampler_PlainsGrass);
+            TEXTURE2D(_ForestFloor);
+            SAMPLER(sampler_ForestFloor);
             TEXTURE2D(_BiomeWeights);
             SAMPLER(sampler_BiomeWeights);
             TEXTURE2D(_GroundPatterns);
@@ -55,6 +65,7 @@ Shader "GrandStrategy/Playable Map"
                 float4 _OwnershipSize;
                 float4 _TribeColour;
                 float4 _CapitalClearing;
+                float4 _GroundGrid;
                 float4 _TerrainShadow_TexelSize;
                 float4 _MapSun;
                 float _ShowPolitics;
@@ -140,6 +151,13 @@ Shader "GrandStrategy/Playable Map"
                 return province.rgb;
             }
 
+            float3 VariantWeights(float2 field)
+            {
+                float warm = smoothstep(0.29, 0.70, field.x);
+                float dense = smoothstep(0.31, 0.72, field.y);
+                return float3((1.0 - warm) * (1.0 - dense), warm * (1.0 - dense), dense);
+            }
+
             float3 ShadeGround(Varyings input, float3 normal)
             {
                 float4 map = SAMPLE_TEXTURE2D(_MapColours, sampler_MapColours, input.uv);
@@ -147,20 +165,52 @@ Shader "GrandStrategy/Playable Map"
                 float2 ground = input.groundPosition;
                 float4 broad = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 3.7);
                 float4 patches = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 17.0);
-                float grass = saturate(map.a - biomes.r - biomes.g - biomes.b);
-                float4 weights = float4(biomes.r + grass, 0.0, biomes.g, biomes.b);
+                // Move only material sampling, never the land mask or any gameplay lookup.
+                float2 warp = ((broad.rb - 0.5) * 0.024 + (patches.ag - 0.5) * 0.010)
+                    * float2(_GroundGrid.z, 1.0);
+                float2 screenX = ddx(input.uv) * _GroundGrid.xy;
+                float2 screenY = ddy(input.uv) * _GroundGrid.xy;
+                float screenFootprint = max(length(screenX), length(screenY));
+                float landLod = log2(max(max(1.0, _GroundGrid.y * 0.007), screenFootprint));
+                float2 materialUV = input.uv + warp;
+                float4 palette = SAMPLE_TEXTURE2D_LOD(_LandTint, sampler_LandTint, materialUV, landLod);
+                if (palette.a < 0.12)
+                {
+                    materialUV = input.uv;
+                    palette = SAMPLE_TEXTURE2D_LOD(_LandTint, sampler_LandTint, materialUV, landLod);
+                }
 
+                float3 materials = SAMPLE_TEXTURE2D_LOD(_BiomeWeights, sampler_BiomeWeights, materialUV, landLod).rgb
+                    / max(palette.a, 0.0001);
+                float forestWeight = saturate(materials.r);
+                float sandWeight = saturate(materials.g);
+                float wetlandWeight = saturate(materials.b);
+                float plainsWeight = saturate(1.0 - forestWeight - sandWeight - wetlandWeight);
+                float4 weights = float4(forestWeight + plainsWeight, 0.0, sandWeight, wetlandWeight);
                 float tone = dot(broad - 0.5, weights) * 0.40 + dot(patches - 0.5, weights) * 0.30;
-                float3 land = map.rgb * (1.0 + tone);
-                float sand = smoothstep(0.23, 0.77, broad.b * 0.58 + patches.b * 0.42) * biomes.g;
+                float3 land = palette.rgb / max(palette.a, 0.0001) * (1.0 + tone);
+                float sand = smoothstep(0.23, 0.77, broad.b * 0.58 + patches.b * 0.42) * sandWeight;
                 land = lerp(land, float3(0.52, 0.36, 0.19), sand * 0.42);
-                float meadow = smoothstep(0.36, 0.72, broad.r * 0.7 + patches.r * 0.3) * grass;
-                land = lerp(land, float3(0.38, 0.35, 0.16), meadow * 0.36);
+
+                float3 plainsMix = VariantWeights(lerp(broad.rg, patches.rb, 0.40));
+                float3 forestMix = VariantWeights(lerp(broad.ag, patches.gr, 0.44));
+                float3 plainsTint = float3(0.96, 1.02, 0.89) * plainsMix.x
+                    + float3(1.12, 1.02, 0.78) * plainsMix.y
+                    + float3(1.01, 1.08, 0.93) * plainsMix.z;
+                float3 forestTint = float3(0.90, 1.09, 0.84) * forestMix.x
+                    + float3(1.04, 0.88, 0.75) * forestMix.y
+                    + float3(0.94, 1.04, 0.93) * forestMix.z;
+                land *= 1.0 + (plainsTint - 1.0) * plainsWeight + (forestTint - 1.0) * forestWeight;
 
                 if (_GroundDetail > 0.0)
                 {
                     float4 grain = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 76.0);
-                    float detailTone = dot(grain - 0.5, weights) * 0.59 + (grain.g - 0.5) * map.a * 0.16;
+                    float3 plains = SAMPLE_TEXTURE2D(_PlainsGrass, sampler_PlainsGrass, ground * 49.0).rgb;
+                    float3 forestDetail = SAMPLE_TEXTURE2D(_ForestFloor, sampler_ForestFloor, float2(ground.y, -ground.x) * 43.0).rgb;
+                    float detailTone = dot(plains - 0.5, plainsMix) * plainsWeight * 0.65
+                        + dot(forestDetail - 0.5, forestMix) * forestWeight * 0.73
+                        + (grain.b - 0.5) * sandWeight * 0.59 + (grain.a - 0.5) * wetlandWeight * 0.59
+                        + (grain.g - 0.5) * 0.16;
                     land *= 1.0 + detailTone * _GroundDetail;
                 }
 
@@ -192,7 +242,12 @@ Shader "GrandStrategy/Playable Map"
                 float diffuse = saturate(dot(normal, normalize(_MapSun.xyz)));
                 land *= 0.55 + 0.66 * diffuse * (1.0 - shade * 0.89);
                 float ripple = (patches.g - 0.5) * 0.13 + (broad.a - 0.5) * 0.11;
-                float3 water = map.rgb * (1.0 + ripple);
+                float waterLod = max(landLod, log2(max(1.0, _GroundGrid.y * 0.011)));
+                float4 waterField = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv, waterLod);
+                float wideWater = 1.0 - waterField.a;
+                float3 waterNear = map.rgb / max(1.0 - map.a, 0.0001);
+                float3 waterWide = waterField.rgb / max(wideWater, 0.0001);
+                float3 water = lerp(waterNear, waterWide, smoothstep(0.62, 0.97, wideWater)) * (1.0 + ripple);
                 float ice = biomes.a * lerp(0.65, 0.96, patches.g);
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
                 // Water is drawn on the same mesh. Keep its surface dark and the banks soft.

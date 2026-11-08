@@ -4,12 +4,17 @@ namespace GrandStrategy.WorldGeneration
 {
     internal static class MapGroundPatterns
     {
-        public static Texture2D Create()
+        public static Texture2D Create() => Bake("Biome ground patterns", Ground);
+        public static Texture2D CreateGrassVariants(bool forest) => forest
+            ? Bake("Forest moss, litter and understory", Forest)
+            : Bake("Plains short grass, dry grass and meadow", Plains);
+
+        private static Texture2D Bake(string name, System.Func<float, float, Color32> sample)
         {
             const int size = 192;
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, true, true)
             {
-                name = "Biome ground patterns", hideFlags = HideFlags.DontSave,
+                name = name, hideFlags = HideFlags.DontSave,
                 filterMode = FilterMode.Trilinear, wrapMode = TextureWrapMode.Repeat, anisoLevel = 4
             };
             try
@@ -17,20 +22,7 @@ namespace GrandStrategy.WorldGeneration
                 var pixels = texture.GetRawTextureData<Color32>();
                 for (var y = 0; y < size; y++)
                     for (var x = 0; x < size; x++)
-                    {
-                        var u = (x + .5f) / size;
-                        var v = (y + .5f) / size;
-                        var grain = Noise(u, v, 46, 46, 31);
-                        var mottling = Noise(u, v, 9, 11, 79);
-                        var brokenGround = Noise(u, v, 23, 16, 47);
-                        var sediment = Noise(u, v, 14, 26, 53);
-                        var damp = Noise(u, v, 7, 13, 57);
-                        var vegetation = .64f * mottling + .26f * brokenGround + .10f * grain;
-                        var stone = .55f * brokenGround + .45f * grain;
-                        var sand = .72f * sediment + .28f * grain;
-                        var mud = .70f * damp + .30f * brokenGround;
-                        pixels[y * size + x] = new Color32(Byte(vegetation), Byte(stone), Byte(sand), Byte(mud));
-                    }
+                        pixels[y * size + x] = sample((x + .5f) / size, (y + .5f) / size);
 
                 texture.Apply(true, true);
                 return texture;
@@ -40,6 +32,37 @@ namespace GrandStrategy.WorldGeneration
                 Object.Destroy(texture);
                 throw;
             }
+        }
+
+        private static Color32 Ground(float u, float v)
+        {
+            var grain = Noise(u, v, 46, 46, 31);
+            var mottling = Noise(u, v, 9, 11, 79);
+            var brokenGround = Noise(u, v, 23, 16, 47);
+            var sediment = Noise(u, v, 14, 26, 53);
+            var damp = Noise(u, v, 7, 13, 57);
+            var vegetation = .64f * mottling + .26f * brokenGround + .10f * grain;
+            var stone = .55f * brokenGround + .45f * grain;
+            var sand = .72f * sediment + .28f * grain;
+            var mud = .70f * damp + .30f * brokenGround;
+            return new Color32(Byte(vegetation), Byte(stone), Byte(sand), Byte(mud));
+        }
+
+        private static Color32 Plains(float u, float v)
+        {
+            var blades = Noise(u, v, 58, 34, 141);
+            var shortGrass = .75f * blades + .25f * Noise(u, v, 29, 29, 143);
+            var dryTufts = .62f * Noise(u, v, 19, 27, 149) + .38f * Noise(u, v, 72, 24, 151);
+            var meadow = .56f * Noise(u, v, 16, 18, 157) + .44f * Noise(u, v, 47, 63, 163);
+            return new Color32(Byte(shortGrass), Byte(dryTufts), Byte(meadow), 255);
+        }
+
+        private static Color32 Forest(float u, float v)
+        {
+            var moss = .74f * Noise(u, v, 14, 17, 173) + .26f * Noise(u, v, 58, 57, 179);
+            var litter = .48f * Noise(u, v, 25, 18, 181) + .52f * Noise(u, v, 71, 57, 191);
+            var understory = .68f * Noise(u, v, 21, 30, 193) + .32f * Noise(u, v, 43, 55, 197);
+            return new Color32(Byte(moss), Byte(litter), Byte(understory), 255);
         }
 
         public static Rgb24 Palette(BiomeKind kind)
