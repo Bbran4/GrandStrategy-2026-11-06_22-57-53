@@ -30,11 +30,11 @@ namespace GrandStrategy.WorldGeneration
                 return slope < 2.2f && roll < .15f ? NatureKind.Rock : NatureKind.None;
             if (biome == BiomeKind.Wetland && slope < .25f && snow < .25f)
                 return roll < .25f && grove > .36f ? NatureKind.Reeds : NatureKind.None;
-            if (IsForest(biome) && roll < Ramp(grove, .31f, .68f) * .88f * (1f - .72f * snow))
+            if (IsForest(biome) && roll < Ramp(grove, .22f, .60f) * .95f * (1f - .48f * snow))
                 return biome == BiomeKind.BorealForest || snow > .25f ? NatureKind.Conifer : NatureKind.Broadleaf;
             if (biome == BiomeKind.Desert && slope < .3f && grove > .62f && roll < .11f)
                 return NatureKind.Broadleaf;
-            if (biome == BiomeKind.Grassland && snow < .15f && grove > .74f && roll < .34f)
+            if (biome == BiomeKind.Grassland && roll < Ramp(grove, .49f, .72f) * .75f * (1f - snow))
                 return NatureKind.Broadleaf;
             return slope > .28f && roll > .98f ? NatureKind.Rock : NatureKind.None;
         }

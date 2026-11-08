@@ -81,8 +81,8 @@ namespace GrandStrategy.WorldGeneration
                 var biome = biomeAt(cell);
                 var kind = MapNatureRules.Pick(biome, true, slope, snow,
                     MapNatureRules.Random01(seed ^ 307, x, z), MapNatureRules.Grove(seed, u * surface.Aspect, v));
-                if (kind == NatureKind.None || !HasDryFootprint(surface, uv)) return;
-                var size = Mathf.Lerp(.00095f, .0019f, MapNatureRules.Random01(seed ^ 503, x, z));
+                if (kind == NatureKind.None) return;
+                var sizeRoll = MapNatureRules.Random01(seed ^ 503, x, z);
                 var rotation = 2f * Mathf.PI * MapNatureRules.Random01(seed ^ 601, x, z);
                 var variant = MapNatureRules.Random01(seed ^ 701, x, z);
                 if (kind == NatureKind.Broadleaf || kind == NatureKind.Conifer)
@@ -98,25 +98,28 @@ namespace GrandStrategy.WorldGeneration
                     if (model.Crown == null) return;
                     var stature = species == TreeSpecies.Spruce || species == TreeSpecies.Palm ? 1.16f
                         : species == TreeSpecies.Olive || species == TreeSpecies.Acacia ? .79f : 1f;
-                    size *= stature;
-                    var widthScale = Mathf.Lerp(.76f, 1.24f, variant);
+                    var size = Mathf.Lerp(.00225f, .0042f, sizeRoll) * stature;
+                    var widthScale = Mathf.Lerp(1.02f, 1.52f, variant);
+                    var footprint = size * (model.Radius * widthScale + .15f);
+                    if (!HasDryFootprint(surface, uv, footprint)) return;
                     var lean = Mathf.Lerp(-8f, 8f, MapNatureRules.Random01(seed ^ 919, x, z));
                     builder.AddTree(model, anchor, size, widthScale, rotation, lean, variant, snow);
-                    StampCanopy(canopy, canopyWidth, canopyHeight, uv, surface.Aspect, size * widthScale, variant);
+                    StampCanopy(canopy, canopyWidth, canopyHeight, uv, surface.Aspect, footprint, variant);
                     return;
                 }
 
-                builder.Add(kind, anchor, size, rotation, variant, snow);
+                if (HasDryFootprint(surface, uv, .0015f))
+                    builder.Add(kind, anchor, Mathf.Lerp(.00095f, .0019f, sizeRoll), rotation, variant, snow);
             }
         }
 
         private static void StampCanopy(Color32[] pixels, int width, int height, Vector2 uv, float aspect,
-            float treeSize, float variant)
+            float footprint, float variant)
         {
             // The same trees that appear up close paint soft crown and shade footprints for distant views.
             var x = uv.x * width - .5f;
             var y = uv.y * height - .5f;
-            var radius = .0014f + treeSize * 1.2f;
+            var radius = .0013f + footprint * 1.55f;
             var rx = radius * width / aspect;
             var ry = radius * height;
             for (var row = Mathf.Max(0, Mathf.FloorToInt(y - ry)); row <= Mathf.Min(height - 1, Mathf.CeilToInt(y + ry)); row++)
@@ -133,14 +136,18 @@ namespace GrandStrategy.WorldGeneration
                 }
         }
 
-        private static bool HasDryFootprint(PlayableMapSurface surface, Vector2 uv)
+        private static bool HasDryFootprint(PlayableMapSurface surface, Vector2 uv, float radius)
         {
-            var v = Mathf.Max(.0015f, 1.1f / surface.Map.Height);
+            var v = Mathf.Max(radius, 1.1f / surface.Map.Height);
             var u = v / surface.Aspect;
             if (uv.x <= u || uv.x >= 1f - u || uv.y <= v || uv.y >= 1f - v) return false;
             for (var y = -1; y <= 1; y++)
                 for (var x = -1; x <= 1; x++)
-                    if (!surface.IsDryLand(surface.CellAt(uv + new Vector2(x * u, y * v)))) return false;
+                {
+                    var step = new Vector2(x * u, y * v);
+                    if (!surface.IsDryLand(surface.CellAt(uv + step * .5f))
+                        || !surface.IsDryLand(surface.CellAt(uv + step))) return false;
+                }
             return true;
         }
 

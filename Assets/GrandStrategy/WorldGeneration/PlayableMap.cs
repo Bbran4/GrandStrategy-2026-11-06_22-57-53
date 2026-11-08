@@ -26,7 +26,7 @@ namespace GrandStrategy.WorldGeneration
         private static readonly int[] Speeds = { 1, 2, 4 };
         private const float MinimumZoom = .045f;
         private const float TiltedZoom = .28f;
-        private const float TiltedPitch = 55f;
+        private const float TiltedPitch = 48f;
         private const float ZoomResponse = 12f;
 
         private Camera mapCamera;

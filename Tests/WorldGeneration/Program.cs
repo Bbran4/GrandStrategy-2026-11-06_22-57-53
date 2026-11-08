@@ -466,6 +466,11 @@ internal static class Program
         Require(MapNatureRules.Pick(BiomeKind.TemperateForest, true, .1f, 0f, .1f, .15f) == NatureKind.None
             && MapNatureRules.Pick(BiomeKind.TemperateForest, true, .1f, 0f, .1f, .8f) == NatureKind.Broadleaf,
             "Forested regions should have both clearings and dense groves.");
+        Require(MapNatureRules.Pick(BiomeKind.Grassland, true, .1f, 0f, .4f, .8f) == NatureKind.Broadleaf
+            && MapNatureRules.Pick(BiomeKind.Grassland, true, .1f, 0f, .01f, .4f) == NatureKind.None,
+            "Grassland should have groves separated by open areas.");
+        Require(MapNatureRules.Pick(BiomeKind.TemperateForest, true, .1f, 0f, .55f, .5f) == NatureKind.Broadleaf,
+            "Typical woodland should have enough sites to read as a forest.");
         Require(MapNatureRules.Pick(BiomeKind.BorealForest, true, .1f, 0f, .1f, .8f) == NatureKind.Conifer
             && MapNatureRules.Pick(BiomeKind.TemperateForest, true, .85f, 0f, .1f, .8f) == NatureKind.Rock,
             "Species and exposed rocks must follow biome and slope.");

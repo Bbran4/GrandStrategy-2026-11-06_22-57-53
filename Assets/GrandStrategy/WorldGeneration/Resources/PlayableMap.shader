@@ -154,7 +154,8 @@ Shader "GrandStrategy/Playable Map"
                 if (_GroundDetail > 0.0)
                 {
                     float4 grain = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 76.0);
-                    land *= 1.0 + dot(grain - 0.5, weights) * _GroundDetail * 0.38;
+                    float detailTone = dot(grain - 0.5, weights) * 0.59 + (grain.g - 0.5) * map.a * 0.16;
+                    land *= 1.0 + detailTone * _GroundDetail;
                 }
 
                 float exposed = smoothstep(0.04, 0.32, 1.0 - normal.y + (broad.g - 0.5) * 0.085) * map.a;
@@ -175,7 +176,7 @@ Shader "GrandStrategy/Playable Map"
                 float cover = smoothstep(0.04, 0.66, canopy.r) * map.a * clearing;
                 float3 forest = lerp(float3(0.055, 0.077, 0.038), float3(0.18, 0.22, 0.102), canopy.g);
                 forest = lerp(forest, float3(0.27, 0.34, 0.30), snow * 0.75);
-                land = lerp(land, forest, cover * lerp(0.90, 0.58, _GroundDetail));
+                land = lerp(land, forest, cover * lerp(0.90, 0.76, _GroundDetail));
 
                 float diffuse = saturate(dot(normal, normalize(float3(-0.54, 1.0, 0.42))));
                 land *= lerp(0.48, 1.15, diffuse);
