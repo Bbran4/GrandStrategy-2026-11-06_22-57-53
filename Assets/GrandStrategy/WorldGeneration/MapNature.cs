@@ -31,7 +31,7 @@ namespace GrandStrategy.WorldGeneration
                 root = new GameObject("Map nature") { hideFlags = HideFlags.DontSave };
                 root.transform.SetParent(parent.transform, false);
                 root.SetActive(false);
-                const int canopyHeight = 640;
+                const int canopyHeight = 1280;
                 var canopyWidth = Mathf.Clamp(Mathf.CeilToInt(canopyHeight * surface.Aspect), 32, 3072);
                 var canopyPixels = new Color32[canopyWidth * canopyHeight];
                 var builder = new ChunkBuilder();
@@ -104,7 +104,8 @@ namespace GrandStrategy.WorldGeneration
                     if (!HasDryFootprint(surface, uv, footprint)) return;
                     var lean = Mathf.Lerp(-8f, 8f, MapNatureRules.Random01(seed ^ 919, x, z));
                     builder.AddTree(model, anchor, size, widthScale, rotation, lean, variant, snow);
-                    StampCanopy(canopy, canopyWidth, canopyHeight, uv, surface.Aspect, footprint, variant);
+                    StampCanopy(canopy, canopyWidth, canopyHeight, uv, surface.Aspect,
+                        size * model.CrownRadius * widthScale, size, geometry.SunDirection, variant);
                     return;
                 }
 
@@ -114,25 +115,41 @@ namespace GrandStrategy.WorldGeneration
         }
 
         private static void StampCanopy(Color32[] pixels, int width, int height, Vector2 uv, float aspect,
-            float footprint, float variant)
+            float crownRadius, float treeHeight, Vector3 sun, float variant)
         {
-            // The same trees that appear up close paint soft crown and shade footprints for distant views.
-            var x = uv.x * width - .5f;
-            var y = uv.y * height - .5f;
-            var radius = .0013f + footprint * 1.55f;
-            var rx = radius * width / aspect;
-            var ry = radius * height;
-            for (var row = Mathf.Max(0, Mathf.FloorToInt(y - ry)); row <= Mathf.Min(height - 1, Mathf.CeilToInt(y + ry)); row++)
-                for (var column = Mathf.Max(0, Mathf.FloorToInt(x - rx)); column <= Mathf.Min(width - 1, Mathf.CeilToInt(x + rx)); column++)
+            // RG is the canopy under the crown. B is an independent, down-sun cast shadow.
+            var texelsPerUnit = new Vector2(width / aspect, height);
+            var center = new Vector2(uv.x * width - .5f, uv.y * height - .5f);
+            var reach = new Vector2(-sun.x, -sun.z) * (treeHeight / sun.y);
+            var shadowStart = center + Vector2.Scale(reach * .23f, texelsPerUnit);
+            var shadowEnd = center + Vector2.Scale(reach * .90f, texelsPerUnit);
+            var shadowRadius = crownRadius * .87f;
+            var radius = Mathf.Max(.0001f, crownRadius);
+            var rx = Mathf.Max(.5f, radius * texelsPerUnit.x);
+            var ry = Mathf.Max(.5f, radius * texelsPerUnit.y);
+            var minX = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(center.x, shadowEnd.x) - rx));
+            var maxX = Mathf.Min(width - 1, Mathf.CeilToInt(Mathf.Max(center.x, shadowEnd.x) + rx));
+            var minY = Mathf.Max(0, Mathf.FloorToInt(Mathf.Min(center.y, shadowEnd.y) - ry));
+            var maxY = Mathf.Min(height - 1, Mathf.CeilToInt(Mathf.Max(center.y, shadowEnd.y) + ry));
+            var shadowSpan = reach * .67f;
+            var spanSquared = shadowSpan.sqrMagnitude;
+            var shadeRadiusSquared = Mathf.Max(.00000001f, shadowRadius * shadowRadius);
+            for (var row = minY; row <= maxY; row++)
+                for (var column = minX; column <= maxX; column++)
                 {
-                    var dx = (column - x) / rx;
-                    var dy = (row - y) / ry;
+                    var dx = (column - center.x) / rx;
+                    var dy = (row - center.y) / ry;
                     var weight = Mathf.Clamp01(1f - dx * dx - dy * dy);
+                    var delta = new Vector2((column - shadowStart.x) / texelsPerUnit.x, (row - shadowStart.y) / texelsPerUnit.y);
+                    var t = Mathf.Clamp01(Vector2.Dot(delta, shadowSpan) / spanSquared);
+                    var distanceSquared = (delta - shadowSpan * t).sqrMagnitude;
+                    var shadow = Mathf.SmoothStep(1f, 0f, distanceSquared / shadeRadiusSquared);
                     var i = row * width + column;
-                    var shade = Mathf.RoundToInt(weight * 245f);
-                    var crown = Mathf.RoundToInt(weight * weight * Mathf.Lerp(65f, 215f, variant));
                     var old = pixels[i];
-                    pixels[i] = new Color32((byte)Mathf.Max(shade, old.r), (byte)Mathf.Max(crown, old.g), 0, 255);
+                    var cover = Mathf.RoundToInt(weight * 245f);
+                    var crown = Mathf.RoundToInt(weight * weight * Mathf.Lerp(65f, 215f, variant));
+                    pixels[i] = new Color32((byte)Mathf.Max(cover, old.r), (byte)Mathf.Max(crown, old.g),
+                        (byte)Mathf.Max(Mathf.RoundToInt(shadow * 230f), old.b), 255);
                 }
         }
 
@@ -158,6 +175,12 @@ namespace GrandStrategy.WorldGeneration
             visibility = next;
             material.SetFloat("_Visibility", visibility);
             if (root.activeSelf != (visibility > 0f)) root.SetActive(visibility > 0f);
+        }
+
+        public void SetSunShadow(Texture2D shadow, Vector3 direction, float aspect)
+        {
+            material.SetTexture("_TerrainShadow", shadow);
+            material.SetVector("_MapSun", new Vector4(direction.x, direction.y, direction.z, 1f / aspect));
         }
 
         public void SetCapital(Vector3 point)

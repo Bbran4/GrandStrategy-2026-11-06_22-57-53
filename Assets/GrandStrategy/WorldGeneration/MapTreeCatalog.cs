@@ -61,6 +61,7 @@ namespace GrandStrategy.WorldGeneration
         public readonly float Base;
         public readonly float Height;
         public readonly float Radius;
+        public readonly float CrownRadius;
 
         public MapTreeModel(TreeSpecies species, MapTreeCatalog catalog)
         {
@@ -75,7 +76,8 @@ namespace GrandStrategy.WorldGeneration
             var top = crown != null ? crown.bounds.max.y : Base;
             if (trunk != null) top = Mathf.Max(top, trunk.bounds.max.y);
             Height = Mathf.Max(.001f, top - Base);
-            Radius = Mathf.Max(RadiusOf(crown), RadiusOf(trunk)) / Height;
+            CrownRadius = RadiusOf(Crown) / Height;
+            Radius = Mathf.Max(CrownRadius, RadiusOf(Trunk) / Height);
             CrownTint = custom ? entry.crownTint : species switch
             {
                 TreeSpecies.Birch => new Color32(133, 148, 88, 255),
@@ -90,13 +92,13 @@ namespace GrandStrategy.WorldGeneration
                 ? new Color32(179, 176, 151, 255) : new Color32(102, 85, 61, 255);
         }
 
-        private static float RadiusOf(Mesh mesh)
+        private static float RadiusOf(Part part)
         {
-            if (mesh == null) return 0f;
-            var bounds = mesh.bounds;
-            var x = Mathf.Max(Mathf.Abs(bounds.min.x), Mathf.Abs(bounds.max.x));
-            var z = Mathf.Max(Mathf.Abs(bounds.min.z), Mathf.Abs(bounds.max.z));
-            return Mathf.Sqrt(x * x + z * z);
+            if (part == null) return 0f;
+            var radiusSquared = 0f;
+            foreach (var p in part.Vertices)
+                radiusSquared = Mathf.Max(radiusSquared, p.x * p.x + p.z * p.z);
+            return Mathf.Sqrt(radiusSquared);
         }
 
         private static Mesh Readable(Mesh custom, TreeSpecies species, string part)

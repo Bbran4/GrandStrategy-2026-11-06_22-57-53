@@ -4,6 +4,8 @@ Shader "GrandStrategy/Map Nature"
     {
         _Visibility ("Zoom visibility", Float) = 0
         _Capital ("Capital clearing", Vector) = (0, 0, 0, 0)
+        _TerrainShadow ("Terrain sun shadow", 2D) = "black" {}
+        _MapSun ("Sun direction and inverse aspect", Vector) = (-1, 1, 1, 1)
     }
 
     SubShader
@@ -21,8 +23,12 @@ Shader "GrandStrategy/Map Nature"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
 
+            TEXTURE2D(_TerrainShadow);
+            SAMPLER(sampler_TerrainShadow);
             CBUFFER_START(UnityPerMaterial)
                 float4 _Capital;
+                float4 _MapSun;
+                float4 _TerrainShadow_TexelSize;
                 float _Visibility;
             CBUFFER_END
 
@@ -47,7 +53,11 @@ Shader "GrandStrategy/Map Nature"
                 float3 position = lerp(input.anchorOS, input.positionOS, _Visibility);
                 output.positionCS = TransformObjectToHClip(position);
                 float3 normal = TransformObjectToWorldNormal(input.normalOS);
-                half light = saturate(dot(normal, normalize(float3(-0.54, 1.0, 0.42))));
+                float2 uv = input.anchorOS.xz * float2(_MapSun.w, 1.0) + 0.5;
+                float2 texel = _TerrainShadow_TexelSize.xy;
+                float2 shadowUV = uv * (1.0 - texel) + 0.5 * texel;
+                float shade = SAMPLE_TEXTURE2D_LOD(_TerrainShadow, sampler_TerrainShadow, shadowUV, 0).r;
+                half light = saturate(dot(normal, normalize(_MapSun.xyz))) * (1.0 - 0.89 * shade);
                 half3 colour = input.colour.rgb;
                 #ifndef UNITY_COLORSPACE_GAMMA
                 colour = SRGBToLinear(colour);

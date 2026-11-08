@@ -6,6 +6,8 @@ Shader "GrandStrategy/Playable Map"
         _BiomeWeights ("Biome weights and snow", 2D) = "black" {}
         _GroundPatterns ("Ground patterns", 2D) = "gray" {}
         _ForestCanopy ("Forest canopy and shadow", 2D) = "black" {}
+        _TerrainShadow ("Terrain sun shadow", 2D) = "black" {}
+        _MapSun ("Map sun direction", Vector) = (-1, 1, 1, 0)
         _GroundDetail ("Ground detail", Float) = 0
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
         _ShowPolitics ("Political overlays", Float) = 1
@@ -39,6 +41,8 @@ Shader "GrandStrategy/Playable Map"
             SAMPLER(sampler_GroundPatterns);
             TEXTURE2D(_ForestCanopy);
             SAMPLER(sampler_ForestCanopy);
+            TEXTURE2D(_TerrainShadow);
+            SAMPLER(sampler_TerrainShadow);
             TEXTURE2D(_ProvinceIndices);
             SAMPLER(sampler_ProvinceIndices);
             TEXTURE2D(_ProvinceCorners);
@@ -51,6 +55,8 @@ Shader "GrandStrategy/Playable Map"
                 float4 _OwnershipSize;
                 float4 _TribeColour;
                 float4 _CapitalClearing;
+                float4 _TerrainShadow_TexelSize;
+                float4 _MapSun;
                 float _ShowPolitics;
                 float _RealmFill;
                 float _GroundDetail;
@@ -169,7 +175,7 @@ Shader "GrandStrategy/Playable Map"
                 land = lerp(land, lerp(float3(0.47, 0.52, 0.53), float3(0.84, 0.86, 0.84), patches.g),
                     snow * 0.94);
 
-                float2 canopy = SAMPLE_TEXTURE2D(_ForestCanopy, sampler_ForestCanopy, input.uv).rg;
+                float3 canopy = SAMPLE_TEXTURE2D(_ForestCanopy, sampler_ForestCanopy, input.uv).rgb;
                 float clearing = _CapitalClearing.z > 0.0
                     ? smoothstep(_CapitalClearing.z * 0.7, _CapitalClearing.z, distance(ground, _CapitalClearing.xy))
                     : 1.0;
@@ -178,14 +184,19 @@ Shader "GrandStrategy/Playable Map"
                 forest = lerp(forest, float3(0.27, 0.34, 0.30), snow * 0.75);
                 land = lerp(land, forest, cover * lerp(0.90, 0.76, _GroundDetail));
 
-                float diffuse = saturate(dot(normal, normalize(float3(-0.54, 1.0, 0.42))));
-                land *= lerp(0.48, 1.15, diffuse);
+                float2 texel = _TerrainShadow_TexelSize.xy;
+                float2 shadowUV = input.uv * (1.0 - texel) + 0.5 * texel;
+                float terrainShade = SAMPLE_TEXTURE2D(_TerrainShadow, sampler_TerrainShadow, shadowUV).r;
+                float treeShade = canopy.b * clearing * lerp(0.46, 0.82, _GroundDetail);
+                float shade = max(terrainShade, treeShade);
+                float diffuse = saturate(dot(normal, normalize(_MapSun.xyz)));
+                land *= 0.55 + 0.66 * diffuse * (1.0 - shade * 0.89);
                 float ripple = (patches.g - 0.5) * 0.13 + (broad.a - 0.5) * 0.11;
                 float3 water = map.rgb * (1.0 + ripple);
                 float ice = biomes.a * lerp(0.65, 0.96, patches.g);
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
                 // Water is drawn on the same mesh. Keep its surface dark and the banks soft.
-                return lerp(water, land, map.a);
+                return lerp(water * (1.0 - 0.20 * terrainShade), land, map.a);
             }
 
             half4 Frag(Varyings input) : SV_Target

@@ -16,6 +16,7 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D ownership;
         private Texture2D biomeWeights;
         private Texture2D groundPatterns;
+        private Texture2D terrainShadow;
         private MapNature nature;
         private float groundDetail;
         private MapBorderOverlay borders;
@@ -80,12 +81,17 @@ namespace GrandStrategy.WorldGeneration
                 collider.sharedMesh = mesh;
                 Collider = collider;
                 var geometry = new MapTerrainGeometry(mesh);
+                terrainShadow = geometry.CreateSunShadow();
+                material.SetTexture("_TerrainShadow", terrainShadow);
+                var sun = geometry.SunDirection;
+                material.SetVector("_MapSun", new Vector4(sun.x, sun.y, sun.z, 0f));
                 var navigation = riverMap == null ? null : RiverNavigation.Build(riverMap, water, maximumRiverRise);
                 borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, water, navigation);
                 nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed, treeCatalog,
                     cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes),
                     cell => biomes?.Climate.TemperatureCelsius(cell) ?? 12f,
                     cell => biomes == null ? .55f : biomes.Climate.Moisture[cell] / 255f);
+                nature.SetSunShadow(terrainShadow, sun, Aspect);
                 material.SetTexture("_ForestCanopy", nature.Canopy);
             }
             catch
@@ -262,6 +268,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(ownership);
             UnityEngine.Object.Destroy(biomeWeights);
             UnityEngine.Object.Destroy(groundPatterns);
+            UnityEngine.Object.Destroy(terrainShadow);
         }
     }
 }
