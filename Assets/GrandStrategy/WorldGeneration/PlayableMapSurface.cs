@@ -18,8 +18,6 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D groundPatterns;
         private Texture2D landTint;
         private Texture2D landMaterials;
-        private Texture2D plainsGrass;
-        private Texture2D forestFloor;
         private Texture2D terrainShadow;
         private MapNature nature;
         private float groundDetail;
@@ -51,8 +49,10 @@ namespace GrandStrategy.WorldGeneration
 
             try
             {
-                var shader = Resources.Load<Shader>("PlayableMap");
-                if (shader == null || !shader.isSupported)
+                var groundMaterial = Resources.Load<Material>("PlayableMapGround");
+                if (groundMaterial == null)
+                    throw new InvalidOperationException("The playable map ground material is missing.");
+                if (groundMaterial.shader == null || !groundMaterial.shader.isSupported)
                     throw new InvalidOperationException("The playable map shader requires Universal Render Pipeline.");
 
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
@@ -60,17 +60,13 @@ namespace GrandStrategy.WorldGeneration
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
                 biomeWeights = CreateTexture("Biome material weights", true, FilterMode.Trilinear, true);
                 groundPatterns = MapGroundPatterns.Create();
-                plainsGrass = MapGroundPatterns.CreateGrassVariants(false);
-                forestFloor = MapGroundPatterns.CreateGrassVariants(true);
                 FillTextures(biomes, terrain);
-                material = new Material(shader) { hideFlags = HideFlags.DontSave };
+                material = new Material(groundMaterial) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
                 material.SetTexture("_BiomeWeights", biomeWeights);
                 material.SetTexture("_GroundPatterns", groundPatterns);
                 material.SetTexture("_LandTint", landTint);
                 material.SetTexture("_LandMaterials", landMaterials);
-                material.SetTexture("_PlainsGrass", plainsGrass);
-                material.SetTexture("_ForestFloor", forestFloor);
                 material.SetVector("_GroundGrid", new Vector4(Map.Width, Map.Height, 1f / Aspect, 0f));
                 material.SetTexture("_ProvinceIndices", regions);
                 CreateProvinceCornerTexture();
@@ -283,8 +279,6 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(groundPatterns);
             UnityEngine.Object.Destroy(landTint);
             UnityEngine.Object.Destroy(landMaterials);
-            UnityEngine.Object.Destroy(plainsGrass);
-            UnityEngine.Object.Destroy(forestFloor);
             UnityEngine.Object.Destroy(terrainShadow);
         }
     }

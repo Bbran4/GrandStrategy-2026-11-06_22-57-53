@@ -5,8 +5,14 @@ Shader "GrandStrategy/Playable Map"
         _MapColours ("Base colours and land coverage", 2D) = "white" {}
         _LandTint ("Filtered land colours and coverage", 2D) = "black" {}
         _LandMaterials ("Filtered land material weights", 2D) = "black" {}
-        _PlainsGrass ("Plains grass variants", 2D) = "gray" {}
-        _ForestFloor ("Forest floor variants", 2D) = "gray" {}
+        [NoScaleOffset] _GrassColour ("Short grass colour", 2D) = "gray" {}
+        [NoScaleOffset] _GrassNormal ("Short grass normal", 2D) = "bump" {}
+        [NoScaleOffset] _SparseGrassColour ("Sparse grass colour", 2D) = "gray" {}
+        [NoScaleOffset] _SparseGrassNormal ("Sparse grass normal", 2D) = "bump" {}
+        [NoScaleOffset] _LeafMudColour ("Leaf-strewn mud colour", 2D) = "gray" {}
+        [NoScaleOffset] _LeafMudNormal ("Leaf-strewn mud normal", 2D) = "bump" {}
+        [NoScaleOffset] _LeafLitterColour ("Forest leaf litter colour", 2D) = "gray" {}
+        [NoScaleOffset] _LeafLitterNormal ("Forest leaf litter normal", 2D) = "bump" {}
         _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
         _BiomeWeights ("Biome weights and snow", 2D) = "black" {}
         _GroundPatterns ("Ground patterns", 2D) = "gray" {}
@@ -37,6 +43,7 @@ Shader "GrandStrategy/Playable Map"
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
 
             TEXTURE2D(_MapColours);
             SAMPLER(sampler_MapColours);
@@ -44,10 +51,14 @@ Shader "GrandStrategy/Playable Map"
             SAMPLER(sampler_LandTint);
             TEXTURE2D(_LandMaterials);
             SAMPLER(sampler_LandMaterials);
-            TEXTURE2D(_PlainsGrass);
-            SAMPLER(sampler_PlainsGrass);
-            TEXTURE2D(_ForestFloor);
-            SAMPLER(sampler_ForestFloor);
+            TEXTURE2D(_GrassColour);
+            TEXTURE2D(_GrassNormal);
+            TEXTURE2D(_SparseGrassColour);
+            TEXTURE2D(_SparseGrassNormal);
+            TEXTURE2D(_LeafMudColour);
+            TEXTURE2D(_LeafMudNormal);
+            TEXTURE2D(_LeafLitterColour);
+            TEXTURE2D(_LeafLitterNormal);
             TEXTURE2D(_BiomeWeights);
             SAMPLER(sampler_BiomeWeights);
             TEXTURE2D(_GroundPatterns);
@@ -198,16 +209,55 @@ Shader "GrandStrategy/Playable Map"
                     + float3(0.94, 1.04, 0.93) * forestMix.z;
                 land *= 1.0 + (plainsTint - 1.0) * plainsWeight + (forestTint - 1.0) * forestWeight;
 
+                float2 groundDx = ddx(ground);
+                float2 groundDy = ddy(ground);
+                float2 groundSlope = 0.0;
+                UNITY_BRANCH
                 if (_GroundDetail > 0.0)
                 {
                     float4 grain = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 76.0);
-                    float3 plains = SAMPLE_TEXTURE2D(_PlainsGrass, sampler_PlainsGrass, ground * 49.0).rgb;
-                    float3 forestDetail = SAMPLE_TEXTURE2D(_ForestFloor, sampler_ForestFloor, float2(ground.y, -ground.x) * 43.0).rgb;
-                    float detailTone = dot(plains - 0.5, plainsMix) * plainsWeight * 0.65
-                        + dot(forestDetail - 0.5, forestMix) * forestWeight * 0.73
-                        + (grain.b - 0.5) * sandWeight * 0.59 + (grain.a - 0.5) * wetlandWeight * 0.59
+                    float detailTone = (grain.b - 0.5) * sandWeight * 0.59 + (grain.a - 0.5) * wetlandWeight * 0.59
                         + (grain.g - 0.5) * 0.16;
                     land *= 1.0 + detailTone * _GroundDetail;
+
+                    float vegetated = plainsWeight + forestWeight;
+                    UNITY_BRANCH
+                    if (map.a > 0.0 && vegetated > 0.001)
+                    {
+                        // Use the same warped biome weights for colour and lighting. Mixed cells
+                        // favour sparse grass and leaf-strewn soil in the existing irregular patches.
+                        float forestShare = forestWeight / vegetated;
+                        float edge = 4.0 * forestShare * (1.0 - forestShare);
+                        float sparse = saturate(plainsMix.y * 0.46 + edge * (0.27 + patches.r * 0.33));
+                        float leafMud = saturate(forestMix.y * 0.40 + edge * (0.32 + patches.a * 0.36));
+                        float4 blend = float4((1.0 - sparse) * (1.0 - forestShare), sparse * (1.0 - forestShare),
+                            leafMud * forestShare, (1.0 - leafMud) * forestShare);
+
+                        float2 grassUV = ground * 34.0;
+                        float2 sparseUV = ground * 39.0;
+                        float2 mudUV = ground * 37.0;
+                        float2 litterUV = ground * 43.0;
+                        float3 textureColour = SAMPLE_TEXTURE2D_GRAD(_GrassColour, sampler_GroundPatterns,
+                                grassUV, groundDx * 34.0, groundDy * 34.0).rgb * blend.x
+                            + SAMPLE_TEXTURE2D_GRAD(_SparseGrassColour, sampler_GroundPatterns,
+                                sparseUV, groundDx * 39.0, groundDy * 39.0).rgb * blend.y
+                            + SAMPLE_TEXTURE2D_GRAD(_LeafMudColour, sampler_GroundPatterns,
+                                mudUV, groundDx * 37.0, groundDy * 37.0).rgb * blend.z
+                            + SAMPLE_TEXTURE2D_GRAD(_LeafLitterColour, sampler_GroundPatterns,
+                                litterUV, groundDx * 43.0, groundDy * 43.0).rgb * blend.w;
+                        float detail = vegetated * _GroundDetail;
+                        land = lerp(land, textureColour, detail * 0.38);
+
+                        groundSlope = (UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_GrassNormal, sampler_GroundPatterns,
+                                grassUV, groundDx * 34.0, groundDy * 34.0)).xy * blend.x
+                            + UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_SparseGrassNormal, sampler_GroundPatterns,
+                                sparseUV, groundDx * 39.0, groundDy * 39.0)).xy * blend.y
+                            + UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_LeafMudNormal, sampler_GroundPatterns,
+                                mudUV, groundDx * 37.0, groundDy * 37.0)).xy * blend.z
+                            + UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_LeafLitterNormal, sampler_GroundPatterns,
+                                litterUV, groundDx * 43.0, groundDy * 43.0)).xy * blend.w)
+                            * (detail * 0.45);
+                    }
                 }
 
                 float exposed = smoothstep(0.04, 0.32, 1.0 - normal.y + (broad.g - 0.5) * 0.085) * map.a;
@@ -235,7 +285,12 @@ Shader "GrandStrategy/Playable Map"
                 float terrainShade = SAMPLE_TEXTURE2D(_TerrainShadow, sampler_TerrainShadow, shadowUV).r;
                 float treeShade = canopy.b * clearing * lerp(0.46, 0.82, _GroundDetail);
                 float shade = max(terrainShade, treeShade);
-                float diffuse = saturate(dot(normal, normalize(_MapSun.xyz)));
+                // Ground UV increases along world +X and +Z on the heightfield.
+                float3 tangent = normalize(float3(normal.y, -normal.x, 0.0));
+                float3 bitangent = cross(tangent, normal);
+                float3 relief = (groundSlope.x * tangent + groundSlope.y * bitangent)
+                    * (1.0 - snow) * (1.0 - exposed * 0.84) * (1.0 - cover);
+                float diffuse = saturate(dot(normalize(normal + relief), normalize(_MapSun.xyz)));
                 land *= 0.55 + 0.66 * diffuse * (1.0 - shade * 0.89);
                 float ripple = (patches.g - 0.5) * 0.13 + (broad.a - 0.5) * 0.11;
                 float2 screenX = ddx(input.uv) * _GroundGrid.xy;
