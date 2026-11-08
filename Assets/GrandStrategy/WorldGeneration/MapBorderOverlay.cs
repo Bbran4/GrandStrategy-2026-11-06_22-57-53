@@ -10,6 +10,7 @@ namespace GrandStrategy.WorldGeneration
     internal sealed class MapBorderOverlay : IDisposable
     {
         private readonly ProvinceMap map;
+        private readonly ProvinceShape provinceShape;
         private readonly MapTerrainGeometry geometry;
         private readonly int[] territoryRaster;
         private Material material;
@@ -20,9 +21,10 @@ namespace GrandStrategy.WorldGeneration
 
         public bool HasTerritories => territoryRaster != null;
 
-        public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map)
+        public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map, ProvinceShape provinceShape)
         {
             this.map = map;
+            this.provinceShape = provinceShape;
             this.geometry = geometry;
             territoryRaster = GetTerritories(map);
 
@@ -61,7 +63,7 @@ namespace GrandStrategy.WorldGeneration
                     material.SetFloat("_WidthPixels", 2.2f);
                     break;
                 case MapViewMode.Provinces:
-                    if (provinceBorders == null) provinceBorders = CreateMesh(map.ProvinceAt, "Province outlines");
+                    if (provinceBorders == null) provinceBorders = CreateMesh(map.ProvinceAt, "Province outlines", true);
                     filter.sharedMesh = provinceBorders;
                     material.SetFloat("_WidthPixels", 1.6f);
                     break;
@@ -69,7 +71,7 @@ namespace GrandStrategy.WorldGeneration
             renderer.enabled = true;
         }
 
-        private Mesh CreateMesh(int[] raster, string label)
+        private Mesh CreateMesh(int[] raster, string label, bool useProvinceShape = false)
         {
             var starts = new List<Vector3>();
             var ends = new List<Vector3>();
@@ -79,11 +81,11 @@ namespace GrandStrategy.WorldGeneration
             MapBorderPaths.Trace(map.Width, map.Height, raster, (path, closed) =>
             {
                 var count = closed ? path.Count - 1 : path.Count;
-                var first = SmoothedCorner(path, count, 0, closed);
+                var first = SmoothedCorner(path, count, 0, closed, useProvinceShape);
                 var previous = first;
                 for (var i = 1; i < count; i++)
                 {
-                    var current = SmoothedCorner(path, count, i, closed);
+                    var current = SmoothedCorner(path, count, i, closed, useProvinceShape);
                     FollowTerrain(previous, current);
                     previous = current;
                 }
@@ -157,19 +159,13 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        private Vector2 SmoothedCorner(IReadOnlyList<int> path, int count, int i, bool closed)
+        private Vector2 SmoothedCorner(IReadOnlyList<int> path, int count, int i, bool closed, bool useProvinceShape)
         {
-            var current = Corner(path[i]);
-            if (!closed && (i == 0 || i == count - 1)) return current;
-
-            var average = (At(i - 2) + 2f * At(i - 1) + 2f * current + 2f * At(i + 1) + At(i + 2)) / 8f;
-            // Keep close to the raster and leave room for another boundary one pixel away.
-            return current + Vector2.ClampMagnitude(average - current, .44f);
-
-            Vector2 At(int index) => Corner(path[closed ? (index + count) % count : Mathf.Clamp(index, 0, count - 1)]);
+            var point = useProvinceShape
+                ? provinceShape.Corner(path[i])
+                : ProvinceShape.Smooth(path, count, i, closed, map.Width + 1, .44f);
+            return new Vector2(point.X, point.Y);
         }
-
-        private Vector2 Corner(int index) => new Vector2(index % (map.Width + 1), index / (map.Width + 1));
 
         private Vector3 TerrainPoint(Vector2 corner)
             => geometry.Sample(new Vector2(corner.x / map.Width, corner.y / map.Height), out _) + Vector3.up * .0001f;

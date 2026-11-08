@@ -47,12 +47,13 @@ Shader "GrandStrategy/Map Nature"
                 float3 position = lerp(input.anchorOS, input.positionOS, _Visibility);
                 output.positionCS = TransformObjectToHClip(position);
                 float3 normal = TransformObjectToWorldNormal(input.normalOS);
-                half light = saturate(dot(normal, normalize(float3(-0.5, 1.0, 0.35))));
+                half light = saturate(dot(normal, normalize(float3(-0.54, 1.0, 0.42))));
                 half3 colour = input.colour.rgb;
                 #ifndef UNITY_COLORSPACE_GAMMA
                 colour = SRGBToLinear(colour);
                 #endif
-                output.colour = colour * lerp(0.6, 1.1, light);
+                half crownLight = lerp(0.73, 1.0, saturate((input.positionOS.y - input.anchorOS.y) * 750.0));
+                output.colour = colour * lerp(0.52, 1.16, light) * crownLight;
                 float2 delta = input.anchorOS.xz - _Capital.xy;
                 output.clearance = dot(delta, delta) - _Capital.z * _Capital.z;
                 return output;

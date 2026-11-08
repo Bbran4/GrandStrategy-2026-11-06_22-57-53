@@ -11,6 +11,8 @@ namespace GrandStrategy.WorldGeneration
         private Material material;
         private Texture2D colours;
         private Texture2D regions;
+        private Texture2D provinceCorners;
+        private readonly ProvinceShape provinceShape;
         private Texture2D ownership;
         private Texture2D biomeWeights;
         private Texture2D groundPatterns;
@@ -33,6 +35,7 @@ namespace GrandStrategy.WorldGeneration
             var terrain = riverMap?.Terrain ?? world.Read();
             ValidatePair(terrain, imported);
             Map = provinces.Map;
+            provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
             water = WaterMap.Classify(terrain);
             rivers = riverMap?.BuildSurfaceMask();
             var settings = world.ReadClimateSettings();
@@ -49,7 +52,7 @@ namespace GrandStrategy.WorldGeneration
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
                 colours = CreateTexture("Map colours", false, FilterMode.Bilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
-                biomeWeights = CreateTexture("Biome material weights", true, FilterMode.Bilinear, true);
+                biomeWeights = CreateTexture("Biome material weights", true, FilterMode.Trilinear, true);
                 groundPatterns = MapGroundPatterns.Create();
                 FillTextures(biomes, terrain);
                 material = new Material(shader) { hideFlags = HideFlags.DontSave };
@@ -57,6 +60,7 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_BiomeWeights", biomeWeights);
                 material.SetTexture("_GroundPatterns", groundPatterns);
                 material.SetTexture("_ProvinceIndices", regions);
+                CreateProvinceCornerTexture();
                 var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
                 ownership = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
                 {
@@ -75,9 +79,10 @@ namespace GrandStrategy.WorldGeneration
                 collider.sharedMesh = mesh;
                 Collider = collider;
                 var geometry = new MapTerrainGeometry(mesh);
-                borders = new MapBorderOverlay(surface, geometry, Map);
+                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape);
                 nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed,
                     cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes));
+                material.SetTexture("_ForestCanopy", nature.Canopy);
             }
             catch
             {
@@ -119,19 +124,42 @@ namespace GrandStrategy.WorldGeneration
 
                 var kind = SurfaceKind(cell, biomes);
                 var dry = IsDryLand(cell);
-                var rgb = BiomeMap.PreviewColour(kind);
+                var rgb = MapGroundPatterns.Palette(kind);
                 colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
                 weightPixels[cell] = new Color32(
                     MapNatureRules.IsForest(kind) ? (byte)255 : (byte)0,
                     kind == BiomeKind.Desert ? (byte)255 : (byte)0,
                     kind == BiomeKind.Wetland ? (byte)255 : (byte)0,
                     dry ? (byte)Mathf.RoundToInt(SnowAt(cell, terrain, biomes) * 255f) : (byte)0);
-                indexPixels[cell] = EncodeProvince(province);
+                var indexColour = EncodeProvince(province);
+                indexColour.a = provinceShape.CellMoved(cell % Map.Width, cell / Map.Width) ? (byte)255 : (byte)0;
+                indexPixels[cell] = indexColour;
             }
 
             colours.Apply(true, true);
             regions.Apply(false, true);
             biomeWeights.Apply(true, true);
+        }
+
+        private void CreateProvinceCornerTexture()
+        {
+            var width = Map.Width + 1;
+            var height = Map.Height + 1;
+            provinceCorners = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
+            {
+                name = "Province corner offsets", hideFlags = HideFlags.DontSave,
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp
+            };
+            var pixels = provinceCorners.GetRawTextureData<Color32>();
+            for (var i = 0; i < provinceShape.CornerCount; i++)
+            {
+                var offset = provinceShape.PackedCorner(i);
+                pixels[i] = new Color32((byte)(offset & 255), (byte)(offset >> 8), 0, 255);
+            }
+
+            provinceCorners.Apply(false, true);
+            material.SetTexture("_ProvinceCorners", provinceCorners);
+            material.SetVector("_ProvinceGrid", new Vector4(Map.Width, Map.Height, 1f / width, 1f / height));
         }
 
         private static float SnowAt(int cell, HeightmapResult terrain, BiomeMap biomes)
@@ -152,6 +180,9 @@ namespace GrandStrategy.WorldGeneration
             return y * Map.Width + x;
         }
 
+        public int ProvinceCellAt(Vector2 uv)
+            => provinceShape.CellAt(Mathf.Clamp01(uv.x) * Map.Width, Mathf.Clamp01(uv.y) * Map.Height);
+
         public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0);
 
         public Vector3 PointAtCell(int cell)
@@ -166,7 +197,7 @@ namespace GrandStrategy.WorldGeneration
 
         public void SetZoom(float zoom)
         {
-            var next = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(.16f, .65f, zoom));
+            var next = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(.13f, .78f, zoom));
             if (groundDetail != next)
             {
                 groundDetail = next;
@@ -175,7 +206,11 @@ namespace GrandStrategy.WorldGeneration
             nature.SetZoom(zoom);
         }
 
-        public void SetCapital(Vector3 point) => nature.SetCapital(point);
+        public void SetCapital(Vector3 point)
+        {
+            nature.SetCapital(point);
+            material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));
+        }
 
         public void SetView(MapViewMode mode)
         {
@@ -216,6 +251,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(material);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
+            UnityEngine.Object.Destroy(provinceCorners);
             UnityEngine.Object.Destroy(ownership);
             UnityEngine.Object.Destroy(biomeWeights);
             UnityEngine.Object.Destroy(groundPatterns);

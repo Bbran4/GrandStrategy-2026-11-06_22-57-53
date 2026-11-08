@@ -6,7 +6,7 @@ namespace GrandStrategy.WorldGeneration
     {
         public static Texture2D Create()
         {
-            const int size = 128;
+            const int size = 192;
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, true, true)
             {
                 name = "Biome ground patterns", hideFlags = HideFlags.DontSave,
@@ -20,14 +20,16 @@ namespace GrandStrategy.WorldGeneration
                     {
                         var u = (x + .5f) / size;
                         var v = (y + .5f) / size;
-                        var grain = Noise(u, v, 48, 48, 31);
-                        var clumps = Noise(u, v, 7, 7, 79);
-                        var forest = .65f * clumps + .35f * grain;
-                        var grass = .55f * Noise(u, v, 32, 11, 47) + .45f * grain;
-                        var dunes = .5f + .5f * Mathf.Sin(2f * Mathf.PI * (6f * v + .9f * clumps));
-                        var desert = .65f * dunes + .35f * grain;
-                        var wetland = .7f * Noise(u, v, 12, 6, 57) + .3f * grain;
-                        pixels[y * size + x] = new Color32(Byte(forest), Byte(grass), Byte(desert), Byte(wetland));
+                        var grain = Noise(u, v, 46, 46, 31);
+                        var mottling = Noise(u, v, 9, 11, 79);
+                        var brokenGround = Noise(u, v, 23, 16, 47);
+                        var sediment = Noise(u, v, 14, 26, 53);
+                        var damp = Noise(u, v, 7, 13, 57);
+                        var vegetation = .64f * mottling + .26f * brokenGround + .10f * grain;
+                        var stone = .55f * brokenGround + .45f * grain;
+                        var sand = .72f * sediment + .28f * grain;
+                        var mud = .70f * damp + .30f * brokenGround;
+                        pixels[y * size + x] = new Color32(Byte(vegetation), Byte(stone), Byte(sand), Byte(mud));
                     }
 
                 texture.Apply(true, true);
@@ -37,6 +39,26 @@ namespace GrandStrategy.WorldGeneration
             {
                 Object.Destroy(texture);
                 throw;
+            }
+        }
+
+        public static Rgb24 Palette(BiomeKind kind)
+        {
+            switch (kind)
+            {
+                case BiomeKind.DeepOcean: return new Rgb24(52, 72, 81);
+                case BiomeKind.ShallowSea: return new Rgb24(70, 95, 101);
+                case BiomeKind.Lake: return new Rgb24(73, 103, 108);
+                case BiomeKind.River: return new Rgb24(83, 118, 120);
+                case BiomeKind.Wetland: return new Rgb24(108, 115, 76);
+                case BiomeKind.Desert: return new Rgb24(172, 147, 102);
+                case BiomeKind.Grassland: return new Rgb24(140, 149, 93);
+                case BiomeKind.TemperateForest: return new Rgb24(109, 125, 76);
+                case BiomeKind.TropicalForest: return new Rgb24(94, 118, 73);
+                case BiomeKind.BorealForest: return new Rgb24(100, 113, 85);
+                case BiomeKind.Tundra: return new Rgb24(143, 149, 123);
+                case BiomeKind.Alpine: return new Rgb24(139, 136, 122);
+                default: throw new System.ArgumentOutOfRangeException(nameof(kind));
             }
         }
 

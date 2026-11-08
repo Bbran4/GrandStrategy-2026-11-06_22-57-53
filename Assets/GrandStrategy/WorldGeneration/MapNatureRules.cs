@@ -21,14 +21,34 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!dry) return NatureKind.None;
             if (biome == BiomeKind.Alpine || slope > .65f)
-                return slope < 2.2f && roll < .30f ? NatureKind.Rock : NatureKind.None;
+                return slope < 2.2f && roll < .15f ? NatureKind.Rock : NatureKind.None;
             if (biome == BiomeKind.Wetland && slope < .25f && snow < .25f)
-                return roll < .50f ? NatureKind.Reeds : NatureKind.None;
-            if (IsForest(biome) && roll < (.32f + .48f * grove) * (1f - .8f * snow))
+                return roll < .25f && grove > .36f ? NatureKind.Reeds : NatureKind.None;
+            if (IsForest(biome) && roll < Ramp(grove, .31f, .68f) * .88f * (1f - .72f * snow))
                 return biome == BiomeKind.BorealForest || snow > .25f ? NatureKind.Conifer : NatureKind.Broadleaf;
-            if (biome == BiomeKind.Grassland && snow < .15f && grove > .78f && roll < .12f)
+            if (biome == BiomeKind.Grassland && snow < .15f && grove > .74f && roll < .34f)
                 return NatureKind.Broadleaf;
-            return roll > .97f ? NatureKind.Rock : NatureKind.None;
+            return slope > .28f && roll > .98f ? NatureKind.Rock : NatureKind.None;
+        }
+
+        public static float Grove(int seed, float x, float y)
+        {
+            var regional = Field(seed ^ 739, x * 13f, y * 13f);
+            var pockets = Field(seed ^ 983, x * 41f, y * 41f);
+            return .72f * regional + .28f * pockets;
+        }
+
+        private static float Field(int seed, float x, float y)
+        {
+            var ix = (int)MathF.Floor(x);
+            var iy = (int)MathF.Floor(y);
+            var tx = Ramp(x - ix, 0f, 1f);
+            var ty = Ramp(y - iy, 0f, 1f);
+            var a = Mix(Random01(seed, ix, iy), Random01(seed, ix + 1, iy), tx);
+            var b = Mix(Random01(seed, ix, iy + 1), Random01(seed, ix + 1, iy + 1), tx);
+            return Mix(a, b, ty);
+
+            static float Mix(float a, float b, float t) => a + (b - a) * t;
         }
 
         public static float Random01(int seed, int x, int y)

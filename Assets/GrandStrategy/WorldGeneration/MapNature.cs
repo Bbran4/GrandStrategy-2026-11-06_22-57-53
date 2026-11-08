@@ -7,12 +7,14 @@ namespace GrandStrategy.WorldGeneration
 {
     internal sealed class MapNature : IDisposable
     {
-        private const int SitesPerMapHeight = 192;
+        private const int SitesPerMapHeight = 240;
         private const int ChunkSize = 16;
+        public const float CapitalRadius = .006f;
         private readonly List<Mesh> meshes = new List<Mesh>();
         private GameObject root;
         private Material material;
         private float visibility;
+        public Texture2D Canopy { get; private set; }
 
         public MapNature(GameObject parent, MapTerrainGeometry geometry, PlayableMapSurface surface,
             int seed, Func<int, BiomeKind> biomeAt, Func<int, float> snowAt)
@@ -27,6 +29,9 @@ namespace GrandStrategy.WorldGeneration
                 root = new GameObject("Map nature") { hideFlags = HideFlags.DontSave };
                 root.transform.SetParent(parent.transform, false);
                 root.SetActive(false);
+                const int canopyHeight = 640;
+                var canopyWidth = Mathf.Clamp(Mathf.CeilToInt(canopyHeight * surface.Aspect), 32, 3072);
+                var canopyPixels = new Color32[canopyWidth * canopyHeight];
                 var builder = new ChunkBuilder();
                 var width = Mathf.Min(1024, Mathf.CeilToInt(surface.Aspect * SitesPerMapHeight));
                 for (var z0 = 0; z0 < SitesPerMapHeight; z0 += ChunkSize)
@@ -34,7 +39,7 @@ namespace GrandStrategy.WorldGeneration
                     {
                         for (var z = z0; z < z0 + ChunkSize; z++)
                             for (var x = x0; x < Mathf.Min(width, x0 + ChunkSize); x++)
-                                AddSite(x, z, width, builder);
+                                AddSite(x, z, width, builder, canopyPixels, canopyWidth, canopyHeight);
                         if (builder.Count == 0) continue;
                         var mesh = builder.Build();
                         meshes.Add(mesh);
@@ -47,6 +52,14 @@ namespace GrandStrategy.WorldGeneration
                         renderer.shadowCastingMode = ShadowCastingMode.Off;
                         renderer.receiveShadows = false;
                     }
+
+                Canopy = new Texture2D(canopyWidth, canopyHeight, TextureFormat.RGBA32, true, true)
+                {
+                    name = "Forest canopy", hideFlags = HideFlags.DontSave,
+                    filterMode = FilterMode.Trilinear, wrapMode = TextureWrapMode.Clamp
+                };
+                Canopy.SetPixels32(canopyPixels);
+                Canopy.Apply(true, true);
             }
             catch
             {
@@ -54,7 +67,7 @@ namespace GrandStrategy.WorldGeneration
                 throw;
             }
 
-            void AddSite(int x, int z, int width, ChunkBuilder builder)
+            void AddSite(int x, int z, int width, ChunkBuilder builder, Color32[] canopy, int canopyWidth, int canopyHeight)
             {
                 var u = (x + .12f + .76f * MapNatureRules.Random01(seed ^ 113, x, z)) / width;
                 var v = (z + .12f + .76f * MapNatureRules.Random01(seed ^ 211, x, z)) / SitesPerMapHeight;
@@ -62,13 +75,40 @@ namespace GrandStrategy.WorldGeneration
                 var cell = surface.CellAt(uv);
                 if (!surface.IsDryLand(cell)) return;
                 var anchor = geometry.Sample(uv, out var slope);
-                var kind = MapNatureRules.Pick(biomeAt(cell), true, slope, snowAt(cell),
-                    MapNatureRules.Random01(seed ^ 307, x, z), MapNatureRules.Random01(seed ^ 401, x / 5, z / 5));
+                var snow = snowAt(cell);
+                var kind = MapNatureRules.Pick(biomeAt(cell), true, slope, snow,
+                    MapNatureRules.Random01(seed ^ 307, x, z), MapNatureRules.Grove(seed, u * surface.Aspect, v));
                 if (kind == NatureKind.None || !HasDryFootprint(surface, uv)) return;
-                var size = Mathf.Lerp(.0013f, .0027f, MapNatureRules.Random01(seed ^ 503, x, z));
+                var size = Mathf.Lerp(.00095f, .0019f, MapNatureRules.Random01(seed ^ 503, x, z));
                 var rotation = 2f * Mathf.PI * MapNatureRules.Random01(seed ^ 601, x, z);
-                builder.Add(kind, anchor, size, rotation);
+                var variant = MapNatureRules.Random01(seed ^ 701, x, z);
+                builder.Add(kind, anchor, size, rotation, variant, snow);
+                if (kind == NatureKind.Broadleaf || kind == NatureKind.Conifer)
+                    StampCanopy(canopy, canopyWidth, canopyHeight, uv, surface.Aspect, size, variant);
             }
+        }
+
+        private static void StampCanopy(Color32[] pixels, int width, int height, Vector2 uv, float aspect,
+            float treeSize, float variant)
+        {
+            // The same trees that appear up close paint soft crown and shade footprints for distant views.
+            var x = uv.x * width - .5f;
+            var y = uv.y * height - .5f;
+            var radius = .0014f + treeSize * 1.2f;
+            var rx = radius * width / aspect;
+            var ry = radius * height;
+            for (var row = Mathf.Max(0, Mathf.FloorToInt(y - ry)); row <= Mathf.Min(height - 1, Mathf.CeilToInt(y + ry)); row++)
+                for (var column = Mathf.Max(0, Mathf.FloorToInt(x - rx)); column <= Mathf.Min(width - 1, Mathf.CeilToInt(x + rx)); column++)
+                {
+                    var dx = (column - x) / rx;
+                    var dy = (row - y) / ry;
+                    var weight = Mathf.Clamp01(1f - dx * dx - dy * dy);
+                    var i = row * width + column;
+                    var shade = Mathf.RoundToInt(weight * 245f);
+                    var crown = Mathf.RoundToInt(weight * weight * Mathf.Lerp(65f, 215f, variant));
+                    var old = pixels[i];
+                    pixels[i] = new Color32((byte)Mathf.Max(shade, old.r), (byte)Mathf.Max(crown, old.g), 0, 255);
+                }
         }
 
         private static bool HasDryFootprint(PlayableMapSurface surface, Vector2 uv)
@@ -84,19 +124,20 @@ namespace GrandStrategy.WorldGeneration
 
         public void SetZoom(float zoom)
         {
-            var next = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(.09f, .27f, zoom));
+            var next = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(.12f, .38f, zoom));
             if (visibility == next) return;
             visibility = next;
             material.SetFloat("_Visibility", visibility);
-            root.SetActive(visibility > 0f);
+            if (root.activeSelf != (visibility > 0f)) root.SetActive(visibility > 0f);
         }
 
         public void SetCapital(Vector3 point)
-            => material.SetVector("_Capital", new Vector4(point.x, point.z, .006f, 0f));
+            => material.SetVector("_Capital", new Vector4(point.x, point.z, CapitalRadius, 0f));
 
         public void Dispose()
         {
             foreach (var mesh in meshes) UnityEngine.Object.Destroy(mesh);
+            UnityEngine.Object.Destroy(Canopy);
             UnityEngine.Object.Destroy(root);
             UnityEngine.Object.Destroy(material);
         }
@@ -105,34 +146,75 @@ namespace GrandStrategy.WorldGeneration
         {
             private readonly List<Vector3> vertices = new List<Vector3>();
             private readonly List<Vector3> anchors = new List<Vector3>();
+            private readonly List<Vector3> normals = new List<Vector3>();
             private readonly List<Color32> colours = new List<Color32>();
             private readonly List<int> triangles = new List<int>();
             public int Count => vertices.Count;
 
-            public void Add(NatureKind kind, Vector3 anchor, float size, float rotation)
+            public void Add(NatureKind kind, Vector3 anchor, float size, float rotation, float variant, float snow)
             {
+                var bark = new Color32(82, 69, 47, 255);
+                var leaf = Color32.Lerp(new Color32(62, 79, 41, 255), new Color32(112, 123, 68, 255), variant);
+                var pine = Color32.Lerp(new Color32(50, 68, 52, 255), new Color32(86, 105, 77, 255), variant);
+                var frost = new Color32(160, 169, 153, 255);
+                leaf = Color32.Lerp(leaf, frost, snow * .52f);
+                pine = Color32.Lerp(pine, frost, snow * .64f);
                 switch (kind)
                 {
                     case NatureKind.Broadleaf:
-                        Tier(-.05f, .085f, .52f, .065f, 4, new Color32(99, 69, 39, 255));
-                        Tier(.34f, .14f, .62f, .34f, 6, new Color32(56, 97, 45, 255));
-                        Tier(.62f, .34f, 1.04f, 0f, 6, new Color32(79, 121, 59, 255));
+                        Tier(-.09f, .066f, .54f, .037f, 4, bark);
+                        Lobe(new Vector3(-.10f, .59f, -.05f), new Vector3(.33f, .28f, .29f), leaf);
+                        Lobe(new Vector3(.18f, .67f, .08f), new Vector3(.25f, .24f, .25f), leaf);
+                        Lobe(new Vector3(.02f, .79f, -.04f), new Vector3(.26f, .24f, .26f), leaf);
                         break;
                     case NatureKind.Conifer:
-                        Tier(-.05f, .065f, .35f, .055f, 4, new Color32(91, 65, 43, 255));
-                        Tier(.22f, .31f, .87f, 0f, 6, new Color32(41, 81, 58, 255));
-                        Tier(.48f, .24f, 1.12f, 0f, 6, new Color32(56, 101, 71, 255));
+                        Tier(-.10f, .052f, .36f, .029f, 4, bark);
+                        Tier(.22f, .12f, .34f, .24f, 7, pine);
+                        Tier(.34f, .24f, .88f, .02f, 7, pine);
+                        Tier(.56f, .14f, 1.10f, 0f, 7, pine);
                         break;
                     case NatureKind.Rock:
-                        Tier(-.14f, .40f, .08f, .37f, 5, new Color32(113, 107, 94, 255));
-                        Tier(.08f, .37f, .31f, 0f, 5, new Color32(149, 142, 126, 255));
+                        var stone = Color32.Lerp(new Color32(103, 103, 94, 255), new Color32(148, 137, 120, 255), variant);
+                        Lobe(new Vector3(0f, -.04f, 0f), new Vector3(.35f, .20f, .23f),
+                            Color32.Lerp(stone, frost, snow * .48f));
                         break;
                     case NatureKind.Reeds:
-                        var green = new Color32(107, 127, 55, 255);
+                        var green = new Color32(104, 113, 64, 255);
                         for (var i = 0; i < 3; i++)
-                            Face(Point(-.02f, .07f, i, 3), Point(.49f, .28f, i, 3),
+                            Face(Point(-.02f, .07f, i, 3), Point(.30f, .18f, i, 3),
                                 Point(-.02f, .07f, i + 1, 3), green);
                         break;
+                }
+
+                void Lobe(Vector3 offset, Vector3 radii, Color32 colour)
+                {
+                    const int sides = 7;
+                    const int rows = 5;
+                    var first = vertices.Count;
+                    var sin = Mathf.Sin(rotation);
+                    var cos = Mathf.Cos(rotation);
+                    for (var row = 0; row < rows; row++)
+                    {
+                        var latitude = Mathf.PI * (row / (float)(rows - 1) - .5f);
+                        var horizontal = Mathf.Cos(latitude);
+                        for (var side = 0; side < sides; side++)
+                        {
+                            var angle = side * 2f * Mathf.PI / sides;
+                            var unit = new Vector3(horizontal * Mathf.Cos(angle), Mathf.Sin(latitude), horizontal * Mathf.Sin(angle));
+                            var uneven = 1f + .11f * Mathf.Sin(side * 4.1f + variant * 11f + row);
+                            var vertex = offset + Vector3.Scale(unit, radii) * uneven;
+                            var normal = new Vector3(unit.x / radii.x, unit.y / radii.y, unit.z / radii.z);
+                            Append(anchor + Rotate(vertex) * size, Rotate(normal).normalized, colour);
+                            if (row == 0) continue;
+                            var a = first + (row - 1) * sides + side;
+                            var b = first + (row - 1) * sides + (side + 1) % sides;
+                            triangles.Add(a); triangles.Add(a + sides); triangles.Add(b);
+                            triangles.Add(b); triangles.Add(a + sides); triangles.Add(b + sides);
+                        }
+                    }
+
+                    Vector3 Rotate(Vector3 point) => new Vector3(
+                        point.x * cos - point.z * sin, point.y, point.x * sin + point.z * cos);
                 }
 
                 void Tier(float y0, float r0, float y1, float r1, int sides, Color32 colour)
@@ -156,15 +238,19 @@ namespace GrandStrategy.WorldGeneration
 
                 void Face(Vector3 a, Vector3 b, Vector3 c, Color32 colour)
                 {
-                    Append(a, colour);
-                    Append(b, colour);
-                    Append(c, colour);
+                    var normal = Vector3.Cross(b - a, c - a).normalized;
+                    triangles.Add(vertices.Count);
+                    triangles.Add(vertices.Count + 1);
+                    triangles.Add(vertices.Count + 2);
+                    Append(a, normal, colour);
+                    Append(b, normal, colour);
+                    Append(c, normal, colour);
                 }
 
-                void Append(Vector3 vertex, Color32 colour)
+                void Append(Vector3 vertex, Vector3 normal, Color32 colour)
                 {
-                    triangles.Add(vertices.Count);
                     vertices.Add(vertex);
+                    normals.Add(normal);
                     colours.Add(colour);
                     anchors.Add(anchor);
                 }
@@ -179,7 +265,7 @@ namespace GrandStrategy.WorldGeneration
                     mesh.SetColors(colours);
                     mesh.SetUVs(0, anchors);
                     mesh.SetTriangles(triangles, 0);
-                    mesh.RecalculateNormals();
+                    mesh.SetNormals(normals);
                     mesh.UploadMeshData(true);
                     return mesh;
                 }
@@ -192,6 +278,7 @@ namespace GrandStrategy.WorldGeneration
                 {
                     vertices.Clear();
                     colours.Clear();
+                    normals.Clear();
                     anchors.Clear();
                     triangles.Clear();
                 }
