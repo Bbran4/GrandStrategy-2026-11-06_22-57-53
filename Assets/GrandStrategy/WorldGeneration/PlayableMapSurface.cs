@@ -55,7 +55,7 @@ namespace GrandStrategy.WorldGeneration
                     throw new InvalidOperationException("The playable map shader requires Universal Render Pipeline.");
 
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
-                colours = CreateTexture("Water colours and land coverage", false, FilterMode.Trilinear, true);
+                colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
                 landTint = CreateTexture("Land colours and coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
                 biomeWeights = CreateTexture("Biome material weights", true, FilterMode.Trilinear, true);
@@ -146,8 +146,8 @@ namespace GrandStrategy.WorldGeneration
                 var kind = SurfaceKind(cell, biomes);
                 var dry = IsDryLand(cell);
                 var rgb = MapGroundPatterns.Palette(kind);
-                // Filter land and water separately so their mip levels never bleed colours across a shore.
-                colourPixels[cell] = dry ? new Color32(0, 0, 0, 255) : new Color32(rgb.R, rgb.G, rgb.B, 0);
+                // Keep the full base palette available when a blended land sample is invalid.
+                colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
                 landPixels[cell] = dry ? new Color32(rgb.R, rgb.G, rgb.B, 255) : new Color32(0, 0, 0, 0);
                 weightPixels[cell] = new Color32(
                     MapNatureRules.IsForest(kind) ? (byte)255 : (byte)0,

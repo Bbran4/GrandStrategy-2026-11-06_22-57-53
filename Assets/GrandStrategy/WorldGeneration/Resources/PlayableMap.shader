@@ -2,7 +2,7 @@ Shader "GrandStrategy/Playable Map"
 {
     Properties
     {
-        _MapColours ("Water colours and land coverage", 2D) = "white" {}
+        _MapColours ("Base colours and land coverage", 2D) = "white" {}
         _LandTint ("Land colours and coverage", 2D) = "black" {}
         _PlainsGrass ("Plains grass variants", 2D) = "gray" {}
         _ForestFloor ("Forest floor variants", 2D) = "gray" {}
@@ -180,15 +180,20 @@ Shader "GrandStrategy/Playable Map"
                     palette = SAMPLE_TEXTURE2D_LOD(_LandTint, sampler_LandTint, materialUV, landLod);
                 }
 
-                float3 materials = SAMPLE_TEXTURE2D_LOD(_BiomeWeights, sampler_BiomeWeights, materialUV, landLod).rgb
-                    / max(palette.a, 0.0001);
+                float3 materials = biomes.rgb / max(map.a, 0.0001);
+                float3 landColour = map.rgb;
+                if (palette.a >= 0.12 && max(palette.r, max(palette.g, palette.b)) > 0.002)
+                {
+                    landColour = palette.rgb / palette.a;
+                    materials = SAMPLE_TEXTURE2D_LOD(_BiomeWeights, sampler_BiomeWeights, materialUV, landLod).rgb / palette.a;
+                }
                 float forestWeight = saturate(materials.r);
                 float sandWeight = saturate(materials.g);
                 float wetlandWeight = saturate(materials.b);
                 float plainsWeight = saturate(1.0 - forestWeight - sandWeight - wetlandWeight);
                 float4 weights = float4(forestWeight + plainsWeight, 0.0, sandWeight, wetlandWeight);
                 float tone = dot(broad - 0.5, weights) * 0.40 + dot(patches - 0.5, weights) * 0.30;
-                float3 land = palette.rgb / max(palette.a, 0.0001) * (1.0 + tone);
+                float3 land = landColour * (1.0 + tone);
                 float sand = smoothstep(0.23, 0.77, broad.b * 0.58 + patches.b * 0.42) * sandWeight;
                 land = lerp(land, float3(0.52, 0.36, 0.19), sand * 0.42);
 
@@ -245,9 +250,7 @@ Shader "GrandStrategy/Playable Map"
                 float waterLod = max(landLod, log2(max(1.0, _GroundGrid.y * 0.011)));
                 float4 waterField = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv, waterLod);
                 float wideWater = 1.0 - waterField.a;
-                float3 waterNear = map.rgb / max(1.0 - map.a, 0.0001);
-                float3 waterWide = waterField.rgb / max(wideWater, 0.0001);
-                float3 water = lerp(waterNear, waterWide, smoothstep(0.62, 0.97, wideWater)) * (1.0 + ripple);
+                float3 water = lerp(map.rgb, waterField.rgb, smoothstep(0.92, 0.999, wideWater)) * (1.0 + ripple);
                 float ice = biomes.a * lerp(0.65, 0.96, patches.g);
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
                 // Water is drawn on the same mesh. Keep its surface dark and the banks soft.
