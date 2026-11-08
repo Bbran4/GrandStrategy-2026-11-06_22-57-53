@@ -28,7 +28,8 @@ namespace GrandStrategy.WorldGeneration
         public float Aspect => (float)Map.Width / Map.Height;
         public Collider Collider { get; private set; }
 
-        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces)
+        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog,
+            float maximumRiverRise)
         {
             var imported = provinces.ReadTerrain();
             var riverMap = world.ReadRivers();
@@ -79,9 +80,12 @@ namespace GrandStrategy.WorldGeneration
                 collider.sharedMesh = mesh;
                 Collider = collider;
                 var geometry = new MapTerrainGeometry(mesh);
-                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape);
-                nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed,
-                    cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes));
+                var navigation = riverMap == null ? null : RiverNavigation.Build(riverMap, water, maximumRiverRise);
+                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, water, navigation);
+                nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed, treeCatalog,
+                    cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes),
+                    cell => biomes?.Climate.TemperatureCelsius(cell) ?? 12f,
+                    cell => biomes == null ? .55f : biomes.Climate.Moisture[cell] / 255f);
                 material.SetTexture("_ForestCanopy", nature.Canopy);
             }
             catch
@@ -130,7 +134,8 @@ namespace GrandStrategy.WorldGeneration
                     MapNatureRules.IsForest(kind) ? (byte)255 : (byte)0,
                     kind == BiomeKind.Desert ? (byte)255 : (byte)0,
                     kind == BiomeKind.Wetland ? (byte)255 : (byte)0,
-                    dry ? (byte)Mathf.RoundToInt(SnowAt(cell, terrain, biomes) * 255f) : (byte)0);
+                    (byte)Mathf.RoundToInt((dry ? SnowAt(cell, terrain, biomes) :
+                        water[cell] == WaterKind.Lake ? MapNatureRules.LakeIce(biomes?.Climate.TemperatureCelsius(cell)) : 0f) * 255f));
                 var indexColour = EncodeProvince(province);
                 indexColour.a = provinceShape.CellMoved(cell % Map.Width, cell / Map.Width) ? (byte)255 : (byte)0;
                 indexPixels[cell] = indexColour;
@@ -216,6 +221,7 @@ namespace GrandStrategy.WorldGeneration
         {
             borders.SetView(mode);
             material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain ? 0f : 1f);
+            material.SetFloat("_RealmFill", mode == MapViewMode.Realms ? .68f : .41f);
         }
 
         public void SetSelection(int selected) => material.SetVector("_Selected", ShaderIndex(selected));
@@ -228,6 +234,7 @@ namespace GrandStrategy.WorldGeneration
                 pixels[i + 1] = new Color32(campaign?.Owns(i) == true ? (byte)255 : (byte)0, 0, 0, 255);
             ownership.Apply(false, false);
             material.SetColor("_TribeColour", tribeColour);
+            borders?.SetRealm(campaign, tribeColour);
         }
 
         private static Vector4 ShaderIndex(int province)

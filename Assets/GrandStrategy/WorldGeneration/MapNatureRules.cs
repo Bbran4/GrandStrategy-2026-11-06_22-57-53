@@ -2,6 +2,8 @@ using System;
 
 namespace GrandStrategy.WorldGeneration
 {
+    internal enum TreeSpecies { Oak, Birch, Spruce, StonePine, Olive, Acacia, Palm }
+
     internal enum NatureKind { None, Broadleaf, Conifer, Rock, Reeds }
 
     internal static class MapNatureRules
@@ -14,8 +16,12 @@ namespace GrandStrategy.WorldGeneration
             var altitude = (elevation - seaLevel) / (1f - seaLevel);
             var height = Ramp(altitude, .43f, .76f);
             var cold = celsius.HasValue ? 1f - Ramp(celsius.Value, -10f, 1f) : Ramp(altitude, .65f, .9f);
-            return height * cold;
+            var lowland = celsius.HasValue ? 1f - Ramp(celsius.Value, -24f, -15f) : 0f;
+            return Math.Max(height * cold, .86f * lowland);
         }
+
+        public static float LakeIce(float? celsius) => celsius.HasValue
+            ? 1f - Ramp(celsius.Value, -13f, -4f) : 0f;
 
         public static NatureKind Pick(BiomeKind biome, bool dry, float slope, float snow, float roll, float grove)
         {
@@ -26,9 +32,25 @@ namespace GrandStrategy.WorldGeneration
                 return roll < .25f && grove > .36f ? NatureKind.Reeds : NatureKind.None;
             if (IsForest(biome) && roll < Ramp(grove, .31f, .68f) * .88f * (1f - .72f * snow))
                 return biome == BiomeKind.BorealForest || snow > .25f ? NatureKind.Conifer : NatureKind.Broadleaf;
+            if (biome == BiomeKind.Desert && slope < .3f && grove > .62f && roll < .11f)
+                return NatureKind.Broadleaf;
             if (biome == BiomeKind.Grassland && snow < .15f && grove > .74f && roll < .34f)
                 return NatureKind.Broadleaf;
             return slope > .28f && roll > .98f ? NatureKind.Rock : NatureKind.None;
+        }
+
+        public static TreeSpecies ChooseTree(BiomeKind biome, float temperature, float moisture, float roll)
+        {
+            if (biome == BiomeKind.BorealForest || temperature < 6f)
+                return roll < .76f ? TreeSpecies.Spruce : TreeSpecies.Birch;
+            if (temperature >= 23f)
+            {
+                if (moisture < .40f) return roll < .84f ? TreeSpecies.Acacia : TreeSpecies.Olive;
+                return roll < .62f ? TreeSpecies.Palm : TreeSpecies.Oak;
+            }
+            if (temperature >= 15f && moisture < .60f)
+                return roll < .53f ? TreeSpecies.StonePine : roll < .86f ? TreeSpecies.Olive : TreeSpecies.Oak;
+            return roll < .69f ? TreeSpecies.Oak : TreeSpecies.Birch;
         }
 
         public static float Grove(int seed, float x, float y)

@@ -12,6 +12,9 @@ namespace GrandStrategy.WorldGeneration
     {
         [SerializeField] private WorldHeightmap world;
         [SerializeField] private ProvinceMapAsset provinceMap;
+        [SerializeField] private MapTreeCatalog treeCatalog;
+        [SerializeField, Range(0f, RiverNavigation.MaximumRiseLimit)]
+        private float maximumNavigableRiverRise = RiverNavigation.DefaultMaximumRise;
 
         private static readonly Color[] TribeColours =
         {
@@ -62,7 +65,7 @@ namespace GrandStrategy.WorldGeneration
                     throw new InvalidOperationException("Assign a World asset and its matching Province Map asset.");
                 mapCamera = GetComponent<Camera>();
                 // The map is anchored at the scene origin, independently of the camera.
-                surface = new PlayableMapSurface(world, provinceMap);
+                surface = new PlayableMapSurface(world, provinceMap, treeCatalog, maximumNavigableRiverRise);
                 mapKey = CampaignState.MapKey(surface.Map, world.Seed);
                 savePath = CampaignSaveFile.PathFor(mapKey);
                 hasSave = File.Exists(savePath);
@@ -285,7 +288,7 @@ namespace GrandStrategy.WorldGeneration
             }
             if (surface == null) return;
 
-            if (mapView != MapViewMode.Terrain) DrawSettlement();
+            DrawSettlement();
             DrawCampaign();
             var panel = Panel;
             GUI.Box(panel, GUIContent.none);
@@ -295,6 +298,7 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label("Click a province. Home resets the view.");
             GUILayout.BeginHorizontal();
             MapViewButton("Terrain", MapViewMode.Terrain);
+            MapViewButton("Realms", MapViewMode.Realms);
             MapViewButton("Territories", MapViewMode.Territories, surface.HasTerritories);
             MapViewButton("Provinces", MapViewMode.Provinces);
             GUILayout.EndHorizontal();

@@ -94,13 +94,21 @@ Use the world export that produced the OpenGS inputs. Matching dimensions and co
 Open `Assets/Scenes/PlayableMap.unity` and press **Play**. The Main Camera's **Playable Map** component references the saved World and Province Map assets. To play another authored map, assign its World asset and the Province Map made from its OpenGS export.
 
 - Pan with **WASD**, the arrow keys, or the middle mouse button. Scroll in to gradually tilt into the terrain. Scroll all the way out or press **Home** to return to the full-map overhead view.
-- Switch between **Terrain**, **Territories**, and **Provinces** above the province inspector. Terrain hides borders, tribe colours, selection tint, and the capital label. The political views share tribe ownership colours and switch which outlines they draw. Territory view needs a territory raster or province membership data.
-- At full and medium zoom, the terrain shows broad land cover and forest masses. Zoom closer to reveal ground texture and individual rounded deciduous crowns, conifers, low rocks, and reeds. The terrain, canopy layer, and close-up props use the same placement and remain available in all three map modes. Rivers and the capital clearing stay open.
+- **Terrain** shows natural terrain under thin province lines, thicker territory lines, and tribe-coloured frontiers. **Realms** adds a stronger ownership fill. **Provinces** and **Territories** focus on their respective boundaries. Territory outlines use an imported territory raster or province membership data.
+- Blue bank lines mark navigable river reaches. Ordinary rivers can still have a province line alongside them where the authored boundary follows the river. The Playable Map component's **Maximum Navigable River Rise** defaults to the world generator's navigation threshold. Match it to the export setting if you used a different threshold.
+- At full and medium zoom, the terrain shows broad forest masses, snow breaks, and exposed rock. Closer in, grass, sand, and strata gain finer texture and individual trees become visible. Lakes in cold areas can display ice. Ice is visual.
+- Tree placement uses biome, temperature, moisture, and slope. Each tree has seeded height, width, lean, rotation, and crown tint. Rivers and the capital clearing stay open.
 - Click a province to inspect its territory, dominant biome, and neighbours. Province selection, highlight, and tribe colour follow the same smoothed shape as the province outlines. The imported raster supplies each cell’s province identity and limits the source precision. Territory inspection uses the imported territory raster when available.
 - Click a dry spot in a land province, enter a tribe name, pick a colour, and choose **Establish tribe here**. The province becomes the capital and the campaign starts paused.
 - Inspect land provinces to see their Pop and ownership. Choose **Resume** to advance time and click the speed button to cycle through **1×**, **2×**, and **4×**. At **1×**, one real second advances one game day.
 - Select an unclaimed land province bordering a province you own. **Start integration** spends 25 of the starting 100 coin. One community can integrate at a time, and it joins after 30 game days. When it joins, the province takes your tribe colour and can open up new neighbours.
 - **Save campaign** writes one local save per authored map. **Load campaign** restores the tribe, capital, Pop, ownership, coin, clock, and any ongoing integration, then pauses. The World and Province Map assets are reusable across campaigns.
+
+### Replace the tree models
+
+The editable starter OBJ meshes are in `Assets/GrandStrategy/WorldGeneration/Resources/MapTrees/`. The oak and palm are from Kenney's Nature Kit. The birch, spruce, stone pine, olive, and acacia slots ship with stand-in silhouettes from the same CC0 pack. See the [model credits](../Assets/GrandStrategy/WorldGeneration/Resources/MapTrees/SOURCES.md) for the exact sources.
+
+To swap a species, create a **GrandStrategy → Tree Model Catalog** asset and assign it to **Tree Catalog** on the Playable Map component. Drag readable mesh sub-assets into the crown and trunk slots. Use **Single Mesh** for a model that combines both parts, and use the two tint fields for map colours. Place the model's base at its origin and keep both meshes in the same coordinate system. For imported models enable **Read/Write**. The renderer batches the model geometry using its map shading and tint controls.
 
 ## Resolution
 

@@ -9,6 +9,7 @@ Shader "GrandStrategy/Playable Map"
         _GroundDetail ("Ground detail", Float) = 0
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
         _ShowPolitics ("Political overlays", Float) = 1
+        _RealmFill ("Political fill opacity", Float) = 0.41
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _ProvinceCorners ("Province corner offsets", 2D) = "black" {}
         _ProvinceGrid ("Province grid dimensions", Vector) = (1, 1, 0.5, 0.5)
@@ -51,6 +52,7 @@ Shader "GrandStrategy/Playable Map"
                 float4 _TribeColour;
                 float4 _CapitalClearing;
                 float _ShowPolitics;
+                float _RealmFill;
                 float _GroundDetail;
             CBUFFER_END
 
@@ -144,6 +146,8 @@ Shader "GrandStrategy/Playable Map"
 
                 float tone = dot(broad - 0.5, weights) * 0.40 + dot(patches - 0.5, weights) * 0.30;
                 float3 land = map.rgb * (1.0 + tone);
+                float sand = smoothstep(0.23, 0.77, broad.b * 0.58 + patches.b * 0.42) * biomes.g;
+                land = lerp(land, float3(0.52, 0.36, 0.19), sand * 0.42);
                 float meadow = smoothstep(0.36, 0.72, broad.r * 0.7 + patches.r * 0.3) * grass;
                 land = lerp(land, float3(0.38, 0.35, 0.16), meadow * 0.36);
 
@@ -154,11 +158,12 @@ Shader "GrandStrategy/Playable Map"
                 }
 
                 float exposed = smoothstep(0.04, 0.32, 1.0 - normal.y + (broad.g - 0.5) * 0.085) * map.a;
-                float stratum = smoothstep(0.22, 0.78, patches.g * 0.68 + broad.g * 0.32);
+                float strata = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * float2(33.0, 10.0)).g;
+                float stratum = smoothstep(0.28, 0.74, patches.g * 0.52 + strata * 0.31 + broad.g * 0.17);
                 float3 rock = lerp(float3(0.115, 0.112, 0.101), float3(0.33, 0.31, 0.27), stratum);
                 land = lerp(land, rock, exposed * 0.84);
 
-                float snow = saturate(biomes.a + (patches.g - 0.48) * 0.35 * biomes.a);
+                float snow = smoothstep(0.12, 0.90, biomes.a + (patches.g - 0.48) * 0.60 * biomes.a);
                 snow *= lerp(1.0, 0.57, exposed);
                 land = lerp(land, lerp(float3(0.47, 0.52, 0.53), float3(0.84, 0.86, 0.84), patches.g),
                     snow * 0.94);
@@ -176,6 +181,8 @@ Shader "GrandStrategy/Playable Map"
                 land *= lerp(0.48, 1.15, diffuse);
                 float ripple = (patches.g - 0.5) * 0.13 + (broad.a - 0.5) * 0.11;
                 float3 water = map.rgb * (1.0 + ripple);
+                float ice = biomes.a * lerp(0.65, 0.96, patches.g);
+                water = lerp(water, float3(0.54, 0.66, 0.69), ice);
                 // Water is drawn on the same mesh. Keep its surface dark and the banks soft.
                 return lerp(water, land, map.a);
             }
@@ -191,7 +198,7 @@ Shader "GrandStrategy/Playable Map"
                 float column = index - row * _OwnershipSize.x;
                 float2 ownershipUV = (float2(column, row) + 0.5) * _OwnershipSize.zw;
                 float owned = SAMPLE_TEXTURE2D(_Ownership, sampler_Ownership, ownershipUV).r;
-                float3 colour = lerp(ground, _TribeColour.rgb, owned * 0.41 * _ShowPolitics);
+                float3 colour = lerp(ground, _TribeColour.rgb, owned * _RealmFill * _ShowPolitics);
                 colour = lerp(colour, float3(1.0, 0.78, 0.26), Matches(province, _Selected) * 0.26 * _ShowPolitics);
                 return half4(colour, 1);
             }

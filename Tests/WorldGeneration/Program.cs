@@ -472,6 +472,19 @@ internal static class Program
         Require(MapNatureRules.Snow(.95f, .32f, -14f) == 1f && MapNatureRules.Snow(.95f, .32f, 5f) == 0f
             && MapNatureRules.Snow(.40f, .32f, -14f) == 0f, "Persistent snow needs altitude and cold.");
 
+        Require(MapNatureRules.ChooseTree(BiomeKind.TemperateForest, 12f, .65f, .1f) == TreeSpecies.Oak
+            && MapNatureRules.ChooseTree(BiomeKind.TemperateForest, 12f, .65f, .95f) == TreeSpecies.Birch
+            && MapNatureRules.ChooseTree(BiomeKind.BorealForest, 3f, .64f, .1f) == TreeSpecies.Spruce,
+            "Temperate and cold groves should select the expected species.");
+        Require(MapNatureRules.ChooseTree(BiomeKind.Grassland, 19f, .45f, .2f) == TreeSpecies.StonePine
+            && MapNatureRules.ChooseTree(BiomeKind.Grassland, 19f, .45f, .7f) == TreeSpecies.Olive
+            && MapNatureRules.ChooseTree(BiomeKind.Desert, 28f, .24f, .2f) == TreeSpecies.Acacia
+            && MapNatureRules.ChooseTree(BiomeKind.TropicalForest, 27f, .68f, .2f) == TreeSpecies.Palm,
+            "Warm woodland should select species by climate.");
+        Require(MapNatureRules.Snow(.40f, .32f, -25f) > .8f
+            && MapNatureRules.LakeIce(-14f) == 1f && MapNatureRules.LakeIce(-2f) == 0f,
+            "Severe cold should show lowland snow and lake ice.");
+
         var grove = MapNatureRules.Grove(17, .43f, .57f);
         Require(grove == MapNatureRules.Grove(17, .43f, .57f) && grove >= 0f && grove <= 1f
             && Math.Abs(grove - MapNatureRules.Grove(17, .431f, .571f)) < .08f,

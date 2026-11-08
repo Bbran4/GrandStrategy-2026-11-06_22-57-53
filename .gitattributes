@@ -169,3 +169,6 @@ Packages/packages-lock.json linguist-generated
 
 # Exceptions for .asset files such as lightning pre-baking
 LightingData.asset     binary
+
+# Keep the small, editable starter tree meshes as text.
+/Assets/GrandStrategy/WorldGeneration/Resources/MapTrees/*.obj !filter !diff !merge text

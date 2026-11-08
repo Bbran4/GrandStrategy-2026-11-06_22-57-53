@@ -17,7 +17,8 @@ namespace GrandStrategy.WorldGeneration
         public Texture2D Canopy { get; private set; }
 
         public MapNature(GameObject parent, MapTerrainGeometry geometry, PlayableMapSurface surface,
-            int seed, Func<int, BiomeKind> biomeAt, Func<int, float> snowAt)
+            int seed, MapTreeCatalog treeCatalog, Func<int, BiomeKind> biomeAt, Func<int, float> snowAt,
+            Func<int, float> temperatureAt, Func<int, float> moistureAt)
         {
             var shader = Resources.Load<Shader>("MapNature");
             if (shader == null || !shader.isSupported)
@@ -32,6 +33,7 @@ namespace GrandStrategy.WorldGeneration
                 const int canopyHeight = 640;
                 var canopyWidth = Mathf.Clamp(Mathf.CeilToInt(canopyHeight * surface.Aspect), 32, 3072);
                 var canopyPixels = new Color32[canopyWidth * canopyHeight];
+                var models = new Dictionary<TreeSpecies, MapTreeModel>();
                 var builder = new ChunkBuilder();
                 var width = Mathf.Min(1024, Mathf.CeilToInt(surface.Aspect * SitesPerMapHeight));
                 for (var z0 = 0; z0 < SitesPerMapHeight; z0 += ChunkSize)
@@ -76,15 +78,35 @@ namespace GrandStrategy.WorldGeneration
                 if (!surface.IsDryLand(cell)) return;
                 var anchor = geometry.Sample(uv, out var slope);
                 var snow = snowAt(cell);
-                var kind = MapNatureRules.Pick(biomeAt(cell), true, slope, snow,
+                var biome = biomeAt(cell);
+                var kind = MapNatureRules.Pick(biome, true, slope, snow,
                     MapNatureRules.Random01(seed ^ 307, x, z), MapNatureRules.Grove(seed, u * surface.Aspect, v));
                 if (kind == NatureKind.None || !HasDryFootprint(surface, uv)) return;
                 var size = Mathf.Lerp(.00095f, .0019f, MapNatureRules.Random01(seed ^ 503, x, z));
                 var rotation = 2f * Mathf.PI * MapNatureRules.Random01(seed ^ 601, x, z);
                 var variant = MapNatureRules.Random01(seed ^ 701, x, z);
-                builder.Add(kind, anchor, size, rotation, variant, snow);
                 if (kind == NatureKind.Broadleaf || kind == NatureKind.Conifer)
-                    StampCanopy(canopy, canopyWidth, canopyHeight, uv, surface.Aspect, size, variant);
+                {
+                    var species = MapNatureRules.ChooseTree(biome, temperatureAt(cell), moistureAt(cell),
+                        MapNatureRules.Random01(seed ^ 907, x, z));
+                    if (!models.TryGetValue(species, out var model))
+                    {
+                        model = new MapTreeModel(species, treeCatalog);
+                        models.Add(species, model);
+                    }
+
+                    if (model.Crown == null) return;
+                    var stature = species == TreeSpecies.Spruce || species == TreeSpecies.Palm ? 1.16f
+                        : species == TreeSpecies.Olive || species == TreeSpecies.Acacia ? .79f : 1f;
+                    size *= stature;
+                    var widthScale = Mathf.Lerp(.76f, 1.24f, variant);
+                    var lean = Mathf.Lerp(-8f, 8f, MapNatureRules.Random01(seed ^ 919, x, z));
+                    builder.AddTree(model, anchor, size, widthScale, rotation, lean, variant, snow);
+                    StampCanopy(canopy, canopyWidth, canopyHeight, uv, surface.Aspect, size * widthScale, variant);
+                    return;
+                }
+
+                builder.Add(kind, anchor, size, rotation, variant, snow);
             }
         }
 
@@ -153,26 +175,9 @@ namespace GrandStrategy.WorldGeneration
 
             public void Add(NatureKind kind, Vector3 anchor, float size, float rotation, float variant, float snow)
             {
-                var bark = new Color32(82, 69, 47, 255);
-                var leaf = Color32.Lerp(new Color32(62, 79, 41, 255), new Color32(112, 123, 68, 255), variant);
-                var pine = Color32.Lerp(new Color32(50, 68, 52, 255), new Color32(86, 105, 77, 255), variant);
                 var frost = new Color32(160, 169, 153, 255);
-                leaf = Color32.Lerp(leaf, frost, snow * .52f);
-                pine = Color32.Lerp(pine, frost, snow * .64f);
                 switch (kind)
                 {
-                    case NatureKind.Broadleaf:
-                        Tier(-.09f, .066f, .54f, .037f, 4, bark);
-                        Lobe(new Vector3(-.10f, .59f, -.05f), new Vector3(.33f, .28f, .29f), leaf);
-                        Lobe(new Vector3(.18f, .67f, .08f), new Vector3(.25f, .24f, .25f), leaf);
-                        Lobe(new Vector3(.02f, .79f, -.04f), new Vector3(.26f, .24f, .26f), leaf);
-                        break;
-                    case NatureKind.Conifer:
-                        Tier(-.10f, .052f, .36f, .029f, 4, bark);
-                        Tier(.22f, .12f, .34f, .24f, 7, pine);
-                        Tier(.34f, .24f, .88f, .02f, 7, pine);
-                        Tier(.56f, .14f, 1.10f, 0f, 7, pine);
-                        break;
                     case NatureKind.Rock:
                         var stone = Color32.Lerp(new Color32(103, 103, 94, 255), new Color32(148, 137, 120, 255), variant);
                         Lobe(new Vector3(0f, -.04f, 0f), new Vector3(.35f, .20f, .23f),
@@ -217,19 +222,6 @@ namespace GrandStrategy.WorldGeneration
                         point.x * cos - point.z * sin, point.y, point.x * sin + point.z * cos);
                 }
 
-                void Tier(float y0, float r0, float y1, float r1, int sides, Color32 colour)
-                {
-                    for (var side = 0; side < sides; side++)
-                    {
-                        var a = Point(y0, r0, side, sides);
-                        var b = Point(y0, r0, side + 1, sides);
-                        var c = Point(y1, r1, side, sides);
-                        var d = Point(y1, r1, side + 1, sides);
-                        Face(a, c, b, colour);
-                        if (r1 > 0f) Face(b, c, d, colour);
-                    }
-                }
-
                 Vector3 Point(float y, float radius, int side, int sides)
                 {
                     var angle = rotation + (side % sides) * 2f * Mathf.PI / sides;
@@ -256,9 +248,37 @@ namespace GrandStrategy.WorldGeneration
                 }
             }
 
+            public void AddTree(MapTreeModel model, Vector3 anchor, float height, float width, float yaw,
+                float lean, float variant, float snow)
+            {
+                var scale = height / model.Height;
+                var rotation = Quaternion.Euler(0f, yaw * Mathf.Rad2Deg, 0f) * Quaternion.Euler(lean, 0f, 0f);
+                var crownTint = Color32.Lerp(
+                    Color32.Lerp(new Color32(51, 61, 43, 255), model.CrownTint, .72f + .28f * variant),
+                    new Color32(169, 175, 154, 255), snow * .56f);
+                Place(model.Trunk, model.TrunkTint);
+                Place(model.Crown, crownTint);
+
+                void Place(MapTreeModel.Part part, Color32 tint)
+                {
+                    if (part == null) return;
+                    var start = vertices.Count;
+                    for (var i = 0; i < part.Vertices.Length; i++)
+                    {
+                        var p = part.Vertices[i];
+                        vertices.Add(anchor + rotation * new Vector3(p.x * width, p.y - model.Base, p.z * width) * scale);
+                        var normal = i < part.Normals.Length ? part.Normals[i] : Vector3.up;
+                        normals.Add(rotation * new Vector3(normal.x / width, normal.y, normal.z / width).normalized);
+                        colours.Add(tint);
+                        anchors.Add(anchor);
+                    }
+                    foreach (var index in part.Triangles) triangles.Add(start + index);
+                }
+            }
+
             public Mesh Build()
             {
-                var mesh = new Mesh { name = "Map nature chunk", hideFlags = HideFlags.DontSave };
+                var mesh = new Mesh { name = "Map nature chunk", hideFlags = HideFlags.DontSave, indexFormat = IndexFormat.UInt32 };
                 try
                 {
                     mesh.SetVertices(vertices);
