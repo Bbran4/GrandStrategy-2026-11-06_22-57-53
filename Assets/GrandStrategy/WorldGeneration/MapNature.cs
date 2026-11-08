@@ -24,6 +24,7 @@ namespace GrandStrategy.WorldGeneration
             if (shader == null || !shader.isSupported)
                 throw new InvalidOperationException("The map nature shader requires Universal Render Pipeline.");
 
+            var models = new Dictionary<TreeSpecies, MapTreeModel>();
             try
             {
                 material = new Material(shader) { hideFlags = HideFlags.DontSave };
@@ -33,7 +34,6 @@ namespace GrandStrategy.WorldGeneration
                 const int canopyHeight = 640;
                 var canopyWidth = Mathf.Clamp(Mathf.CeilToInt(canopyHeight * surface.Aspect), 32, 3072);
                 var canopyPixels = new Color32[canopyWidth * canopyHeight];
-                var models = new Dictionary<TreeSpecies, MapTreeModel>();
                 var builder = new ChunkBuilder();
                 var width = Mathf.Min(1024, Mathf.CeilToInt(surface.Aspect * SitesPerMapHeight));
                 for (var z0 = 0; z0 < SitesPerMapHeight; z0 += ChunkSize)
