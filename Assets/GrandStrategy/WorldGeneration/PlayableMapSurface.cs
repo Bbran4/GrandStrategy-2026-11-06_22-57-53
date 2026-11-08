@@ -11,6 +11,8 @@ namespace GrandStrategy.WorldGeneration
         private Material material;
         private Texture2D colours;
         private Texture2D regions;
+        private Texture2D provinceCorners;
+        private readonly ProvinceShape provinceShape;
         private Texture2D ownership;
         private MapBorderOverlay borders;
         private GameObject surface;
@@ -29,6 +31,7 @@ namespace GrandStrategy.WorldGeneration
             var terrain = riverMap?.Terrain ?? world.Read();
             ValidatePair(terrain, imported);
             Map = provinces.Map;
+            provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
             water = WaterMap.Classify(terrain);
             rivers = riverMap?.BuildSurfaceMask();
             var settings = world.ReadClimateSettings();
@@ -49,6 +52,7 @@ namespace GrandStrategy.WorldGeneration
                 material = new Material(shader) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
                 material.SetTexture("_ProvinceIndices", regions);
+                CreateProvinceCornerTexture();
                 var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
                 ownership = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
                 {
@@ -66,7 +70,7 @@ namespace GrandStrategy.WorldGeneration
                 var collider = surface.GetComponent<MeshCollider>();
                 collider.sharedMesh = mesh;
                 Collider = collider;
-                borders = new MapBorderOverlay(surface, mesh, Map);
+                borders = new MapBorderOverlay(surface, mesh, Map, provinceShape);
             }
             catch
             {
@@ -107,11 +111,34 @@ namespace GrandStrategy.WorldGeneration
 
                 var rgb = BiomeMap.PreviewColour(SurfaceKind(cell, biomes));
                 colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, 255);
-                indexPixels[cell] = EncodeProvince(province);
+                var indexColour = EncodeProvince(province);
+                indexColour.a = provinceShape.CellMoved(cell % Map.Width, cell / Map.Width) ? (byte)255 : (byte)0;
+                indexPixels[cell] = indexColour;
             }
 
             colours.Apply(true, true);
             regions.Apply(false, true);
+        }
+
+        private void CreateProvinceCornerTexture()
+        {
+            var width = Map.Width + 1;
+            var height = Map.Height + 1;
+            provinceCorners = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
+            {
+                name = "Province corner offsets", hideFlags = HideFlags.DontSave,
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp
+            };
+            var pixels = provinceCorners.GetRawTextureData<Color32>();
+            for (var i = 0; i < provinceShape.CornerCount; i++)
+            {
+                var offset = provinceShape.PackedCorner(i);
+                pixels[i] = new Color32((byte)(offset & 255), (byte)(offset >> 8), 0, 255);
+            }
+
+            provinceCorners.Apply(false, true);
+            material.SetTexture("_ProvinceCorners", provinceCorners);
+            material.SetVector("_ProvinceGrid", new Vector4(Map.Width, Map.Height, 1f / width, 1f / height));
         }
 
         private BiomeKind SurfaceKind(int cell, BiomeMap biomes)
@@ -128,6 +155,9 @@ namespace GrandStrategy.WorldGeneration
             var y = Mathf.Clamp(Mathf.FloorToInt(uv.y * Map.Height), 0, Map.Height - 1);
             return y * Map.Width + x;
         }
+
+        public int ProvinceCellAt(Vector2 uv)
+            => provinceShape.CellAt(Mathf.Clamp01(uv.x) * Map.Width, Mathf.Clamp01(uv.y) * Map.Height);
 
         public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0);
 
@@ -179,6 +209,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(material);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
+            UnityEngine.Object.Destroy(provinceCorners);
             UnityEngine.Object.Destroy(ownership);
         }
     }

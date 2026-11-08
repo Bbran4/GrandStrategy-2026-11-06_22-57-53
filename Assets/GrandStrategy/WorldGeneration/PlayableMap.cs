@@ -36,6 +36,7 @@ namespace GrandStrategy.WorldGeneration
         private bool editingName;
         private int selected = -1;
         private int selectedCell = -1;
+        private int clickedCell = -1;
         private CampaignState campaign;
         private string mapKey;
         private string savePath;
@@ -170,12 +171,13 @@ namespace GrandStrategy.WorldGeneration
         private void Pick(Vector2 position)
         {
             var previous = selected;
-            selected = selectedCell = -1;
+            selected = selectedCell = clickedCell = -1;
             editingName = false;
             var ray = mapCamera.ScreenPointToRay(position);
             if (surface.Collider.Raycast(ray, out var hit, mapCamera.farClipPlane))
             {
-                selectedCell = surface.CellAt(hit.textureCoord);
+                clickedCell = surface.CellAt(hit.textureCoord);
+                selectedCell = surface.ProvinceCellAt(hit.textureCoord);
                 selected = surface.Map.ProvinceAt[selectedCell];
             }
 
@@ -192,7 +194,7 @@ namespace GrandStrategy.WorldGeneration
             var map = surface.Map;
             if (map.HasTerritoryPreview)
             {
-                var index = map.TerritoryAt[selectedCell];
+                var index = map.TerritoryAt[clickedCell];
                 return index >= 0 && index < map.Territories.Length ? map.Territories[index]?.Id : null;
             }
 
@@ -346,7 +348,7 @@ namespace GrandStrategy.WorldGeneration
             if (GUILayout.Button("Tribe colour: " + ColourNames[colourIndex]))
                 colourIndex = (colourIndex + 1) % TribeColours.Length;
 
-            var dry = surface.IsDryLand(selectedCell);
+            var dry = surface.IsDryLand(clickedCell) && surface.IsDryLand(selectedCell);
             if (!dry) GUILayout.Label("Click dry land to place the settlement.");
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && dry && !string.IsNullOrWhiteSpace(tribeName);

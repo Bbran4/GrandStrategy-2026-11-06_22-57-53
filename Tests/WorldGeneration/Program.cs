@@ -67,6 +67,7 @@ internal static class Program
         CheckWorldRecipe();
         CheckCampaign();
         CheckBorderPaths();
+        CheckProvinceShape();
         Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, river routing and carving, and campaign integration and restore.");
         if (args.Contains("--benchmark"))
         {
@@ -455,6 +456,52 @@ internal static class Program
             && restored.IntegrationTarget == -1 && restored.Day == CampaignState.IntegrationDuration + 1,
             "Integration must transfer ownership on the scheduled day.");
         Require(restored.TryStartIntegration(2), "A new border must open further integration.");
+    }
+
+    private static void CheckProvinceShape()
+    {
+        var raster = new[] { 0, 1, 1, 1 };
+        var shape = new ProvinceShape(2, 2, raster);
+        var corner = shape.Corner(4);
+        Require(corner.X < 1f && corner.Y < 1f, "The stepped province corner should move inward.");
+        Require(raster[shape.CellAt(.98f, .98f)] == 1 && raster[shape.CellAt(.55f, .55f)] == 0,
+            "Picking must follow the smoothed edge on both sides of the original raster corner.");
+        Require(raster[shape.CellAt(corner.X - .01f, corner.Y - .01f)] == 0
+            && raster[shape.CellAt(corner.X + .01f, corner.Y + .01f)] == 1,
+            "The shared border corner must delimit the same regions used for selection.");
+        Require(shape.CellAt(2f, 2f) == 3 && shape.PackedCorner(0) == 0,
+            "The full map perimeter must stay fixed.");
+
+        var junction = new ProvinceShape(2, 2, new[] { 0, 1, 1, 0 });
+        Require(junction.PackedCorner(4) == 0, "A four-way junction must stay connected.");
+
+        // Points formed inside each warped cell must resolve to that cell, even across the old raster edge.
+        var random = new Random(143);
+        const int width = 6;
+        const int height = 5;
+        for (var trial = 0; trial < 48; trial++)
+        {
+            var labels = Enumerable.Range(0, width * height).Select(_ => random.Next(-1, 3)).ToArray();
+            var warped = new ProvinceShape(width, height, labels);
+            for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
+                {
+                    var i = y * warped.Stride + x;
+                    var a = warped.Corner(i);
+                    var b = warped.Corner(i + 1);
+                    var c = warped.Corner(i + warped.Stride);
+                    var d = warped.Corner(i + warped.Stride + 1);
+                    foreach (var u in new[] { .02f, .5f, .98f })
+                        foreach (var v in new[] { .02f, .5f, .98f })
+                        {
+                            var px = Lerp(Lerp(a.X, b.X, u), Lerp(c.X, d.X, u), v);
+                            var py = Lerp(Lerp(a.Y, b.Y, u), Lerp(c.Y, d.Y, u), v);
+                            Require(warped.CellAt(px, py) == y * width + x, "A warped cell lost an interior point.");
+                        }
+                }
+        }
+
+        static float Lerp(float a, float b, float t) => a + (b - a) * t;
     }
 
     private static void CheckBorderPaths()

@@ -19,5 +19,6 @@
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/WorldRecipe.cs" Link="WorldRecipe.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/CampaignState.cs" Link="CampaignState.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/MapBorderPaths.cs" Link="MapBorderPaths.cs" />
+    <Compile Include="../../Assets/GrandStrategy/WorldGeneration/ProvinceShape.cs" Link="ProvinceShape.cs" />
   </ItemGroup>
 </Project>
