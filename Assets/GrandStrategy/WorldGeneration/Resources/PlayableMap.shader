@@ -61,6 +61,8 @@ Shader "GrandStrategy/Playable Map"
         {
             Tags { "LightMode" = "UniversalForward" }
             HLSLPROGRAM
+            // The first Play Mode frame needs the terrain pass instead of the Editor's placeholder.
+            #pragma editor_sync_compilation
             #pragma target 3.0
             #pragma vertex Vert
             #pragma fragment Frag

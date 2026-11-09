@@ -84,7 +84,6 @@ namespace GrandStrategy.WorldGeneration
                 surface = new GameObject("Map surface", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))
                     { hideFlags = HideFlags.DontSave };
                 surface.GetComponent<MeshFilter>().sharedMesh = mesh;
-                surface.GetComponent<MeshRenderer>().sharedMaterial = material;
                 var collider = surface.GetComponent<MeshCollider>();
                 collider.sharedMesh = mesh;
                 Collider = collider;
@@ -100,6 +99,12 @@ namespace GrandStrategy.WorldGeneration
                     cell => biomes == null ? .55f : biomes.Climate.Moisture[cell] / 255f);
                 nature.SetSunShadow(terrainShadow, sun, Aspect);
                 material.SetTexture("_ForestCanopy", nature.Canopy);
+                foreach (var slot in material.GetTexturePropertyNames())
+                {
+                    if (material.GetTexture(slot) == null)
+                        throw new InvalidOperationException($"The playable map material is missing a texture for {slot}.");
+                }
+                surface.GetComponent<MeshRenderer>().sharedMaterial = material;
             }
             catch
             {
