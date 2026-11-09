@@ -37,7 +37,7 @@ Shader "GrandStrategy/Playable Map"
         _ForestCanopy ("Forest canopy and shadow", 2D) = "black" {}
         _TerrainShadow ("Terrain sun shadow", 2D) = "black" {}
         _MapSun ("Map sun direction", Vector) = (-1, 1, 1, 0)
-        _GroundDetail ("Ground detail", Float) = 0
+        _GroundDetail ("Ground detail", Float) = 0.25
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
         _ShowPolitics ("Political overlays", Float) = 1
         _RealmFill ("Political fill opacity", Float) = 0.41
@@ -312,7 +312,7 @@ Shader "GrandStrategy/Playable Map"
                 tile.tangent = float2(1.0, 0.0);
 
                 // Break up the temperate litter tiles without shifting biome boundaries.
-                float2 litterUV = tile.uv + (broad.rb - 0.5) * 0.024 + (patches.ag - 0.5) * 0.009;
+                float2 litterUV = tile.uv + (broad.rb - 0.5) * 0.012 + (patches.ag - 0.5) * 0.004;
                 const float2x2 litterRotation = float2x2(0.8, 0.6, -0.6, 0.8);
                 GroundCoordinates litter;
                 litter.uv = mul(litterRotation, litterUV) + float2(0.37, 0.61);
@@ -354,7 +354,7 @@ Shader "GrandStrategy/Playable Map"
                     GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, high.z, landDetail);
                     GROUND_LAYER(_AlpineColour, _AlpineNormal, tile, 31.0, rockWeight, landDetail);
                     GROUND_LAYER(_SnowColour, _SnowNormal, tile, 35.0, snow, landDetail);
-                    land += (landDetail.colour - land * landDetail.weight) * (_GroundDetail * 0.38);
+                    land += (landDetail.colour - land * landDetail.weight) * (_GroundDetail * 0.50);
                 }
 
                 float3 canopy = SAMPLE_TEXTURE2D(_ForestCanopy, sampler_ForestCanopy, input.uv).rgb;
@@ -364,7 +364,8 @@ Shader "GrandStrategy/Playable Map"
                 float cover = smoothstep(0.04, 0.66, canopy.r) * map.a * clearing;
                 float3 forest = lerp(float3(0.055, 0.077, 0.038), float3(0.18, 0.22, 0.102), canopy.g);
                 forest = lerp(forest, float3(0.27, 0.34, 0.30), snow * 0.75);
-                land = lerp(land, forest, cover * lerp(0.90, 0.76, _GroundDetail));
+                // Let the textured floor show through the canopy colour at closer zooms.
+                land = lerp(land, forest, cover * lerp(0.90, 0.56, _GroundDetail));
 
                 float2 texel = _TerrainShadow_TexelSize.xy;
                 float2 shadowUV = input.uv * (1.0 - texel) + 0.5 * texel;
@@ -375,7 +376,7 @@ Shader "GrandStrategy/Playable Map"
                 float3 tangent = normalize(float3(normal.y, -normal.x, 0.0));
                 float3 bitangent = cross(tangent, normal);
                 float3 relief = (landDetail.normalXY.x * tangent + landDetail.normalXY.y * bitangent)
-                    * (_GroundDetail * 0.45 * (1.0 - cover));
+                    * (smoothstep(0.25, 1.0, _GroundDetail) * 0.45 * (1.0 - cover));
                 float3 sun = normalize(_MapSun.xyz);
                 float diffuse = saturate(dot(normalize(normal + relief), sun));
                 land *= 0.55 + 0.66 * diffuse * (1.0 - shade * 0.89);

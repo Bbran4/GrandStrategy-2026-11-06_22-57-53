@@ -220,7 +220,8 @@ namespace GrandStrategy.WorldGeneration
 
         public void SetZoom(float zoom)
         {
-            var next = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(.13f, .78f, zoom));
+            // Retain broad albedo variation in the overview. Mipmaps remove fine texture detail.
+            var next = Mathf.SmoothStep(1f, .25f, Mathf.InverseLerp(.28f, 1f, zoom));
             if (groundDetail != next)
             {
                 groundDetail = next;
