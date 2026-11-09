@@ -30,6 +30,10 @@ Shader "GrandStrategy/Playable Map"
         [NoScaleOffset] _ShallowsNormal ("Shallows Normal", 2D) = "bump" {}
         [NoScaleOffset] _FreshwaterColour ("Freshwater Colour", 2D) = "gray" {}
         [NoScaleOffset] _FreshwaterNormal ("Freshwater Normal", 2D) = "bump" {}
+        [NoScaleOffset] _MeadowColour ("Worn meadow colour", 2D) = "gray" {}
+        [NoScaleOffset] _MeadowNormal ("Worn meadow normal", 2D) = "bump" {}
+        [NoScaleOffset] _TundraSoilColour ("Tundra soil colour", 2D) = "gray" {}
+        [NoScaleOffset] _TundraSoilNormal ("Tundra soil normal", 2D) = "bump" {}
         _GroundTileFrequency ("Ground tile frequency", Float) = 3
         _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
         _BiomeSurface ("Biome IDs, water beds and snow", 2D) = "black" {}
@@ -93,6 +97,10 @@ Shader "GrandStrategy/Playable Map"
             TEXTURE2D(_ShallowsNormal);
             TEXTURE2D(_FreshwaterColour);
             TEXTURE2D(_FreshwaterNormal);
+            TEXTURE2D(_MeadowColour);
+            TEXTURE2D(_MeadowNormal);
+            TEXTURE2D(_TundraSoilColour);
+            TEXTURE2D(_TundraSoilNormal);
             TEXTURE2D(_BiomeSurface);
             SAMPLER(sampler_BiomeSurface);
             TEXTURE2D(_GroundPatterns);
@@ -338,20 +346,32 @@ Shader "GrandStrategy/Playable Map"
                     float baseWeight = (1.0 - snow) * (1.0 - rockCover);
                     low *= baseWeight;
                     high *= baseWeight;
+                    // Split each biome's weight across patchy variants before sampling shared materials.
+                    float plainsMeadow = low.z * (1.0 - sparse) * plainsMix.z * 0.78;
+                    float plainsGrass = low.z * (1.0 - sparse) - plainsMeadow;
+                    float tundraGrass = high.z * smoothstep(0.34, 0.72, broad.r * 0.58 + patches.a * 0.42) * 0.48;
+                    float tundraSoil = (high.z - tundraGrass) * smoothstep(0.29, 0.71, broad.g * 0.56 + patches.r * 0.44);
+                    float tundraStone = high.z - tundraGrass - tundraSoil;
+
                     float mudWeight = low.x + (low.w + high.x + high.y) * leafMud;
                     float rockWeight = high.w + rockCover * (1.0 - snow);
-                    GROUND_LAYER(_GrassColour, _GrassNormal, tile, 34.0, low.z * (1.0 - sparse), landDetail);
-                    GROUND_LAYER(_SparseGrassColour, _SparseGrassNormal, tile, 39.0, low.z * sparse, landDetail);
-                    GROUND_LAYER(_LeafMudColour, _LeafMudNormal, tile, 37.0, mudWeight, landDetail);
                     float denseShare = smoothstep(0.25, 0.75, broad.a * 0.52 + patches.b * 0.48);
                     float temperateLitter = low.w * (1.0 - leafMud);
-                    float denseWeight = temperateLitter * denseShare + high.x * (1.0 - leafMud);
+                    float borealFloor = high.y * (1.0 - leafMud);
+                    float borealLitter = borealFloor * smoothstep(0.28, 0.73, broad.b * 0.55 + patches.g * 0.45) * 0.78;
+                    float denseWeight = temperateLitter * denseShare + high.x * (1.0 - leafMud) + borealLitter;
+
+                    GROUND_LAYER(_GrassColour, _GrassNormal, tile, 34.0, plainsGrass, landDetail);
+                    GROUND_LAYER(_MeadowColour, _MeadowNormal, tile, 32.0, plainsMeadow, landDetail);
+                    GROUND_LAYER(_SparseGrassColour, _SparseGrassNormal, tile, 39.0, low.z * sparse + tundraGrass, landDetail);
+                    GROUND_LAYER(_LeafMudColour, _LeafMudNormal, tile, 37.0, mudWeight, landDetail);
                     GROUND_LAYER(_LeafLitterColour, _LeafLitterNormal, litter, 43.0,
                         temperateLitter * (1.0 - denseShare), landDetail);
                     GROUND_LAYER(_DenseLitterColour, _DenseLitterNormal, tile, 42.0, denseWeight, landDetail);
-                    GROUND_LAYER(_BorealColour, _BorealNormal, tile, 40.0, high.y * (1.0 - leafMud), landDetail);
+                    GROUND_LAYER(_BorealColour, _BorealNormal, tile, 40.0, borealFloor - borealLitter, landDetail);
                     GROUND_LAYER(_DesertColour, _DesertNormal, tile, 36.0, low.y, landDetail);
-                    GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, high.z, landDetail);
+                    GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, tundraStone, landDetail);
+                    GROUND_LAYER(_TundraSoilColour, _TundraSoilNormal, tile, 36.0, tundraSoil, landDetail);
                     GROUND_LAYER(_AlpineColour, _AlpineNormal, tile, 31.0, rockWeight, landDetail);
                     GROUND_LAYER(_SnowColour, _SnowNormal, tile, 35.0, snow, landDetail);
                     land += (landDetail.colour - land * landDetail.weight) * (_GroundDetail * 0.50);

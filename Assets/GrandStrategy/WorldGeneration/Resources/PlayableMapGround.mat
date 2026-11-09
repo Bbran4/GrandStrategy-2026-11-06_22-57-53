@@ -119,6 +119,22 @@ Material:
         m_Texture: {fileID: 2800000, guid: 54aa5e20971177c45bc1694ed223f2d3, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _MeadowColour:
+        m_Texture: {fileID: 2800000, guid: 71d2bad04a66e634bb817d4f5439b26c, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MeadowNormal:
+        m_Texture: {fileID: 2800000, guid: aef3cec6377c9c64bbf44a92dd18b86b, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _TundraSoilColour:
+        m_Texture: {fileID: 2800000, guid: 4ae687f041c3be7479a2b36472640110, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _TundraSoilNormal:
+        m_Texture: {fileID: 2800000, guid: d3ffce6b7969033439b8519e7b7aa1fb, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _GroundTileFrequency: 3
