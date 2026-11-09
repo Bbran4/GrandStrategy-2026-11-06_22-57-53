@@ -6,14 +6,21 @@ namespace GrandStrategy.WorldGeneration
     // The hard biome raster describes gameplay. These two fields soften only the painted surface.
     internal static class MapGroundBlend
     {
-        public static void Bake(int width, int height, NativeArray<Color32> colours, NativeArray<Color32> materials,
-            out Texture2D paletteTexture, out Texture2D materialTexture)
+        private static readonly Color32[] MaterialChannels =
+        {
+            new Color32(255, 0, 0, 0), new Color32(0, 255, 0, 0),
+            new Color32(0, 0, 255, 0), new Color32(0, 0, 0, 255)
+        };
+
+        public static void Bake(int width, int height, NativeArray<Color32> colours, NativeArray<Color32> surface,
+            out Texture2D paletteTexture, out Texture2D lowMaterialTexture, out Texture2D highMaterialTexture)
         {
             var fieldWidth = Mathf.Min(width, 1024);
             var fieldHeight = Mathf.Min(height, 512);
             var count = fieldWidth * fieldHeight;
             var palette = new Color32[count];
-            var weights = new Color32[count];
+            var lowWeights = new Color32[count];
+            var highWeights = new Color32[count];
             var scratch = new Color32[count];
             var linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
 
@@ -28,27 +35,36 @@ namespace GrandStrategy.WorldGeneration
 
                     var target = y * fieldWidth + x;
                     palette[target] = linear ? (Color32)((Color)colour).linear : colour;
-                    var weight = materials[i];
-                    weights[target] = new Color32(weight.r, weight.g, weight.b, 255);
+                    // The eight land IDs are contiguous, with four channels in each field.
+                    var material = surface[i].r - (byte)BiomeKind.Wetland;
+                    if (material < MaterialChannels.Length)
+                        lowWeights[target] = MaterialChannels[material];
+                    else
+                        highWeights[target] = MaterialChannels[material - MaterialChannels.Length];
                 }
 
             var radiusY = Mathf.Max(1, Mathf.RoundToInt(fieldHeight * .016f));
             var radiusX = Mathf.Max(1, Mathf.RoundToInt(fieldWidth * height / (float)width * .016f));
             Smooth(palette);
-            Smooth(weights);
+            Smooth(lowWeights);
+            Smooth(highWeights);
             paletteTexture = null;
-            materialTexture = null;
+            lowMaterialTexture = null;
+            highMaterialTexture = null;
             try
             {
                 paletteTexture = Upload(palette, "Blended land palette");
-                materialTexture = Upload(weights, "Blended land material weights");
+                lowMaterialTexture = Upload(lowWeights, "Blended wetland, desert, grass and temperate forest");
+                highMaterialTexture = Upload(highWeights, "Blended tropical forest, boreal forest, tundra and alpine");
             }
             catch
             {
                 Object.Destroy(paletteTexture);
-                Object.Destroy(materialTexture);
+                Object.Destroy(lowMaterialTexture);
+                Object.Destroy(highMaterialTexture);
                 paletteTexture = null;
-                materialTexture = null;
+                lowMaterialTexture = null;
+                highMaterialTexture = null;
                 throw;
             }
 

@@ -14,10 +14,11 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D provinceCorners;
         private readonly ProvinceShape provinceShape;
         private Texture2D ownership;
-        private Texture2D biomeWeights;
+        private Texture2D biomeSurface;
         private Texture2D groundPatterns;
         private Texture2D landTint;
-        private Texture2D landMaterials;
+        private Texture2D landMaterialsLow;
+        private Texture2D landMaterialsHigh;
         private Texture2D terrainShadow;
         private MapNature nature;
         private float groundDetail;
@@ -58,15 +59,16 @@ namespace GrandStrategy.WorldGeneration
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
                 colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
-                biomeWeights = CreateTexture("Biome material weights", true, FilterMode.Trilinear, true);
+                biomeSurface = CreateTexture("Biome IDs, water beds and snow", true, FilterMode.Trilinear, true);
                 groundPatterns = MapGroundPatterns.Create();
                 FillTextures(biomes, terrain);
                 material = new Material(groundMaterial) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
-                material.SetTexture("_BiomeWeights", biomeWeights);
+                material.SetTexture("_BiomeSurface", biomeSurface);
                 material.SetTexture("_GroundPatterns", groundPatterns);
                 material.SetTexture("_LandTint", landTint);
-                material.SetTexture("_LandMaterials", landMaterials);
+                material.SetTexture("_LandMaterialsLow", landMaterialsLow);
+                material.SetTexture("_LandMaterialsHigh", landMaterialsHigh);
                 material.SetVector("_GroundGrid", new Vector4(Map.Width, Map.Height, 1f / Aspect, 0f));
                 material.SetTexture("_ProvinceIndices", regions);
                 CreateProvinceCornerTexture();
@@ -132,7 +134,7 @@ namespace GrandStrategy.WorldGeneration
             var raster = Map.ProvinceAt;
             var colourPixels = colours.GetRawTextureData<Color32>();
             var indexPixels = regions.GetRawTextureData<Color32>();
-            var weightPixels = biomeWeights.GetRawTextureData<Color32>();
+            var surfacePixels = biomeSurface.GetRawTextureData<Color32>();
             for (var cell = 0; cell < raster.Length; cell++)
             {
                 var province = raster[cell];
@@ -144,10 +146,10 @@ namespace GrandStrategy.WorldGeneration
                 var rgb = MapGroundPatterns.Palette(kind);
                 // Keep the full base palette available when a blended land sample is invalid.
                 colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
-                weightPixels[cell] = new Color32(
-                    MapNatureRules.IsForest(kind) ? (byte)255 : (byte)0,
-                    kind == BiomeKind.Desert ? (byte)255 : (byte)0,
-                    kind == BiomeKind.Wetland ? (byte)255 : (byte)0,
+                surfacePixels[cell] = new Color32(
+                    (byte)kind,
+                    kind == BiomeKind.ShallowSea ? (byte)255 : (byte)0,
+                    kind == BiomeKind.Lake || kind == BiomeKind.River ? (byte)255 : (byte)0,
                     (byte)Mathf.RoundToInt((dry ? SnowAt(cell, terrain, biomes) :
                         water[cell] == WaterKind.Lake ? MapNatureRules.LakeIce(biomes?.Climate.TemperatureCelsius(cell)) : 0f) * 255f));
                 var indexColour = EncodeProvince(province);
@@ -155,10 +157,11 @@ namespace GrandStrategy.WorldGeneration
                 indexPixels[cell] = indexColour;
             }
 
-            MapGroundBlend.Bake(Map.Width, Map.Height, colourPixels, weightPixels, out landTint, out landMaterials);
+            MapGroundBlend.Bake(Map.Width, Map.Height, colourPixels, surfacePixels,
+                out landTint, out landMaterialsLow, out landMaterialsHigh);
             colours.Apply(true, true);
             regions.Apply(false, true);
-            biomeWeights.Apply(true, true);
+            biomeSurface.Apply(true, true);
         }
 
         private void CreateProvinceCornerTexture()
@@ -275,10 +278,11 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
             UnityEngine.Object.Destroy(ownership);
-            UnityEngine.Object.Destroy(biomeWeights);
+            UnityEngine.Object.Destroy(biomeSurface);
             UnityEngine.Object.Destroy(groundPatterns);
             UnityEngine.Object.Destroy(landTint);
-            UnityEngine.Object.Destroy(landMaterials);
+            UnityEngine.Object.Destroy(landMaterialsLow);
+            UnityEngine.Object.Destroy(landMaterialsHigh);
             UnityEngine.Object.Destroy(terrainShadow);
         }
     }

@@ -55,6 +55,70 @@ Material:
         m_Texture: {fileID: 2800000, guid: 90319bd154d521e4cbdd3231b0ae67b7, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _DesertColour:
+        m_Texture: {fileID: 2800000, guid: 784f6d75344a12947a5a476373a31d4d, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _DesertNormal:
+        m_Texture: {fileID: 2800000, guid: a33977eef87c78f4f92954e9410f2dc2, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _TropicalColour:
+        m_Texture: {fileID: 2800000, guid: 3f0687d24ea8ddf4fbd6345ad962965a, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _TropicalNormal:
+        m_Texture: {fileID: 2800000, guid: 47bfec5f282789e419554cbd10e6022a, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _BorealColour:
+        m_Texture: {fileID: 2800000, guid: 464648518e3a5de4abc7c6237dcccb58, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _BorealNormal:
+        m_Texture: {fileID: 2800000, guid: 4c87e19bc40fb754c996b2344a4c3f65, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _TundraColour:
+        m_Texture: {fileID: 2800000, guid: e6fec83299990394f872097524035bea, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _TundraNormal:
+        m_Texture: {fileID: 2800000, guid: 650796cc5692e1d41bd892fbcc9a2f48, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _AlpineColour:
+        m_Texture: {fileID: 2800000, guid: ef264e6d56cae4d4b9fa650056e6f95c, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _AlpineNormal:
+        m_Texture: {fileID: 2800000, guid: 5420b0d2a4d525e4aab4b90a2c5e9239, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SnowColour:
+        m_Texture: {fileID: 2800000, guid: 9189a0fda7092254e93af5c9ddb2470c, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SnowNormal:
+        m_Texture: {fileID: 2800000, guid: d964c6c78990e0047ae11c73e1c1d560, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ShallowsColour:
+        m_Texture: {fileID: 2800000, guid: 20cb66983d9bac94483c55808bfd3709, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _ShallowsNormal:
+        m_Texture: {fileID: 2800000, guid: 9eb0430c564bb7a47b0677c8aac5e5d2, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FreshwaterColour:
+        m_Texture: {fileID: 2800000, guid: 6fe9dacab3479594d839927ef9d20dac, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FreshwaterNormal:
+        m_Texture: {fileID: 2800000, guid: 54aa5e20971177c45bc1694ed223f2d3, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats: []
     m_Colors: []
