@@ -16,8 +16,8 @@ Shader "GrandStrategy/Playable Map"
         [NoScaleOffset] _LeafLitterNormal ("Forest leaf litter normal", 2D) = "bump" {}
         [NoScaleOffset] _DesertColour ("Desert Colour", 2D) = "gray" {}
         [NoScaleOffset] _DesertNormal ("Desert Normal", 2D) = "bump" {}
-        [NoScaleOffset] _TropicalColour ("Tropical Colour", 2D) = "gray" {}
-        [NoScaleOffset] _TropicalNormal ("Tropical Normal", 2D) = "bump" {}
+        [NoScaleOffset] _DenseLitterColour ("Dense leaf litter colour", 2D) = "gray" {}
+        [NoScaleOffset] _DenseLitterNormal ("Dense leaf litter normal", 2D) = "bump" {}
         [NoScaleOffset] _BorealColour ("Boreal Colour", 2D) = "gray" {}
         [NoScaleOffset] _BorealNormal ("Boreal Normal", 2D) = "bump" {}
         [NoScaleOffset] _TundraColour ("Tundra Colour", 2D) = "gray" {}
@@ -79,8 +79,8 @@ Shader "GrandStrategy/Playable Map"
             TEXTURE2D(_LeafLitterNormal);
             TEXTURE2D(_DesertColour);
             TEXTURE2D(_DesertNormal);
-            TEXTURE2D(_TropicalColour);
-            TEXTURE2D(_TropicalNormal);
+            TEXTURE2D(_DenseLitterColour);
+            TEXTURE2D(_DenseLitterNormal);
             TEXTURE2D(_BorealColour);
             TEXTURE2D(_BorealNormal);
             TEXTURE2D(_TundraColour);
@@ -219,6 +219,7 @@ Shader "GrandStrategy/Playable Map"
                 float2 uv;
                 float2 dx;
                 float2 dy;
+                float2 tangent;
             };
 
             void AccumulateGround(TEXTURE2D_PARAM(colourMap, colourSampler),
@@ -232,7 +233,9 @@ Shader "GrandStrategy/Playable Map"
                     float2 dx = ground.dx * frequency;
                     float2 dy = ground.dy * frequency;
                     result.colour += SAMPLE_TEXTURE2D_GRAD(colourMap, colourSampler, uv, dx, dy).rgb * weight;
-                    result.normalXY += UnpackNormal(SAMPLE_TEXTURE2D_GRAD(normalMap, normalSampler, uv, dx, dy)).xy * weight;
+                    float2 normalXY = UnpackNormal(SAMPLE_TEXTURE2D_GRAD(normalMap, normalSampler, uv, dx, dy)).xy;
+                    float2 bitangent = float2(-ground.tangent.y, ground.tangent.x);
+                    result.normalXY += (ground.tangent * normalXY.x + bitangent * normalXY.y) * weight;
                     result.weight += weight;
                 }
             }
@@ -306,6 +309,17 @@ Shader "GrandStrategy/Playable Map"
                 tile.uv = ground * _GroundTileFrequency;
                 tile.dx = groundDx * _GroundTileFrequency;
                 tile.dy = groundDy * _GroundTileFrequency;
+                tile.tangent = float2(1.0, 0.0);
+
+                // Break up the temperate litter tiles without shifting biome boundaries.
+                float2 litterUV = tile.uv + (broad.rb - 0.5) * 0.024 + (patches.ag - 0.5) * 0.009;
+                const float2x2 litterRotation = float2x2(0.8, 0.6, -0.6, 0.8);
+                GroundCoordinates litter;
+                litter.uv = mul(litterRotation, litterUV) + float2(0.37, 0.61);
+                litter.dx = ddx(litter.uv);
+                litter.dy = ddy(litter.uv);
+                litter.tangent = litterRotation[0];
+
                 GroundSample landDetail = (GroundSample)0;
                 UNITY_BRANCH
                 if (_GroundDetail > 0.0 && map.a > 0.0)
@@ -329,8 +343,12 @@ Shader "GrandStrategy/Playable Map"
                     GROUND_LAYER(_GrassColour, _GrassNormal, tile, 34.0, low.z * (1.0 - sparse), landDetail);
                     GROUND_LAYER(_SparseGrassColour, _SparseGrassNormal, tile, 39.0, low.z * sparse, landDetail);
                     GROUND_LAYER(_LeafMudColour, _LeafMudNormal, tile, 37.0, mudWeight, landDetail);
-                    GROUND_LAYER(_LeafLitterColour, _LeafLitterNormal, tile, 43.0, low.w * (1.0 - leafMud), landDetail);
-                    GROUND_LAYER(_TropicalColour, _TropicalNormal, tile, 42.0, high.x * (1.0 - leafMud), landDetail);
+                    float denseShare = smoothstep(0.25, 0.75, broad.a * 0.52 + patches.b * 0.48);
+                    float temperateLitter = low.w * (1.0 - leafMud);
+                    float denseWeight = temperateLitter * denseShare + high.x * (1.0 - leafMud);
+                    GROUND_LAYER(_LeafLitterColour, _LeafLitterNormal, litter, 43.0,
+                        temperateLitter * (1.0 - denseShare), landDetail);
+                    GROUND_LAYER(_DenseLitterColour, _DenseLitterNormal, tile, 42.0, denseWeight, landDetail);
                     GROUND_LAYER(_BorealColour, _BorealNormal, tile, 40.0, high.y * (1.0 - leafMud), landDetail);
                     GROUND_LAYER(_DesertColour, _DesertNormal, tile, 36.0, low.y, landDetail);
                     GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, high.z, landDetail);

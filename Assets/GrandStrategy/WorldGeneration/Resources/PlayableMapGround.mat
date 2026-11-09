@@ -63,11 +63,11 @@ Material:
         m_Texture: {fileID: 2800000, guid: a33977eef87c78f4f92954e9410f2dc2, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    - _TropicalColour:
+    - _DenseLitterColour:
         m_Texture: {fileID: 2800000, guid: 3f0687d24ea8ddf4fbd6345ad962965a, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    - _TropicalNormal:
+    - _DenseLitterNormal:
         m_Texture: {fileID: 2800000, guid: 47bfec5f282789e419554cbd10e6022a, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
