@@ -36,7 +36,7 @@ Shader "GrandStrategy/Playable Map"
         [NoScaleOffset] _TundraSoilNormal ("Tundra soil normal", 2D) = "bump" {}
         _GroundTileFrequency ("Ground tile frequency", Float) = 3
         _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
-        _BiomeSurface ("Biome IDs, water beds and snow", 2D) = "black" {}
+        _BiomeSurface ("Biome IDs, ocean shoals, freshwater and snow", 2D) = "black" {}
         _GroundPatterns ("Ground patterns", 2D) = "gray" {}
         _ForestCanopy ("Forest canopy and shadow", 2D) = "black" {}
         _TerrainShadow ("Terrain sun shadow", 2D) = "black" {}
@@ -142,7 +142,7 @@ Shader "GrandStrategy/Playable Map"
                 float4 positionCS : SV_POSITION;
                 float3 normalWS : TEXCOORD0;
                 float2 uv : TEXCOORD1;
-                float2 groundPosition : TEXCOORD2;
+                float3 groundPosition : TEXCOORD2;
             };
 
             Varyings Vert(Attributes input)
@@ -151,7 +151,7 @@ Shader "GrandStrategy/Playable Map"
                 output.positionCS = TransformObjectToHClip(input.positionOS);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 output.uv = input.uv;
-                output.groundPosition = input.positionOS.xz;
+                output.groundPosition = input.positionOS;
                 return output;
             }
 
@@ -257,7 +257,10 @@ Shader "GrandStrategy/Playable Map"
             {
                 float4 map = SAMPLE_TEXTURE2D(_MapColours, sampler_MapColours, input.uv);
                 float4 biomeSurface = SAMPLE_TEXTURE2D(_BiomeSurface, sampler_BiomeSurface, input.uv);
-                float2 ground = input.groundPosition;
+                float3 position = input.groundPosition;
+                float3 positionDx = ddx(position);
+                float3 positionDy = ddy(position);
+                float2 ground = position.xz;
                 float4 broad = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 3.7);
                 float4 patches = SAMPLE_TEXTURE2D(_GroundPatterns, sampler_GroundPatterns, ground * 17.0);
                 // Warp the prefiltered visual fields. The actual terrain and province masks stay aligned.
@@ -311,8 +314,13 @@ Shader "GrandStrategy/Playable Map"
                 land = lerp(land, lerp(float3(0.47, 0.52, 0.53), float3(0.84, 0.86, 0.84), patches.g),
                     snow * 0.94);
 
-                float2 groundDx = ddx(ground);
-                float2 groundDy = ddy(ground);
+                float2 groundDx = positionDx.xz;
+                float2 groundDy = positionDy.xz;
+                float2 screenX = ddx(input.uv) * _GroundGrid.xy;
+                float2 screenY = ddy(input.uv) * _GroundGrid.xy;
+                float pixelFootprint = max(length(screenX), length(screenY));
+                float coastLod = log2(max(pixelFootprint, max(1.0, _GroundGrid.y * 0.011)));
+                float4 waterField = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv, coastLod);
                 GroundCoordinates tile;
                 tile.uv = ground * _GroundTileFrequency;
                 tile.dx = groundDx * _GroundTileFrequency;
@@ -372,7 +380,25 @@ Shader "GrandStrategy/Playable Map"
                     GROUND_LAYER(_DesertColour, _DesertNormal, tile, 36.0, low.y, landDetail);
                     GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, tundraStone, landDetail);
                     GROUND_LAYER(_TundraSoilColour, _TundraSoilNormal, tile, 36.0, tundraSoil, landDetail);
-                    GROUND_LAYER(_AlpineColour, _AlpineNormal, tile, 31.0, rockWeight, landDetail);
+                    // Steep banks need vertical texture projection. Keep the established top projection inland.
+                    float cliff = smoothstep(0.16, 0.46, 1.0 - normal.y)
+                        * (1.0 - smoothstep(0.55, 0.97, waterField.a));
+                    float cliffWeight = rockWeight * cliff;
+                    GROUND_LAYER(_AlpineColour, _AlpineNormal, tile, 31.0, rockWeight * (1.0 - cliff), landDetail);
+                    UNITY_BRANCH
+                    if (cliffWeight > 0.002)
+                    {
+                        float2 side = abs(normal.xz);
+                        side *= side;
+                        side /= max(side.x + side.y, 0.0001);
+                        float frequency = _GroundTileFrequency * 31.0;
+                        float3 xFace = SAMPLE_TEXTURE2D_GRAD(_AlpineColour, sampler_GroundPatterns,
+                            position.zy * frequency, positionDx.zy * frequency, positionDy.zy * frequency).rgb;
+                        float3 zFace = SAMPLE_TEXTURE2D_GRAD(_AlpineColour, sampler_GroundPatterns,
+                            position.xy * frequency, positionDx.xy * frequency, positionDy.xy * frequency).rgb;
+                        landDetail.colour += (xFace * side.x + zFace * side.y) * cliffWeight;
+                        landDetail.weight += cliffWeight;
+                    }
                     GROUND_LAYER(_SnowColour, _SnowNormal, tile, 35.0, snow, landDetail);
                     land += (landDetail.colour - land * landDetail.weight) * (_GroundDetail * 0.50);
                 }
@@ -400,23 +426,41 @@ Shader "GrandStrategy/Playable Map"
                 float3 sun = normalize(_MapSun.xyz);
                 float diffuse = saturate(dot(normalize(normal + relief), sun));
                 land *= 0.55 + 0.66 * diffuse * (1.0 - shade * 0.89);
-                float ripple = (patches.g - 0.5) * 0.13 + (broad.a - 0.5) * 0.11;
-                float2 screenX = ddx(input.uv) * _GroundGrid.xy;
-                float2 screenY = ddy(input.uv) * _GroundGrid.xy;
-                float waterLod = log2(max(max(length(screenX), length(screenY)), max(1.0, _GroundGrid.y * 0.011)));
-                float4 waterField = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv, waterLod);
-                float wideWater = 1.0 - waterField.a;
-                float3 water = lerp(map.rgb, waterField.rgb, smoothstep(0.92, 0.999, wideWater)) * (1.0 + ripple);
-                float ice = biomeSurface.a * lerp(0.65, 0.96, patches.g);
                 UNITY_BRANCH
-                if (_GroundDetail > 0.0 && map.a < 1.0 && biomeSurface.g + biomeSurface.b > 0.002)
+                if (map.a >= 1.0) return land;
+
+                float wideWater = 1.0 - waterField.a;
+                float3 water = lerp(map.rgb, waterField.rgb, smoothstep(0.92, 0.999, wideWater));
+                float waterCoverage = max(1.0 - map.a, 0.0001);
+                float shoal = saturate(biomeSurface.g / waterCoverage);
+                float freshwater = saturate(biomeSurface.b / waterCoverage);
+                float ice = min(freshwater, biomeSurface.a / waterCoverage) * lerp(0.65, 0.96, patches.g);
+                UNITY_BRANCH
+                if (_GroundDetail > 0.0 && shoal + freshwater > 0.002)
                 {
                     GroundSample bed = (GroundSample)0;
-                    GROUND_LAYER(_ShallowsColour, _ShallowsNormal, tile, 32.0, biomeSurface.g, bed);
-                    GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 38.0, biomeSurface.b, bed);
+                    GROUND_LAYER(_ShallowsColour, _ShallowsNormal, tile, 32.0, shoal, bed);
+                    GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 38.0, freshwater, bed);
                     float bedTone = dot(bed.colour, float3(0.2126, 0.7152, 0.0722)) - bed.weight * 0.18;
                     water *= 1.0 + (bedTone * 0.65 + dot(bed.normalXY, sun.xz) * 0.12) * _GroundDetail;
                 }
+
+                // Two moving wave fields and a broader swell give the water motion at different zooms.
+                float time = _Time.y;
+                float2 wind = float2(0.82, 0.57);
+                float2 crossWind = float2(-0.43, 0.90);
+                float phase = dot(ground, wind) * 295.0 - time * lerp(1.5, 2.1, freshwater) + broad.r * 3.1;
+                float crossPhase = dot(ground, crossWind) * 418.0 + time * 1.24 + patches.a * 2.2;
+                float swell = sin(dot(ground, wind) * 71.0 - time * 0.60 + broad.b * 2.8);
+                float footprint = max(length(groundDx), length(groundDy));
+                float waveVisibility = 1.0 - smoothstep(0.55, 1.8, footprint * 418.0);
+                float waves = (sin(phase) * 0.64 + sin(crossPhase) * 0.36) * waveVisibility;
+                water *= 1.0 + swell * 0.037 + waves * 0.061;
+
+                float sheen = smoothstep(0.47, 0.92, waves + swell * 0.24);
+                float shore = smoothstep(0.07, 0.38, waterField.a) * shoal;
+                float breakers = smoothstep(0.68, 0.96, sin(phase + waterField.a * 10.0));
+                water += float3(0.15, 0.22, 0.24) * (sheen * 0.13 + shore * breakers * waveVisibility * 0.28);
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
                 // Water is drawn on the same mesh. Keep its surface dark and the banks soft.
                 return lerp(water * (1.0 - 0.20 * terrainShade), land, map.a);

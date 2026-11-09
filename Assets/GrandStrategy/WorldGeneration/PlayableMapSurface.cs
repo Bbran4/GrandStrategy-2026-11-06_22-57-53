@@ -59,7 +59,7 @@ namespace GrandStrategy.WorldGeneration
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
                 colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
-                biomeSurface = CreateTexture("Biome IDs, water beds and snow", true, FilterMode.Trilinear, true);
+                biomeSurface = CreateTexture("Biome IDs, ocean shoals, freshwater and snow", true, FilterMode.Trilinear, true);
                 groundPatterns = MapGroundPatterns.Create();
                 FillTextures(biomes, terrain);
                 material = new Material(groundMaterial) { hideFlags = HideFlags.DontSave };
@@ -135,6 +135,12 @@ namespace GrandStrategy.WorldGeneration
             var colourPixels = colours.GetRawTextureData<Color32>();
             var indexPixels = regions.GetRawTextureData<Color32>();
             var surfacePixels = biomeSurface.GetRawTextureData<Color32>();
+            var deep = MapGroundPatterns.Palette(BiomeKind.DeepOcean);
+            var shallow = MapGroundPatterns.Palette(BiomeKind.ShallowSea);
+            var deepWater = new Color32(deep.R, deep.G, deep.B, 0);
+            var shallowWater = new Color32(shallow.R, shallow.G, shallow.B, 0);
+            var seaLevel = terrain.Recipe.SeaLevel;
+            var inverseSeaLevel = 1f / Mathf.Max(seaLevel, .0001f);
             for (var cell = 0; cell < raster.Length; cell++)
             {
                 var province = raster[cell];
@@ -143,12 +149,22 @@ namespace GrandStrategy.WorldGeneration
 
                 var kind = SurfaceKind(cell, biomes);
                 var dry = IsDryLand(cell);
-                var rgb = MapGroundPatterns.Palette(kind);
-                // Keep the full base palette available when a blended land sample is invalid.
-                colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
+                // Ocean shading uses depth. The discrete biome ID still describes the saved map.
+                var shoal = 0f;
+                if (water[cell] == WaterKind.Ocean)
+                {
+                    var depth = (seaLevel - terrain.Elevations[cell]) * inverseSeaLevel;
+                    shoal = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(.025f, .58f, depth));
+                    colourPixels[cell] = Color32.Lerp(deepWater, shallowWater, shoal);
+                }
+                else
+                {
+                    var rgb = MapGroundPatterns.Palette(kind);
+                    colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
+                }
                 surfacePixels[cell] = new Color32(
                     (byte)kind,
-                    kind == BiomeKind.ShallowSea ? (byte)255 : (byte)0,
+                    (byte)Mathf.RoundToInt(shoal * 255f),
                     kind == BiomeKind.Lake || kind == BiomeKind.River ? (byte)255 : (byte)0,
                     (byte)Mathf.RoundToInt((dry ? SnowAt(cell, terrain, biomes) :
                         water[cell] == WaterKind.Lake ? MapNatureRules.LakeIce(biomes?.Climate.TemperatureCelsius(cell)) : 0f) * 255f));
