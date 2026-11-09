@@ -15,17 +15,18 @@ namespace GrandStrategy.WorldGeneration
         private readonly int[] territoryRaster;
         private readonly Layer provinces;
         private readonly Layer territories;
-        private readonly Layer waterways;
+        private readonly Func<int, bool> isDryLand;
         private readonly Layer realms;
 
         public bool HasTerritories => territoryRaster != null;
 
         public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map, ProvinceShape provinceShape,
-            WaterMap water, RiverNavigation navigation)
+            Func<int, bool> isDryLand)
         {
             this.map = map;
             this.provinceShape = provinceShape;
             this.geometry = geometry;
+            this.isDryLand = isDryLand;
             territoryRaster = GetTerritories(map);
 
             try
@@ -38,18 +39,8 @@ namespace GrandStrategy.WorldGeneration
                     new Color32(40, 45, 40, 235));
                 territories = new Layer(surface.transform, shader, "Territory borders", 2.15f, 1,
                     new Color32(45, 50, 48, 238));
-                waterways = new Layer(surface.transform, shader, "Navigable river borders", 1.45f, 2,
-                    new Color32(86, 139, 164, 240));
                 realms = new Layer(surface.transform, shader, "Realm borders", 3.35f, 3, Color.white);
                 provinces.Mesh = CreateMesh(map.ProvinceAt, "Province outlines", true);
-                if (navigation != null && navigation.ChannelCount != 0)
-                {
-                    var riverRaster = new int[map.ProvinceAt.Length];
-                    for (var i = 0; i < riverRaster.Length; i++)
-                        riverRaster[i] = (navigation[i] & (RiverNavigation.Channel | RiverNavigation.WaterFootprint)) != 0 ? 0 : -1;
-                    waterways.Mesh = CreateMesh(riverRaster, "Navigable river banks", include: (a, b) =>
-                        a >= 0 && b >= 0 && water[a] == WaterKind.Land && water[b] == WaterKind.Land);
-                }
                 SetView(MapViewMode.Provinces);
             }
             catch
@@ -66,17 +57,16 @@ namespace GrandStrategy.WorldGeneration
                 territories.Mesh = CreateMesh(territoryRaster, "Territory outlines");
             provinces.Visible = mode != MapViewMode.Territories;
             territories.Visible = showTerritories;
-            waterways.Visible = waterways.Mesh != null;
-            realms.Visible = true;
+            realms.Visible = realms.Mesh != null;
         }
 
         public void SetRealm(CampaignState campaign, Color colour)
         {
-            if (campaign == null) return;
-            var next = CreateMesh(map.ProvinceAt, "Realm frontier", true, (a, b) =>
-                (a >= 0 && campaign.Owns(map.ProvinceAt[a])) != (b >= 0 && campaign.Owns(map.ProvinceAt[b])));
+            var next = campaign == null ? null : CreateMesh(map.ProvinceAt, "Realm frontier", true, (a, b) =>
+                campaign.Owns(map.ProvinceAt[a]) != campaign.Owns(map.ProvinceAt[b]));
             UnityEngine.Object.Destroy(realms.Mesh);
             realms.Mesh = next;
+            realms.Visible = next != null;
             realms.Colour = colour;
         }
 
@@ -152,13 +142,14 @@ namespace GrandStrategy.WorldGeneration
 
             bool Includes(int a, int b)
             {
-                if (include == null) return true;
                 var start = Math.Min(a, b);
                 var stride = map.Width + 1;
                 var x = start % stride;
                 var y = start / stride;
-                return Math.Abs(a - b) == 1 ? include(Cell(x, y - 1), Cell(x, y))
-                    : include(Cell(x - 1, y), Cell(x, y));
+                var first = Math.Abs(a - b) == 1 ? Cell(x, y - 1) : Cell(x - 1, y);
+                var second = Cell(x, y);
+                return IsLandProvinceCell(first) && IsLandProvinceCell(second)
+                    && (include == null || include(first, second));
             }
 
             int Cell(int x, int y) => x >= 0 && x < map.Width && y >= 0 && y < map.Height
@@ -212,6 +203,9 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        private bool IsLandProvinceCell(int cell)
+            => cell >= 0 && isDryLand(cell) && CampaignState.IsLand(map, map.ProvinceAt[cell]);
+
         private Vector2 SmoothedCorner(IReadOnlyList<int> path, int count, int i, bool closed, bool useProvinceShape)
         {
             var point = useProvinceShape
@@ -256,7 +250,6 @@ namespace GrandStrategy.WorldGeneration
         {
             provinces?.Dispose();
             territories?.Dispose();
-            waterways?.Dispose();
             realms?.Dispose();
         }
     }

@@ -32,8 +32,7 @@ namespace GrandStrategy.WorldGeneration
         public float Aspect => (float)Map.Width / Map.Height;
         public Collider Collider { get; private set; }
 
-        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog,
-            float maximumRiverRise)
+        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog)
         {
             var imported = provinces.ReadTerrain();
             var riverMap = world.ReadRivers();
@@ -94,8 +93,7 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_TerrainShadow", terrainShadow);
                 var sun = geometry.SunDirection;
                 material.SetVector("_MapSun", new Vector4(sun.x, sun.y, sun.z, 0f));
-                var navigation = riverMap == null ? null : RiverNavigation.Build(riverMap, water, maximumRiverRise);
-                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, water, navigation);
+                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, IsDryLand);
                 nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed, treeCatalog,
                     cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes),
                     cell => biomes?.Climate.TemperatureCelsius(cell) ?? 12f,
@@ -259,7 +257,8 @@ namespace GrandStrategy.WorldGeneration
             material.SetFloat("_RealmFill", mode == MapViewMode.Realms ? .68f : .41f);
         }
 
-        public void SetSelection(int selected) => material.SetVector("_Selected", ShaderIndex(selected));
+        public void SetSelection(int selected)
+            => material.SetVector("_Selected", ShaderIndex(CampaignState.IsLand(Map, selected) ? selected : -1));
 
         public void SetOwnership(CampaignState campaign, Color tribeColour)
         {

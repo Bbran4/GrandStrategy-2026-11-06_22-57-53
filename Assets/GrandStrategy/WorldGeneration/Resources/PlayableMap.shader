@@ -253,9 +253,8 @@ Shader "GrandStrategy/Playable Map"
                 AccumulateGround(TEXTURE2D_ARGS(colourMap, sampler_GroundPatterns), \
                     TEXTURE2D_ARGS(normalMap, sampler_GroundPatterns), coords, frequency, weight, result)
 
-            float3 ShadeGround(Varyings input, float3 normal)
+            float3 ShadeGround(Varyings input, float3 normal, float4 map)
             {
-                float4 map = SAMPLE_TEXTURE2D(_MapColours, sampler_MapColours, input.uv);
                 float4 biomeSurface = SAMPLE_TEXTURE2D(_BiomeSurface, sampler_BiomeSurface, input.uv);
                 float3 position = input.groundPosition;
                 float3 positionDx = ddx(position);
@@ -434,14 +433,20 @@ Shader "GrandStrategy/Playable Map"
                 float waterCoverage = max(1.0 - map.a, 0.0001);
                 float shoal = saturate(biomeSurface.g / waterCoverage);
                 float freshwater = saturate(biomeSurface.b / waterCoverage);
+                // Narrow channels need a bed colour of their own where the map palette blends across banks.
+                float channel = freshwater * (1.0 - smoothstep(0.46, 0.90, wideWater));
+                water = lerp(water, float3(0.074, 0.121, 0.126), channel * 0.72);
                 float ice = min(freshwater, biomeSurface.a / waterCoverage) * lerp(0.65, 0.96, patches.g);
                 UNITY_BRANCH
                 if (_GroundDetail > 0.0 && shoal + freshwater > 0.002)
                 {
                     GroundSample bed = (GroundSample)0;
                     GROUND_LAYER(_ShallowsColour, _ShallowsNormal, tile, 32.0, shoal, bed);
-                    GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 38.0, freshwater, bed);
+                    GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 26.0, freshwater, bed);
                     float bedTone = dot(bed.colour, float3(0.2126, 0.7152, 0.0722)) - bed.weight * 0.18;
+                    float3 submergedPebbles = lerp(float3(0.074, 0.121, 0.126),
+                        bed.colour / max(bed.weight, 0.001), 0.68);
+                    water = lerp(water, submergedPebbles, channel * 0.82 * _GroundDetail);
                     water *= 1.0 + (bedTone * 0.65 + dot(bed.normalXY, sun.xz) * 0.12) * _GroundDetail;
                 }
 
@@ -457,19 +462,24 @@ Shader "GrandStrategy/Playable Map"
                 float waves = (sin(phase) * 0.64 + sin(crossPhase) * 0.36) * waveVisibility;
                 water *= 1.0 + swell * 0.037 + waves * 0.061;
 
-                float sheen = smoothstep(0.47, 0.92, waves + swell * 0.24);
+                // Follow one crest for the sheen. Thresholding intersecting waves makes isolated spots.
+                float sheen = (0.5 + 0.5 * sin(phase + sin(crossPhase) * 0.18)) * waveVisibility;
+                sheen *= 0.55 + 0.45 * broad.g;
                 float shore = smoothstep(0.07, 0.38, waterField.a) * shoal;
                 float breakers = smoothstep(0.68, 0.96, sin(phase + waterField.a * 10.0));
-                water += float3(0.15, 0.22, 0.24) * (sheen * 0.13 + shore * breakers * waveVisibility * 0.28);
+                water += float3(0.15, 0.22, 0.24) * (sheen * 0.045 + shore * breakers * waveVisibility * 0.20);
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
-                // Water is drawn on the same mesh. Keep its surface dark and the banks soft.
-                return lerp(water * (1.0 - 0.20 * terrainShade), land, map.a);
+                // Give narrow channels enough coverage to stay legible between raster samples.
+                float visibleWater = saturate((1.0 - map.a) * (1.0 + channel * 0.30));
+                return lerp(land, water * (1.0 - 0.20 * terrainShade), visibleWater);
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
-                float3 ground = ShadeGround(input, normalize(input.normalWS));
-                if (_ShowPolitics <= 0.0) return half4(ground, 1);
+                float4 map = SAMPLE_TEXTURE2D(_MapColours, sampler_MapColours, input.uv);
+                float3 ground = ShadeGround(input, normalize(input.normalWS), map);
+                float politicalCoverage = _ShowPolitics * smoothstep(0.52, 0.95, map.a);
+                if (politicalCoverage <= 0.0) return half4(ground, 1);
 
                 float3 province = ProvinceAt(input.uv);
                 float index = dot(round(province * 255.0), float3(1.0, 256.0, 65536.0));
@@ -477,8 +487,8 @@ Shader "GrandStrategy/Playable Map"
                 float column = index - row * _OwnershipSize.x;
                 float2 ownershipUV = (float2(column, row) + 0.5) * _OwnershipSize.zw;
                 float owned = SAMPLE_TEXTURE2D(_Ownership, sampler_Ownership, ownershipUV).r;
-                float3 colour = lerp(ground, _TribeColour.rgb, owned * _RealmFill * _ShowPolitics);
-                colour = lerp(colour, float3(1.0, 0.78, 0.26), Matches(province, _Selected) * 0.26 * _ShowPolitics);
+                float3 colour = lerp(ground, _TribeColour.rgb, owned * _RealmFill * politicalCoverage);
+                colour = lerp(colour, float3(1.0, 0.78, 0.26), Matches(province, _Selected) * 0.26 * politicalCoverage);
                 return half4(colour, 1);
             }
             ENDHLSL
