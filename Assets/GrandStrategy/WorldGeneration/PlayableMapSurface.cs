@@ -273,6 +273,7 @@ namespace GrandStrategy.WorldGeneration
                 pixels[i + 1] = new Color32(campaign?.Owns(i) == true ? (byte)255 : (byte)0, 0, 0, 255);
             ownership.Apply(false, false);
             material.SetColor("_TribeColour", tribeColour);
+            material.SetFloat("_HasCampaign", campaign == null ? 0f : 1f);
             borders?.SetRealm(campaign, tribeColour);
         }
 
