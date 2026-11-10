@@ -5,6 +5,7 @@ Shader "GrandStrategy/Map Border"
         _BorderColour ("Border colour", Color) = (0.06, 0.08, 0.09, 1)
         _WidthPixels ("Width in pixels", Float) = 1.6
         [NoScaleOffset] _LandCoverage ("Land coverage", 2D) = "black" {}
+        [NoScaleOffset] _RiverFlow ("River coverage", 2D) = "black" {}
         _MapAspect ("Map aspect", Float) = 1
     }
 
@@ -28,6 +29,7 @@ Shader "GrandStrategy/Map Border"
 
             TEXTURE2D(_LandCoverage);
             SAMPLER(sampler_LandCoverage);
+            TEXTURE2D(_RiverFlow);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BorderColour;
@@ -74,10 +76,9 @@ Shader "GrandStrategy/Map Border"
 
             half4 Frag(Varyings input) : SV_Target
             {
-                // Leave a small dry-land margin around rivers, including where a smoothed
-                // stroke drifts off the source raster edge or has a screen-space cap.
                 float dry = SAMPLE_TEXTURE2D_LOD(_LandCoverage, sampler_LandCoverage, input.mapUV, 1).a;
-                clip(dry - 0.985);
+                float river = SAMPLE_TEXTURE2D_LOD(_RiverFlow, sampler_LandCoverage, input.mapUV, 1).b;
+                clip(dry + river - 0.985);
                 float outside = max(0.0, max(-input.segment.x, input.segment.x - input.segment.z));
                 float distanceFromLine = length(float2(outside, input.segment.y));
                 float radius = _WidthPixels * 0.5;

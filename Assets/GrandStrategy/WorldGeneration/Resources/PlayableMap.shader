@@ -37,6 +37,7 @@ Shader "GrandStrategy/Playable Map"
         _GroundTileFrequency ("Ground tile frequency", Float) = 3
         [HideInInspector] _InverseReliefHeight ("Inverse maximum relief height", Float) = 1
         _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
+        [NoScaleOffset] _RiverFlow ("River direction and coverage", 2D) = "black" {}
         _BiomeSurface ("Biome IDs, ocean shoals, freshwater and snow", 2D) = "black" {}
         _GroundPatterns ("Ground patterns", 2D) = "gray" {}
         _ForestCanopy ("Forest canopy and shadow", 2D) = "black" {}
@@ -103,6 +104,7 @@ Shader "GrandStrategy/Playable Map"
             TEXTURE2D(_TundraSoilNormal);
             TEXTURE2D(_BiomeSurface);
             SAMPLER(sampler_BiomeSurface);
+            TEXTURE2D(_RiverFlow);
             TEXTURE2D(_GroundPatterns);
             SAMPLER(sampler_GroundPatterns);
             TEXTURE2D(_ForestCanopy);
@@ -538,21 +540,22 @@ Shader "GrandStrategy/Playable Map"
                 float waterCoverage = max(1.0 - map.a, 0.0001);
                 float shoal = saturate(biomeSurface.g / waterCoverage);
                 float freshwater = saturate(biomeSurface.b / waterCoverage);
-                // Narrow channels need a bed colour of their own where the map palette blends across banks.
-                float channel = freshwater * (1.0 - smoothstep(0.46, 0.90, wideWater));
-                float3 channelTint = float3(0.108, 0.121, 0.110);
-                water = lerp(water, channelTint, channel * 0.72);
-                float ice = min(freshwater, max(-snowOrIce, 0.0) / waterCoverage) * lerp(0.65, 0.96, patches.g);
+                float3 flow = SAMPLE_TEXTURE2D_GRAD(_RiverFlow, sampler_BiomeSurface, input.uv,
+                    screenX / _GroundGrid.xy, screenY / _GroundGrid.xy).rgb;
+                float channel = min(freshwater, flow.b / waterCoverage);
+                float lake = freshwater - channel;
+                float3 channelTint = float3(0.094, 0.143, 0.137);
+                water = lerp(water, channelTint, channel * 0.78);
+                float ice = min(lake, max(-snowOrIce, 0.0) / waterCoverage) * lerp(0.65, 0.96, patches.g);
                 UNITY_BRANCH
                 if (_GroundDetail > 0.0 && shoal + freshwater > 0.002)
                 {
                     GroundSample bed = (GroundSample)0;
-                    GROUND_LAYER(_ShallowsColour, _ShallowsNormal, tile, 32.0, shoal, bed);
-                    GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 26.0, freshwater, bed);
+                    GROUND_LAYER(_ShallowsColour, _ShallowsNormal, tile, 32.0, shoal + channel, bed);
+                    GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 26.0, lake, bed);
                     float bedTone = dot(bed.colour, float3(0.2126, 0.7152, 0.0722)) - bed.weight * 0.18;
-                    float3 submergedPebbles = lerp(channelTint,
-                        bed.colour / max(bed.weight, 0.001), 0.68);
-                    water = lerp(water, submergedPebbles, channel * 0.82 * _GroundDetail);
+                    float3 submergedSand = lerp(channelTint, bed.colour / max(bed.weight, 0.001), 0.62);
+                    water = lerp(water, submergedSand, channel * 0.90 * _GroundDetail);
                     water *= 1.0 + (bedTone * 0.65 + dot(bed.normalXY, sun.xz) * 0.12) * _GroundDetail;
                 }
 
@@ -564,7 +567,20 @@ Shader "GrandStrategy/Playable Map"
                     waterDelta += (ocean - water) * (1.0 - freshwater);
                 }
                 UNITY_BRANCH
-                if (freshwater > 0.001)
+                if (channel > 0.001)
+                {
+                    // The terrain raster stores a filtered downstream vector across the wetted channel.
+                    float2 velocity = (flow.rg * 255.0 - 128.0) / max(127.0 * flow.b, 1.0);
+                    float2 uv = ground * 39.0 - velocity * (_Time.y * 0.52);
+                    float2 ripple = SAMPLE_TEXTURE2D_GRAD(_GroundPatterns, sampler_GroundPatterns,
+                        uv, groundDx * 39.0, groundDy * 39.0).rg;
+                    float detail = 1.0 - smoothstep(0.085, 0.30, max(length(groundDx), length(groundDy)) * 39.0);
+                    float movingLight = (ripple.x - 0.5) * 0.28 + (ripple.y - 0.5) * 0.12;
+                    float sheen = smoothstep(0.46, 0.78, ripple.x) * 0.055;
+                    waterDelta += (water * movingLight + float3(0.15, 0.21, 0.20) * sheen) * (channel * detail);
+                }
+                UNITY_BRANCH
+                if (lake > 0.001)
                 {
                     float time = _Time.y;
                     float2 wind = float2(0.82, 0.57);
@@ -578,7 +594,7 @@ Shader "GrandStrategy/Playable Map"
                     float sheen = (0.5 + 0.5 * sin(phase + sin(crossPhase) * 0.18)) * waveVisibility;
                     sheen *= 0.55 + 0.45 * broad.g;
                     waterDelta += (water * (swell * 0.037 + waves * 0.061)
-                        + float3(0.18, 0.19, 0.17) * (sheen * 0.045)) * freshwater;
+                        + float3(0.18, 0.19, 0.17) * (sheen * 0.045)) * lake;
                 }
                 water += waterDelta;
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);

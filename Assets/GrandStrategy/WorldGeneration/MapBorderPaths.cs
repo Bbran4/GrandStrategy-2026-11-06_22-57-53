@@ -7,6 +7,49 @@ namespace GrandStrategy.WorldGeneration
     {
         private const int Directions = 15;
 
+        // Fill only river cells with missing political IDs, starting from the nearest land edge.
+        // The imported raster stays authoritative for picking, navigation, and campaign ownership.
+        internal static int[] FillRiverGaps(int width, int[] source, Func<int, bool> isRiver, Func<int, bool> canSeed)
+        {
+            int[] result = null;
+            var queue = new Queue<int>();
+            for (var cell = 0; cell < source.Length; cell++)
+            {
+                if (!isRiver(cell) || (source[cell] >= 0 && canSeed(cell))) continue;
+                result ??= (int[])source.Clone();
+                result[cell] = -1;
+                var x = cell % width;
+                if (Seed(x > 0 ? cell - 1 : -1) || Seed(x + 1 < width ? cell + 1 : -1)
+                    || Seed(cell - width) || Seed(cell + width))
+                    queue.Enqueue(cell);
+
+                bool Seed(int other)
+                {
+                    if (other < 0 || other >= source.Length || source[other] < 0 || !canSeed(other)) return false;
+                    result[cell] = source[other];
+                    return true;
+                }
+            }
+
+            while (queue.Count > 0)
+            {
+                var cell = queue.Dequeue();
+                var x = cell % width;
+                if (x > 0) Spread(cell - 1);
+                if (x + 1 < width) Spread(cell + 1);
+                Spread(cell - width);
+                Spread(cell + width);
+
+                void Spread(int other)
+                {
+                    if (other < 0 || other >= source.Length || result[other] >= 0 || !isRiver(other)) return;
+                    result[other] = result[cell];
+                    queue.Enqueue(other);
+                }
+            }
+            return result ?? source;
+        }
+
         // Paths use corners on a (width + 1) by (height + 1) grid. The callback consumes each path
         // before the buffer is reused. Closed paths repeat the first corner at the end.
         public static void Trace(int width, int height, int[] raster, Action<IReadOnlyList<int>, bool> draw)

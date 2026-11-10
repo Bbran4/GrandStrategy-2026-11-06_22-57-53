@@ -142,6 +142,13 @@ internal static class Program
             RiverGenerator.DefaultCatchmentPercent, RiverGenerator.DefaultCarveDepth, widths);
         var wideAccess = RiverNavigation.Build(wideRiver, WaterMap.Classify(wideRiver.Terrain), .08f);
         var waterSurface = wideRiver.BuildSurfaceMask();
+        var flow = wideRiver.BuildSurfaceDirections();
+        Require(flow.Select(direction => direction != 0).SequenceEqual(waterSurface.Select(mask => mask != 0)),
+            "Flow coverage must exactly match the river footprint.");
+        Require(flow.All(direction => direction <= 8)
+            && Enumerable.Range(0, flow.Length).All(i => wideRiver.Directions[i] == 0
+                || waterSurface[i] == 0 || flow[i] == wideRiver.Directions[i]),
+            "River flow must retain the generated downstream direction at channel centres.");
         var bankwardWater = 2 * recipe.Width + 4;
         var uplandOnlyWater = 3 * recipe.Width + 5;
         Require(wideAccess.ChannelCount == 2, "Wider water must keep the same two route nodes.");
@@ -552,6 +559,16 @@ internal static class Program
 
     private static void CheckProvinceShape()
     {
+        var riverCrossing = new[] { 0, 0, 1, 1, 8, 8, 8, 8, 0, 0, 1, 1, 9, 9, 9, 9 };
+        bool RiverCell(int cell) => cell >= 4 && cell < 8;
+        var bridged = MapBorderPaths.FillRiverGaps(4, riverCrossing, RiverCell, cell => riverCrossing[cell] < 2);
+        Require(bridged.SequenceEqual(new[] { 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 9, 9, 9, 9 })
+            && riverCrossing[4] == 8, "A political line must cross a river without filling ocean or editing imported IDs.");
+        var oneProvince = new[] { 0, 0, 8, 8, 8, 8, 0, 0 };
+        var joined = MapBorderPaths.FillRiverGaps(2, oneProvince, cell => cell >= 2 && cell < 6,
+            cell => oneProvince[cell] == 0);
+        Require(joined.All(id => id == 0), "A river inside one province must not gain a separate border.");
+
         var raster = new[] { 0, 1, 1, 1 };
         var shape = new ProvinceShape(2, 2, raster);
         var corner = shape.Corner(4);

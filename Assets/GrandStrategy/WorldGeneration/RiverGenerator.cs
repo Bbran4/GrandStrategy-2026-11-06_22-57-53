@@ -36,6 +36,21 @@ namespace GrandStrategy.WorldGeneration
 
         public byte[] BuildSurfaceMask() => RasterizeSurface(Base.Recipe, Directions, Widths, IsBaseLand);
 
+        internal byte[] BuildSurfaceDirections()
+        {
+            var recipe = Base.Recipe;
+            var surface = new byte[Directions.Length];
+            Func<int, bool> isLand = IsBaseLand;
+            for (var cell = 0; cell < Directions.Length; cell++)
+                if (Directions[cell] != 0)
+                    StampSurface(surface, cell, Directions[cell], recipe.Width, recipe.Height,
+                        Widths?[cell] ?? 1, isLand, writeDirection: true);
+            for (var cell = 0; cell < Directions.Length; cell++)
+                if (Directions[cell] != 0 && surface[cell] != 0)
+                    surface[cell] = Directions[cell];
+            return surface;
+        }
+
         public static byte[] RasterizeSurface(HeightmapRecipe recipe, byte[] directions, byte[] widths, Func<int, bool> isLand)
         {
             recipe.Validate();
@@ -65,7 +80,7 @@ namespace GrandStrategy.WorldGeneration
         private bool IsBaseLand(int index) => Base.Elevations[index] >= Base.Recipe.SeaLevel;
 
         private static void StampSurface(byte[] destination, int cell, byte flag, int width, int height,
-            byte diameter, Func<int, bool> isLand)
+            byte diameter, Func<int, bool> isLand, bool writeDirection = false)
         {
             var radius = diameter * .5f;
             var reach = (int)Math.Floor(radius);
@@ -82,7 +97,7 @@ namespace GrandStrategy.WorldGeneration
                     var dy = row - y;
                     var index = row * width + column;
                     if (dx * dx + dy * dy <= radiusSquared && isLand(index))
-                        destination[index] |= flag;
+                        destination[index] = writeDirection ? flag : (byte)(destination[index] | flag);
                 }
         }
 

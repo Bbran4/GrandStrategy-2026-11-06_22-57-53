@@ -14,6 +14,7 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D provinceCorners;
         private readonly ProvinceShape provinceShape;
         private Texture2D biomeSurface;
+        private Texture2D riverFlow;
         private Texture2D groundPatterns;
         private Texture2D landTint;
         private Texture2D landMaterialsLow;
@@ -42,7 +43,7 @@ namespace GrandStrategy.WorldGeneration
             Map = provinces.Map;
             provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
             water = WaterMap.Classify(terrain);
-            rivers = riverMap?.BuildSurfaceMask();
+            rivers = riverMap?.BuildSurfaceDirections();
             var settings = world.ReadClimateSettings();
             var biomes = world.HasBiomes && settings != null
                 ? BiomeGenerator.Generate(ClimateGenerator.Generate(terrain, water, settings), water, riverMap)
@@ -60,11 +61,15 @@ namespace GrandStrategy.WorldGeneration
                 colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
                 biomeSurface = CreateTexture("Biome IDs, ocean shoals, freshwater and snow", true, FilterMode.Trilinear, true);
+                if (rivers != null)
+                    riverFlow = CreateTexture("River flow and coverage", true, FilterMode.Trilinear, true);
                 groundPatterns = MapGroundPatterns.Create();
                 FillTextures(biomes, terrain);
                 material = new Material(groundMaterial) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
                 material.SetTexture("_BiomeSurface", biomeSurface);
+                var flowTexture = riverFlow != null ? riverFlow : Texture2D.blackTexture;
+                material.SetTexture("_RiverFlow", flowTexture);
                 material.SetTexture("_GroundPatterns", groundPatterns);
                 material.SetTexture("_LandTint", landTint);
                 material.SetTexture("_LandMaterialsLow", landMaterialsLow);
@@ -93,7 +98,7 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_TerrainShadow", terrainShadow);
                 var sun = geometry.SunDirection;
                 material.SetVector("_MapSun", new Vector4(sun.x, sun.y, sun.z, 0f));
-                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, IsDryLand, colours);
+                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, IsDryLand, IsRiver, colours, flowTexture);
                 nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed, treeCatalog,
                     cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes),
                     cell => biomes?.Climate.TemperatureCelsius(cell) ?? 12f,
@@ -139,6 +144,7 @@ namespace GrandStrategy.WorldGeneration
             var colourPixels = colours.GetRawTextureData<Color32>();
             var indexPixels = regions.GetRawTextureData<Color32>();
             var surfacePixels = biomeSurface.GetRawTextureData<Color32>();
+            if (riverFlow != null) FillRiverFlow();
             var deep = MapGroundPatterns.Palette(BiomeKind.DeepOcean);
             var shallow = MapGroundPatterns.Palette(BiomeKind.ShallowSea);
             var deepWater = new Color32(deep.R, deep.G, deep.B, 0);
@@ -187,6 +193,22 @@ namespace GrandStrategy.WorldGeneration
             biomeSurface.Apply(true, true);
         }
 
+        private void FillRiverFlow()
+        {
+            var pixels = riverFlow.GetRawTextureData<Color32>();
+            var directions = new Color32[9];
+            directions[0] = new Color32(128, 128, 0, 0);
+            for (var i = 1; i < directions.Length; i++)
+            {
+                var angle = (i - 1) * Mathf.PI * .25f;
+                directions[i] = new Color32((byte)(128 + Mathf.RoundToInt(Mathf.Cos(angle) * 127f)),
+                    (byte)(128 + Mathf.RoundToInt(Mathf.Sin(angle) * 127f)), 255, 0);
+            }
+            for (var cell = 0; cell < rivers.Length; cell++)
+                pixels[cell] = directions[IsRiver(cell) ? rivers[cell] : 0];
+            riverFlow.Apply(true, true);
+        }
+
         private void CreateProvinceCornerTexture()
         {
             var width = Map.Width + 1;
@@ -229,7 +251,9 @@ namespace GrandStrategy.WorldGeneration
         public int ProvinceCellAt(Vector2 uv)
             => provinceShape.CellAt(Mathf.Clamp01(uv.x) * Map.Width, Mathf.Clamp01(uv.y) * Map.Height);
 
-        public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0);
+        private bool IsRiver(int cell) => rivers != null && rivers[cell] != 0 && water[cell] == WaterKind.Land;
+
+        public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && !IsRiver(cell);
 
         public Vector3 PointAtCell(int cell)
         {
@@ -297,6 +321,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
             UnityEngine.Object.Destroy(biomeSurface);
+            UnityEngine.Object.Destroy(riverFlow);
             UnityEngine.Object.Destroy(groundPatterns);
             UnityEngine.Object.Destroy(landTint);
             UnityEngine.Object.Destroy(landMaterialsLow);
