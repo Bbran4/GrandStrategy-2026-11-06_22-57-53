@@ -51,6 +51,10 @@ Shader "GrandStrategy/Playable Map"
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _ProvinceCorners ("Province corner offsets", 2D) = "black" {}
         _ProvinceGrid ("Province grid dimensions", Vector) = (1, 1, 0.5, 0.5)
+        [HideInInspector] _OwnershipMask ("Active campaign ownership", 2D) = "black" {}
+        [HideInInspector] _OwnershipGrid ("Ownership grid", Vector) = (1, 1, 0, 0)
+        [HideInInspector] _OwnershipColour ("Ownership colour", Vector) = (0, 0, 0, 1)
+        [HideInInspector] _ShowOwnership ("Show ownership", Float) = 0
         _Selected ("Selected province", Vector) = (0, 0, 0, 0)
     }
 
@@ -114,10 +118,14 @@ Shader "GrandStrategy/Playable Map"
             SAMPLER(sampler_TerrainShadow);
             TEXTURE2D(_ProvinceIndices);
             SAMPLER(sampler_ProvinceIndices);
+            TEXTURE2D(_OwnershipMask);
             TEXTURE2D(_ProvinceCorners);
             SAMPLER(sampler_ProvinceCorners);
             CBUFFER_START(UnityPerMaterial)
                 float4 _Selected;
+                float4 _OwnershipGrid;
+                float4 _OwnershipColour;
+                float _ShowOwnership;
                 float4 _ProvinceGrid;
                 float4 _CapitalClearing;
                 float4 _GroundGrid;
@@ -744,6 +752,19 @@ Shader "GrandStrategy/Playable Map"
                 if (politicalCoverage <= 0.0) return half4(ground, 1);
 
                 float3 province = ProvinceAt(input.uv);
+                UNITY_BRANCH
+                if (_ShowOwnership > 0.5)
+                {
+                    float id = dot(round(province * 255.0), float3(1.0, 256.0, 65536.0));
+                    if (id >= 1.0 && id <= _OwnershipGrid.z)
+                    {
+                        float row = floor(id * _OwnershipGrid.y);
+                        float2 cell = float2(id - row * _OwnershipGrid.x, row);
+                        float2 uv = (cell + 0.5) * _OwnershipGrid.y;
+                        float owned = SAMPLE_TEXTURE2D_LOD(_OwnershipMask, sampler_ProvinceIndices, uv, 0).r;
+                        ground = lerp(ground, _OwnershipColour.rgb, owned * politicalCoverage * 0.48);
+                    }
+                }
                 float3 colour = lerp(ground, float3(1.0, 0.78, 0.26),
                     Matches(province, _Selected) * 0.26 * politicalCoverage);
                 return half4(colour, 1);

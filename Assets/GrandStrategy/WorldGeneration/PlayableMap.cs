@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
@@ -16,6 +15,12 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField] private MapTreeCatalog treeCatalog;
 
         private static readonly string[] ColourNames = { "Blue", "Red", "Green", "Violet", "Ochre" };
+        private static readonly Color32[] TribeColours =
+        {
+            new Color32(48, 161, 230, 255), new Color32(219, 64, 51, 255),
+            new Color32(84, 161, 107, 255), new Color32(156, 112, 184, 255),
+            new Color32(242, 186, 51, 255)
+        };
         private static readonly int[] Speeds = { 1, 2, 4 };
         private const float MinimumZoom = .045f;
         private const float TiltedZoom = .28f;
@@ -245,8 +250,8 @@ namespace GrandStrategy.WorldGeneration
                 throw new InvalidOperationException("The capital must be on dry land.");
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
             surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None);
+            surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
-            ownedMarkers = null;
             settlement = capitalPoint;
             editingName = false;
             GUI.FocusControl(null);
@@ -292,7 +297,6 @@ namespace GrandStrategy.WorldGeneration
             if (surface == null) return;
 
             PrepareHudStyles();
-            DrawOwnershipMarkers();
             DrawSettlement();
             DrawTopBar();
             DrawMapDock();
@@ -522,7 +526,6 @@ namespace GrandStrategy.WorldGeneration
         private GUIStyle hudLabel;
         private GUIStyle hudValue;
         private GUIStyle hudButton;
-        private List<(int Province, Vector3 Point)> ownedMarkers;
 
         private bool CompactHud => Screen.width < 800;
         private Rect TopBar => new Rect(0, 0, Screen.width, CompactHud ? 84 : 56);
@@ -646,8 +649,8 @@ namespace GrandStrategy.WorldGeneration
 
             var status = mapView switch
             {
-                MapViewMode.Realm => campaign == null ? "No active realm" : campaign.TribeName + " | Capital shown",
-                MapViewMode.Ownership => campaign == null ? "No provinces held" : "Gold labels mark provinces held",
+                MapViewMode.Realm => "Province and territory borders",
+                MapViewMode.Ownership => campaign == null ? "No provinces held" : "Your colour marks provinces held",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
                     : "Click a province to inspect its biome",
                 MapViewMode.Territories => "Land, sea & navigable river territories",
@@ -668,70 +671,8 @@ namespace GrandStrategy.WorldGeneration
 
         private void OnProvinceJoined(bool hadExpanded)
         {
-            ownedMarkers = null;
+            surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
             if (!hadExpanded) surface.SetCapital(settlement, campaign.HasGranary, true);
-        }
-
-        private void DrawOwnershipMarkers()
-        {
-            if (mapView != MapViewMode.Ownership || campaign == null || Event.current.type != EventType.Repaint) return;
-            ownedMarkers ??= LocateOwnedProvinces();
-            foreach (var marker in ownedMarkers)
-            {
-                var screen = mapCamera.WorldToScreenPoint(marker.Point);
-                if (screen.z <= 0f || screen.x < 0f || screen.x > Screen.width || screen.y < 0f || screen.y > Screen.height)
-                    continue;
-                var label = new GUIContent(surface.Map.Provinces[marker.Province].Id + " | Held");
-                var width = hudLabel.CalcSize(label).x + 14f;
-                var rect = new Rect(screen.x - width * .5f, Screen.height - screen.y - 16f, width, 21f);
-                DrawPanelFrame(rect);
-                GUI.Label(rect, label, hudLabel);
-            }
-        }
-
-        private List<(int Province, Vector3 Point)> LocateOwnedProvinces()
-        {
-            var result = new List<(int Province, Vector3 Point)>();
-            var map = surface.Map;
-            var owned = new bool[map.Provinces.Length];
-            var hasAdditionalProvince = false;
-            for (var i = 0; i < owned.Length; i++)
-            {
-                owned[i] = i != campaign.Capital && campaign.Owns(i);
-                hasAdditionalProvince |= owned[i];
-            }
-            if (!hasAdditionalProvince) return result;
-
-            var sumX = new long[owned.Length];
-            var sumY = new long[owned.Length];
-            var count = new int[owned.Length];
-            for (var cell = 0; cell < map.ProvinceAt.Length; cell++)
-            {
-                var province = map.ProvinceAt[cell];
-                if (province < 0 || !owned[province] || !surface.IsDryLand(cell)) continue;
-                sumX[province] += cell % map.Width;
-                sumY[province] += cell / map.Width;
-                count[province]++;
-            }
-
-            var best = new int[owned.Length];
-            var distance = new float[owned.Length];
-            Array.Fill(best, -1);
-            Array.Fill(distance, float.PositiveInfinity);
-            for (var cell = 0; cell < map.ProvinceAt.Length; cell++)
-            {
-                var province = map.ProvinceAt[cell];
-                if (province < 0 || count[province] == 0 || !surface.IsDryLand(cell)) continue;
-                var dx = cell % map.Width - (float)sumX[province] / count[province];
-                var dy = cell / map.Width - (float)sumY[province] / count[province];
-                var squared = dx * dx + dy * dy;
-                if (squared >= distance[province]) continue;
-                distance[province] = squared;
-                best[province] = cell;
-            }
-            for (var i = 0; i < best.Length; i++)
-                if (best[i] >= 0) result.Add((i, surface.PointAtCell(best[i])));
-            return result;
         }
     }
 }

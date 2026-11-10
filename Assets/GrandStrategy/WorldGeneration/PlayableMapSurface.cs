@@ -12,6 +12,8 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D colours;
         private Texture2D regions;
         private Texture2D provinceCorners;
+        private Texture2D ownership;
+        private MapViewMode viewMode = MapViewMode.Provinces;
         private readonly ProvinceShape provinceShape;
         private Texture2D biomeSurface;
         private Texture2D riverFlow;
@@ -91,6 +93,8 @@ namespace GrandStrategy.WorldGeneration
                 var maximumReliefHeight = world.HeightScale * (1f - terrain.Recipe.SeaLevel);
                 material.SetFloat("_InverseReliefHeight", 1f / Mathf.Max(maximumReliefHeight, .0001f));
                 material.SetTexture("_ProvinceIndices", regions);
+                material.SetTexture("_OwnershipMask", Texture2D.blackTexture);
+                material.SetFloat("_ShowOwnership", 0f);
                 CreateProvinceCornerTexture();
                 surface = new GameObject("Map surface", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))
                     { hideFlags = HideFlags.DontSave };
@@ -317,9 +321,42 @@ namespace GrandStrategy.WorldGeneration
         public void SetView(MapViewMode mode)
         {
             borders.SetView(mode);
+            viewMode = mode;
+            UpdateOwnershipVisibility();
             material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain || mode == MapViewMode.Biomes ? 0f : 1f);
             material.SetFloat("_ShowBiomes", mode == MapViewMode.Biomes ? 1f : 0f);
         }
+
+        public void SetOwnership(CampaignState campaign, Color colour)
+        {
+            if (ownership == null)
+            {
+                var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
+                ownership = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
+                {
+                    name = "Active campaign ownership", hideFlags = HideFlags.DontSave,
+                    filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp
+                };
+            }
+
+            var pixels = ownership.GetRawTextureData<Color32>();
+            // Index zero is unassigned. Clear every entry before publishing a loaded or updated campaign.
+            for (var index = 0; index < pixels.Length; index++)
+            {
+                var province = index - 1;
+                pixels[index] = new Color32(campaign.Owns(province) && CampaignState.IsLand(Map, province)
+                    ? (byte)255 : (byte)0, 0, 0, 255);
+            }
+            ownership.Apply(false, false);
+            var width = ownership.width;
+            material.SetTexture("_OwnershipMask", ownership);
+            material.SetVector("_OwnershipGrid", new Vector4(width, 1f / width, Map.Provinces.Length, 0f));
+            material.SetVector("_OwnershipColour", QualitySettings.activeColorSpace == ColorSpace.Linear ? colour.linear : colour);
+            UpdateOwnershipVisibility();
+        }
+
+        private void UpdateOwnershipVisibility()
+            => material.SetFloat("_ShowOwnership", viewMode == MapViewMode.Ownership && ownership != null ? 1f : 0f);
 
         public void SetSelection(int selected)
             => material.SetVector("_Selected", ShaderIndex(CampaignState.IsLand(Map, selected) ? selected : -1));
@@ -347,6 +384,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
+            UnityEngine.Object.Destroy(ownership);
             UnityEngine.Object.Destroy(biomeSurface);
             UnityEngine.Object.Destroy(riverFlow);
             UnityEngine.Object.Destroy(groundPatterns);
