@@ -305,6 +305,47 @@ Shader "GrandStrategy/Playable Map"
                 return paint;
             }
 
+            float3 ShadeOcean(float3 water, float3 position, float2 groundDx, float2 groundDy,
+                float3 sun, float shoal, float landCoverage, float2 surfaceNoise)
+            {
+                float3 view = GetWorldSpaceNormalizeViewDir(TransformObjectToWorld(position));
+                float grazing = 1.0 - saturate(view.y);
+                water *= 1.0 + (surfaceNoise.x - 0.5) * 0.052;
+                water += float3(0.071, 0.111, 0.140) * grazing * grazing * 0.48;
+
+                float footprint = max(length(groundDx), length(groundDy));
+                float detail = smoothstep(0.25, 0.94, _GroundDetail) * (1.0 - smoothstep(0.055, 0.31, footprint * 31.0));
+                UNITY_BRANCH
+                if (detail > 0.001)
+                {
+                    // Scroll two bands of the existing periodic noise as tangent-space slopes.
+                    float time = _Time.y;
+                    float2 ground = position.xz;
+                    float2 swellUV = ground * 9.0 + time * float2(-0.052, 0.027);
+                    float2 rippleUV = ground * 31.0 + time * float2(0.081, 0.046);
+                    float2 swell = SAMPLE_TEXTURE2D_GRAD(_GroundPatterns, sampler_GroundPatterns,
+                        swellUV, groundDx * 9.0, groundDy * 9.0).rg - 0.5;
+                    float2 ripple = SAMPLE_TEXTURE2D_GRAD(_GroundPatterns, sampler_GroundPatterns,
+                        rippleUV, groundDx * 31.0, groundDy * 31.0).ba - 0.5;
+                    float2 slope = (swell * 0.33 + ripple * 0.19) * detail;
+                    float3 waveNormal = normalize(float3(slope.x, 1.0, slope.y));
+                    float reflectedLight = dot(waveNormal - float3(0.0, 1.0, 0.0), sun);
+                    water *= 1.0 + reflectedLight * 0.45;
+
+                    float3 halfVector = normalize(sun + view);
+                    float glint = smoothstep(0.79, 0.99, dot(waveNormal, halfVector));
+                    water += float3(0.071, 0.104, 0.119) * (glint * detail * 0.21);
+
+                    // A broken, low-contrast crest in shallow water close to the actual shoreline.
+                    float coast = smoothstep(0.035, 0.17, landCoverage)
+                        * (1.0 - smoothstep(0.35, 0.64, landCoverage)) * smoothstep(0.38, 0.90, shoal);
+                    float crest = 0.5 + 0.5 * sin(landCoverage * 14.0 + time * 0.86 + surfaceNoise.y * 4.0);
+                    float foam = coast * smoothstep(0.56, 0.98, crest) * (0.65 + swell.y) * detail;
+                    water += float3(0.20, 0.25, 0.24) * (foam * 0.19);
+                }
+                return water;
+            }
+
             float3 ShadeGround(Varyings input, float3 normal, float4 map)
             {
                 float4 biomeSurface = SAMPLE_TEXTURE2D(_BiomeSurface, sampler_BiomeSurface, input.uv);
@@ -501,25 +542,31 @@ Shader "GrandStrategy/Playable Map"
                     water *= 1.0 + (bedTone * 0.65 + dot(bed.normalXY, sun.xz) * 0.12) * _GroundDetail;
                 }
 
-                // Two moving wave fields and a broader swell give the water motion at different zooms.
-                float time = _Time.y;
-                float2 wind = float2(0.82, 0.57);
-                float2 crossWind = float2(-0.43, 0.90);
-                float phase = dot(ground, wind) * 295.0 - time * lerp(1.5, 2.1, freshwater) + broad.r * 3.1;
-                float crossPhase = dot(ground, crossWind) * 418.0 + time * 1.24 + patches.a * 2.2;
-                float swell = sin(dot(ground, wind) * 71.0 - time * 0.60 + broad.b * 2.8);
-                float footprint = max(length(groundDx), length(groundDy));
-                float waveVisibility = 1.0 - smoothstep(0.55, 1.8, footprint * 418.0);
-                float waves = (sin(phase) * 0.64 + sin(crossPhase) * 0.36) * waveVisibility;
-                water *= 1.0 + swell * 0.037 + waves * 0.061;
-
-                // Follow one crest for the sheen. Thresholding intersecting waves makes isolated spots.
-                float sheen = (0.5 + 0.5 * sin(phase + sin(crossPhase) * 0.18)) * waveVisibility;
-                sheen *= 0.55 + 0.45 * broad.g;
-                float shore = smoothstep(0.07, 0.38, waterField.a) * shoal;
-                float breakers = smoothstep(0.68, 0.96, sin(phase + waterField.a * 10.0));
-                float3 sheenTint = lerp(float3(0.15, 0.22, 0.24), float3(0.18, 0.19, 0.17), freshwater);
-                water += sheenTint * (sheen * 0.045 + shore * breakers * waveVisibility * 0.20);
+                float3 waterDelta = 0.0;
+                UNITY_BRANCH
+                if (freshwater < 0.999)
+                {
+                    float3 ocean = ShadeOcean(water, position, groundDx, groundDy, sun, shoal, waterField.a, broad.gb);
+                    waterDelta += (ocean - water) * (1.0 - freshwater);
+                }
+                UNITY_BRANCH
+                if (freshwater > 0.001)
+                {
+                    float time = _Time.y;
+                    float2 wind = float2(0.82, 0.57);
+                    float2 crossWind = float2(-0.43, 0.90);
+                    float phase = dot(ground, wind) * 295.0 - time * 2.1 + broad.r * 3.1;
+                    float crossPhase = dot(ground, crossWind) * 418.0 + time * 1.24 + patches.a * 2.2;
+                    float swell = sin(dot(ground, wind) * 71.0 - time * 0.60 + broad.b * 2.8);
+                    float footprint = max(length(groundDx), length(groundDy));
+                    float waveVisibility = 1.0 - smoothstep(0.55, 1.8, footprint * 418.0);
+                    float waves = (sin(phase) * 0.64 + sin(crossPhase) * 0.36) * waveVisibility;
+                    float sheen = (0.5 + 0.5 * sin(phase + sin(crossPhase) * 0.18)) * waveVisibility;
+                    sheen *= 0.55 + 0.45 * broad.g;
+                    waterDelta += (water * (swell * 0.037 + waves * 0.061)
+                        + float3(0.18, 0.19, 0.17) * (sheen * 0.045)) * freshwater;
+                }
+                water += waterDelta;
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
                 // Give narrow channels enough coverage to stay legible between raster samples.
                 float visibleWater = saturate((1.0 - map.a) * (1.0 + channel * 0.30));

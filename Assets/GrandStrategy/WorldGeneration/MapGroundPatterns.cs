@@ -47,8 +47,8 @@ namespace GrandStrategy.WorldGeneration
         {
             switch (kind)
             {
-                case BiomeKind.DeepOcean: return new Rgb24(52, 72, 81);
-                case BiomeKind.ShallowSea: return new Rgb24(70, 95, 101);
+                case BiomeKind.DeepOcean: return new Rgb24(34, 61, 77);
+                case BiomeKind.ShallowSea: return new Rgb24(74, 117, 117);
                 case BiomeKind.Lake: return new Rgb24(73, 103, 108);
                 case BiomeKind.River: return new Rgb24(105, 110, 105);
                 case BiomeKind.Wetland: return new Rgb24(108, 115, 76);
