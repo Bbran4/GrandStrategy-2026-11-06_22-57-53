@@ -63,7 +63,8 @@ namespace GrandStrategy.WorldGeneration
 
         public void SetView(MapViewMode mode)
         {
-            var showTerritories = HasTerritories && (mode == MapViewMode.Territories || mode == MapViewMode.Realm);
+            var showTerritories = HasTerritories && (mode == MapViewMode.Provinces
+                || mode == MapViewMode.Territories || mode == MapViewMode.Realm);
             if (showTerritories && territories.Mesh == null)
                 territories.Mesh = CreateMesh(territoryRaster, "Territory outlines");
             provinces.Visible = mode == MapViewMode.Provinces || mode == MapViewMode.Ownership
