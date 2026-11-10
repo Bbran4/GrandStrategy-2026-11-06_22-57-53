@@ -20,6 +20,7 @@ namespace GrandStrategy.WorldGeneration
         private const float TiltedZoom = .28f;
         private const float TiltedPitch = 48f;
         private const float ZoomResponse = 12f;
+        private const float CampaignDaysPerSecond = .25f;
 
         private Camera mapCamera;
         private PlayableMapSurface surface;
@@ -43,11 +44,12 @@ namespace GrandStrategy.WorldGeneration
         private int colourIndex;
         private string provinceDetails;
         private Vector2 detailsScroll;
+        private Vector2 campaignScroll;
 
         private float PanelWidth => Mathf.Max(1f, Mathf.Min(325f, (Screen.width - 36f) * .5f));
         private Rect Panel => new Rect(12, 12, PanelWidth, Mathf.Min(selected >= 0 ? 412 : 160, Screen.height - 24));
         private Rect CampaignPanel => new Rect(Screen.width - PanelWidth - 12, 12, PanelWidth,
-            Mathf.Min(campaign == null ? 118 : 230, Screen.height - 24));
+            Mathf.Max(1f, Mathf.Min(campaign == null ? 118 : 385, Screen.height - 24)));
 
         private void Start()
         {
@@ -81,7 +83,12 @@ namespace GrandStrategy.WorldGeneration
         {
             if (surface == null || failure != null) return;
             var deltaTime = Time.unscaledDeltaTime;
-            campaign?.Advance(deltaTime);
+            if (campaign != null)
+            {
+                var hadExpanded = campaign.FirstExpansion != ExpansionApproach.None;
+                if (campaign.Advance(deltaTime * CampaignDaysPerSecond) && !hadExpanded)
+                    surface.SetCapital(settlement, campaign.HasGranary, true);
+            }
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -202,6 +209,12 @@ namespace GrandStrategy.WorldGeneration
             var text = new StringBuilder();
             text.AppendLine("Type: " + (province.Type ?? "Unknown"));
             text.AppendLine("Dominant biome: " + DominantBiome(province));
+            if (string.Equals(province.Type, "land", StringComparison.OrdinalIgnoreCase))
+            {
+                text.AppendLine($"Food yield: +{CampaignState.Fertility(province)} per 5 days before winter");
+                text.AppendLine(CampaignState.HasTradeAccess(province) ? "River or coastal trade: cheaper food deal" : "Inland trade: standard price");
+                text.AppendLine(CampaignState.IsDefensible(province) ? "Defensible terrain: heavier losses for attackers" : "Open terrain: lighter losses for attackers");
+            }
             if (!string.IsNullOrEmpty(province.Terrain)) text.AppendLine("OpenGS terrain: " + province.Terrain);
             text.AppendLine("Neighbours:");
             var neighbours = province.Neighbours ?? Array.Empty<int>();
@@ -232,9 +245,9 @@ namespace GrandStrategy.WorldGeneration
             if (!surface.IsDryLand(next.CapitalCell))
                 throw new InvalidOperationException("The capital must be on dry land.");
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
+            surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None);
             campaign = next;
             settlement = capitalPoint;
-            surface.SetCapital(capitalPoint);
             editingName = false;
             GUI.FocusControl(null);
         }
@@ -345,6 +358,8 @@ namespace GrandStrategy.WorldGeneration
 
             var dry = surface.IsDryLand(clickedCell) && surface.IsDryLand(selectedCell);
             if (!dry) GUILayout.Label("Click dry land to place the settlement.");
+            else if (Array.FindIndex(province.Neighbours ?? Array.Empty<int>(), i => CampaignState.IsLand(surface.Map, i)) < 0)
+                GUILayout.Label("Isolated start: no neighbouring land communities.");
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && dry && !string.IsNullOrWhiteSpace(tribeName);
             if (GUILayout.Button("Establish tribe here"))
@@ -377,8 +392,7 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label("Unclaimed | Independent community");
             if (selected == campaign.IntegrationTarget)
             {
-                var progress = CampaignState.IntegrationDuration - campaign.IntegrationDaysLeft;
-                GUILayout.Label($"Integration {progress}/{CampaignState.IntegrationDuration} days");
+                GUILayout.Label($"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
                 return;
             }
             if (!campaign.CanReachIndependentProvince(selected))
@@ -388,9 +402,26 @@ namespace GrandStrategy.WorldGeneration
             }
 
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.IntegrationTarget == -1 && campaign.Coin >= CampaignState.IntegrationCost;
-            if (GUILayout.Button($"Start integration ({CampaignState.IntegrationCost} coin)"))
-                campaign.TryStartIntegration(selected);
+            GUI.enabled = wasEnabled && campaign.CanTradeWith(selected);
+            if (GUILayout.Button($"Trade for 36 food ({campaign.TradeCost} coin)"))
+            {
+                campaign.TryTradeForFood(selected);
+                saveStatus = "Food delivered. This neighbour is open to a pact.";
+            }
+            GUI.enabled = wasEnabled;
+            DrawExpansionButton(ExpansionApproach.Diplomacy, $"Negotiate ({CampaignState.IntegrationCost} coin)");
+            if (campaign.TradePartner == selected)
+                DrawExpansionButton(ExpansionApproach.Trade, $"Sign trade pact ({CampaignState.PactCost} coin)");
+            if (campaign.HasWarband)
+                DrawExpansionButton(ExpansionApproach.Force, $"Use force ({CampaignState.ForceFood} food, casualties)");
+        }
+
+        private void DrawExpansionButton(ExpansionApproach approach, string label)
+        {
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanStartIntegration(selected, approach);
+            if (GUILayout.Button(label))
+                campaign.TryStartIntegration(selected, approach);
             GUI.enabled = wasEnabled;
         }
 
@@ -399,10 +430,23 @@ namespace GrandStrategy.WorldGeneration
             var panel = CampaignPanel;
             GUI.Box(panel, GUIContent.none);
             GUILayout.BeginArea(new Rect(panel.x + 10, panel.y + 7, panel.width - 20, panel.height - 14));
+            campaignScroll = GUILayout.BeginScrollView(campaignScroll);
             GUILayout.Label(campaign?.TribeName ?? "Campaign");
             if (campaign != null)
             {
-                GUILayout.Label($"Day {campaign.Day:N0} | Coin {campaign.Coin:N0}");
+                GUILayout.Label($"Day {campaign.Day:N0} | Pop {campaign.Population(campaign.Capital):N0}");
+                GUILayout.Label($"Food {campaign.Food:N0} | Wood {campaign.Wood:N0} | Coin {campaign.Coin:N0}");
+                if (campaign.Day < CampaignState.WinterStart)
+                    GUILayout.Label($"First winter in {CampaignState.WinterStart - campaign.Day} days");
+                else if (campaign.Day < CampaignState.WinterEnd)
+                    GUILayout.Label($"Winter | {CampaignState.WinterEnd - campaign.Day} days to thaw | {campaign.WinterShortfall} food missed");
+                else
+                    GUILayout.Label(campaign.WinterShortfall == 0 ? "First winter survived without hunger."
+                        : $"First winter survived | {campaign.WinterShortfall} food missed");
+                if (campaign.WinterFoodRemaining > 0)
+                    GUILayout.Label($"Winter stores needed: {campaign.WinterFoodRemaining} food");
+                if (campaign.FirstExpansion != ExpansionApproach.None)
+                    GUILayout.Label($"First expansion: {campaign.FirstExpansion}");
                 GUILayout.BeginHorizontal();
                 if (GUILayout.Button(campaign.Paused ? "Resume" : "Pause"))
                     campaign.Paused = !campaign.Paused;
@@ -410,11 +454,19 @@ namespace GrandStrategy.WorldGeneration
                 if (GUILayout.Button($"Speed {campaign.Speed}×"))
                     campaign.SetSpeed(Speeds[(speedIndex + 1) % Speeds.Length]);
                 GUILayout.EndHorizontal();
+                if (campaign.Paused && campaign.DaysToNextDecision > 0
+                    && GUILayout.Button($"Advance to next milestone ({campaign.DaysToNextDecision} days)"))
+                {
+                    var hadExpanded = campaign.FirstExpansion != ExpansionApproach.None;
+                    if (campaign.AdvanceToNextDecision() && !hadExpanded)
+                        surface.SetCapital(settlement, campaign.HasGranary, true);
+                }
                 if (campaign.IntegrationTarget >= 0)
                 {
                     var target = surface.Map.Provinces[campaign.IntegrationTarget].Id;
                     GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
+                DrawSettlementChoices();
             }
 
             GUILayout.BeginHorizontal();
@@ -425,13 +477,51 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled;
             GUILayout.EndHorizontal();
             if (!string.IsNullOrEmpty(saveStatus)) GUILayout.Label(saveStatus);
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawSettlementChoices()
+        {
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanBuildGranary;
+            if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)"))
+            {
+                campaign.TryBuildGranary();
+                surface.SetCapital(settlement, true, campaign.FirstExpansion != ExpansionApproach.None);
+                saveStatus = "Granary built. Winter food use drops from 14 to 8 per five days.";
+            }
+            GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
+            if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({CampaignState.WarbandWood} wood, {CampaignState.WarbandCoin} coin)"))
+            {
+                campaign.TryRecruitWarband();
+                saveStatus = "Warband raised. It uses 1 food per five days.";
+            }
+            GUI.enabled = wasEnabled;
+
+            var map = surface.Map;
+            var neighbours = map.Provinces[campaign.Capital].Neighbours ?? Array.Empty<int>();
+            var listed = 0;
+            foreach (var neighbour in neighbours)
+            {
+                if (!campaign.CanReachIndependentProvince(neighbour)) continue;
+                if (listed++ == 0) GUILayout.Label("Nearby independent communities");
+                if (GUILayout.Button(map.Provinces[neighbour].Id))
+                {
+                    selected = neighbour;
+                    selectedCell = clickedCell = -1;
+                    detailsScroll = Vector2.zero;
+                    provinceDetails = Describe(map.Provinces[neighbour]);
+                    surface.SetSelection(neighbour);
+                }
+                if (listed == 3) break;
+            }
         }
 
         private void DrawSettlement()
         {
             if (campaign == null) return;
-            var point = mapCamera.WorldToScreenPoint(settlement);
+            var point = mapCamera.WorldToScreenPoint(settlement + Vector3.up * .003f);
             if (point.z <= 0 || point.x < 0 || point.x > Screen.width || point.y < 0 || point.y > Screen.height)
                 return;
             var y = Screen.height - point.y;

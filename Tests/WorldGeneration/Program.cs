@@ -69,7 +69,7 @@ internal static class Program
         CheckBorderPaths();
         CheckProvinceShape();
         CheckNature();
-        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, river routing and carving, and campaign integration and restore.");
+        Console.WriteLine($"PASS: {assertions} assertions; core determinism, snapshots, coverage, bounds, cancellation, progress, RAW16, water topology, OpenGS palette, river routing and carving, campaign integration and restore, and settlement opening.");
         if (args.Contains("--benchmark"))
         {
             foreach (var dimensions in new[] { (1024, 512), (2048, 1024), (3072, 2048) })
@@ -457,6 +457,60 @@ internal static class Program
             && restored.IntegrationTarget == -1 && restored.Day == CampaignState.IntegrationDuration + 1,
             "Integration must transfer ownership on the scheduled day.");
         Require(restored.TryStartIntegration(2), "A new border must open further integration.");
+
+        var granary = CampaignState.Found(map, key, 0, "Granary", 0);
+        var initialWood = granary.Wood;
+        Require(granary.TryBuildGranary() && !granary.TryBuildGranary() && !granary.TryRecruitWarband()
+            && granary.Wood == initialWood - CampaignState.GranaryWood && granary.WinterFoodRemaining == 48,
+            "Early wood must buy only one major investment and the granary must reduce the winter forecast.");
+        granary.Paused = false;
+        granary.Advance(500);
+        Require(granary.Day == CampaignState.WinterStart && granary.Paused && granary.WinterShortfall == 0
+            && granary.WinterFoodRemaining == 48, "Winter must pause the clock before drawing down reserves.");
+        var winterSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(granary.ToSave(), json), json);
+        granary = CampaignState.Restore(map, key, winterSave, 5);
+        Require(granary.HasGranary && granary.Paused && granary.WinterFoodRemaining == 48,
+            "The granary and winter forecast must survive save and load.");
+        granary.Paused = false;
+        granary.Advance(500);
+        Require(granary.Day == CampaignState.WinterEnd && granary.Paused && granary.WinterShortfall == 0
+            && granary.WinterFoodRemaining == 0, "A prepared village must reach thaw without hunger.");
+
+        var hungry = CampaignState.Found(map, key, 0, "Hungry", 0);
+        var population = hungry.Population(hungry.Capital);
+        hungry.Paused = false;
+        hungry.Advance(500);
+        hungry.Paused = false;
+        hungry.Advance(500);
+        Require(hungry.WinterShortfall > 0 && hungry.Population(hungry.Capital) < population,
+            "An unprepared village must suffer a real population cost.");
+
+        var trader = CampaignState.Found(map, key, 0, "Trader", 0);
+        var startingFood = trader.Food;
+        Require(!trader.TryTradeForFood(2) && trader.TryTradeForFood(1) && !trader.TryTradeForFood(1)
+            && trader.Food == startingFood + 36 && trader.TradePartner == 1
+            && trader.TryStartIntegration(1, ExpansionApproach.Trade), "Trade must deliver food once and open a pact.");
+        Require(trader.DaysToNextDecision == 20 && trader.AdvanceToNextDecision()
+            && trader.Paused && trader.Day == 21 && trader.Owns(1) && trader.FirstExpansion == ExpansionApproach.Trade,
+            "Advance must stop at the trade pact and record the route before winter.");
+
+        var warrior = CampaignState.Found(map, key, 0, "Warrior", 0);
+        Require(!warrior.TryStartIntegration(1, ExpansionApproach.Force) && warrior.TryRecruitWarband()
+            && !warrior.TryBuildGranary() && warrior.TryStartIntegration(1, ExpansionApproach.Force),
+            "Force must require a paid warband and compete with the granary.");
+        warrior.Paused = false;
+        Require(warrior.Advance(10) && warrior.Owns(1) && warrior.FirstExpansion == ExpansionApproach.Force
+            && warrior.Food > startingFood && warrior.Population(warrior.Capital) < population,
+            "Force must secure a province and supplies with casualties.");
+
+        var legacy = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(campaign.ToSave(), json), json);
+        legacy.Version = 1;
+        legacy.Food = legacy.Wood = 0;
+        legacy.PendingApproach = ExpansionApproach.None;
+        var migrated = CampaignState.Restore(map, key, legacy, 5);
+        Require(migrated.Food == startingFood && migrated.Wood == initialWood && migrated.TradePartner == -1
+            && migrated.PendingApproach == ExpansionApproach.Diplomacy && migrated.IntegrationTarget == 1,
+            "Legacy campaigns must keep progress and get initial village supplies.");
     }
 
     private static void CheckNature()

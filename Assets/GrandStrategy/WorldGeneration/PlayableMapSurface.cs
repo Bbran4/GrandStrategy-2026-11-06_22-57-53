@@ -20,6 +20,8 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D landMaterialsHigh;
         private Texture2D terrainShadow;
         private MapNature nature;
+        private MapTerrainGeometry geometry;
+        private MapSettlement settlement;
         private float groundDetail;
         private MapBorderOverlay borders;
         private GameObject surface;
@@ -78,7 +80,7 @@ namespace GrandStrategy.WorldGeneration
                 var collider = surface.GetComponent<MeshCollider>();
                 collider.sharedMesh = mesh;
                 Collider = collider;
-                var geometry = new MapTerrainGeometry(mesh);
+                geometry = new MapTerrainGeometry(mesh);
                 terrainShadow = geometry.CreateSunShadow();
                 material.SetTexture("_TerrainShadow", terrainShadow);
                 var sun = geometry.SunDirection;
@@ -243,11 +245,15 @@ namespace GrandStrategy.WorldGeneration
             nature.SetZoom(zoom);
         }
 
-        public void SetCapital(Vector3 point)
+        public void SetCapital(Vector3 point, bool granary, bool expanded)
         {
+            settlement ??= new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
+            settlement.Show(point, granary, expanded);
             nature.SetCapital(point);
             material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));
         }
+
+        private bool IsDryLandAt(Vector2 uv) => IsDryLand(CellAt(uv));
 
         public void SetView(MapViewMode mode)
         {
@@ -272,6 +278,7 @@ namespace GrandStrategy.WorldGeneration
 
         public void Dispose()
         {
+            settlement?.Dispose();
             nature?.Dispose();
             borders?.Dispose();
             UnityEngine.Object.Destroy(surface);
