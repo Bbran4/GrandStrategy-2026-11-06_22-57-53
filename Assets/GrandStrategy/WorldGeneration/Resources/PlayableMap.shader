@@ -555,7 +555,7 @@ Shader "GrandStrategy/Playable Map"
                     screenX / _GroundGrid.xy, screenY / _GroundGrid.xy);
                 float channel = min(freshwater, flow.b / waterCoverage);
                 float lake = freshwater - channel;
-                float3 channelTint = float3(0.094, 0.143, 0.137);
+                float3 channelTint = float3(0.058, 0.128, 0.192);
                 water = lerp(water, channelTint, channel * 0.78);
                 float ice = min(lake, max(-snowOrIce, 0.0) / waterCoverage) * lerp(0.65, 0.96, patches.g);
                 UNITY_BRANCH
@@ -565,7 +565,7 @@ Shader "GrandStrategy/Playable Map"
                     GROUND_LAYER(_ShallowsColour, _ShallowsNormal, tile, 32.0, shoal + channel, bed);
                     GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 26.0, lake, bed);
                     float bedTone = dot(bed.colour, float3(0.2126, 0.7152, 0.0722)) - bed.weight * 0.18;
-                    float3 submergedSand = lerp(channelTint, bed.colour / max(bed.weight, 0.001), 0.62);
+                    float3 submergedSand = lerp(channelTint, bed.colour / max(bed.weight, 0.001), 0.38);
                     water = lerp(water, submergedSand, channel * 0.90 * _GroundDetail);
                     water *= 1.0 + (bedTone * 0.65 + dot(bed.normalXY, sun.xz) * 0.12) * _GroundDetail;
                 }
@@ -582,13 +582,13 @@ Shader "GrandStrategy/Playable Map"
                 {
                     // The terrain raster stores a filtered downstream vector across the wetted channel.
                     float2 velocity = (flow.rg * 255.0 - 128.0) / max(127.0 * flow.b, 1.0);
-                    float2 uv = ground * 39.0 - velocity * (_Time.y * 0.52);
+                    float2 uv = ground * 39.0 - velocity * (_Time.y * 0.21);
                     float2 ripple = SAMPLE_TEXTURE2D_GRAD(_GroundPatterns, sampler_GroundPatterns,
                         uv, groundDx * 39.0, groundDy * 39.0).rg;
                     float detail = 1.0 - smoothstep(0.085, 0.30, max(length(groundDx), length(groundDy)) * 39.0);
                     float movingLight = (ripple.x - 0.5) * 0.28 + (ripple.y - 0.5) * 0.12;
                     float sheen = smoothstep(0.46, 0.78, ripple.x) * 0.055;
-                    waterDelta += (water * movingLight + float3(0.15, 0.21, 0.20) * sheen) * (channel * detail);
+                    waterDelta += (water * movingLight + float3(0.15, 0.22, 0.28) * sheen) * (channel * detail);
                 }
                 UNITY_BRANCH
                 if (lake > 0.001)

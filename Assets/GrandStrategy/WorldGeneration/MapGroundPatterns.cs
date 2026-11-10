@@ -50,7 +50,7 @@ namespace GrandStrategy.WorldGeneration
                 case BiomeKind.DeepOcean: return new Rgb24(34, 61, 77);
                 case BiomeKind.ShallowSea: return new Rgb24(74, 117, 117);
                 case BiomeKind.Lake: return new Rgb24(73, 103, 108);
-                case BiomeKind.River: return new Rgb24(105, 110, 105);
+                case BiomeKind.River: return new Rgb24(71, 106, 132);
                 case BiomeKind.Wetland: return new Rgb24(108, 115, 76);
                 case BiomeKind.Desert: return new Rgb24(172, 147, 102);
                 case BiomeKind.Grassland: return new Rgb24(140, 149, 93);

@@ -17,16 +17,19 @@ namespace GrandStrategy.WorldGeneration
         private readonly Layer territories;
         private readonly Func<int, bool> isDryLand;
         private readonly Func<int, bool> isRiver;
+        private readonly Func<int, bool> isOcean;
 
         public bool HasTerritories => territoryRaster != null;
 
         public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map, ProvinceShape provinceShape,
-            Func<int, bool> isDryLand, Func<int, bool> isRiver, Texture2D landCoverage, Texture2D riverFlow)
+            Func<int, bool> isDryLand, Func<int, bool> isRiver, Func<int, bool> isOcean,
+            Texture2D biomeSurface, Texture2D riverFlow)
         {
             this.map = map;
             this.geometry = geometry;
             this.isDryLand = isDryLand;
             this.isRiver = isRiver;
+            this.isOcean = isOcean;
             var provinceRaster = MapBorderPaths.FillRiverGaps(map.Width, map.ProvinceAt, isRiver, CanSeedProvince);
             this.provinceShape = ReferenceEquals(provinceRaster, map.ProvinceAt) ? provinceShape
                 : new ProvinceShape(map.Width, map.Height, provinceRaster);
@@ -45,9 +48,9 @@ namespace GrandStrategy.WorldGeneration
 
                 var aspect = (float)map.Width / map.Height;
                 provinces = new Layer(surface.transform, shader, "Province borders", 1.25f, 0,
-                    new Color32(40, 45, 40, 235), landCoverage, riverFlow, aspect);
+                    new Color32(40, 45, 40, 235), biomeSurface, riverFlow, aspect);
                 territories = new Layer(surface.transform, shader, "Territory borders", 2.15f, 1,
-                    new Color32(45, 50, 48, 238), landCoverage, riverFlow, aspect);
+                    new Color32(45, 50, 48, 238), biomeSurface, riverFlow, aspect);
                 provinces.Mesh = CreateMesh(provinceRaster, "Province outlines", true);
                 SetView(MapViewMode.Provinces);
             }
@@ -75,7 +78,7 @@ namespace GrandStrategy.WorldGeneration
             private readonly Material material;
 
             public Layer(Transform parent, Shader shader, string name, float width, int order, Color colour,
-                Texture2D landCoverage, Texture2D riverFlow, float aspect)
+                Texture2D biomeSurface, Texture2D riverFlow, float aspect)
             {
                 var gameObject = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer))
                     { hideFlags = HideFlags.DontSave };
@@ -85,7 +88,7 @@ namespace GrandStrategy.WorldGeneration
                 material = new Material(shader) { hideFlags = HideFlags.DontSave, renderQueue = 3000 + order };
                 material.SetFloat("_WidthPixels", width);
                 material.SetColor("_BorderColour", colour);
-                material.SetTexture("_LandCoverage", landCoverage);
+                material.SetTexture("_BiomeSurface", biomeSurface);
                 material.SetTexture("_RiverFlow", riverFlow);
                 material.SetFloat("_MapAspect", aspect);
                 renderer.sharedMaterial = material;
@@ -155,7 +158,8 @@ namespace GrandStrategy.WorldGeneration
                 return CanDraw(first) && CanDraw(second);
 
                 bool CanDraw(int cell)
-                    => cell >= 0 && raster[cell] >= 0 && (isRiver(cell) || IsLandProvinceCell(cell));
+                    => cell >= 0 && (isOcean(cell)
+                        || (raster[cell] >= 0 && (isRiver(cell) || IsLandProvinceCell(cell))));
             }
 
             int Cell(int x, int y) => x >= 0 && x < map.Width && y >= 0 && y < map.Height

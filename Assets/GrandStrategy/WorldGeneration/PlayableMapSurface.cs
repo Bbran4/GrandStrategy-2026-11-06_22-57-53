@@ -99,7 +99,8 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_TerrainShadow", terrainShadow);
                 var sun = geometry.SunDirection;
                 material.SetVector("_MapSun", new Vector4(sun.x, sun.y, sun.z, 0f));
-                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, IsDryLand, IsRiver, colours, flowTexture);
+                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, IsDryLand, IsRiver,
+                    cell => water[cell] == WaterKind.Ocean, biomeSurface, flowTexture);
                 nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed, treeCatalog,
                     cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes),
                     cell => biomes?.Climate.TemperatureCelsius(cell) ?? 12f,
