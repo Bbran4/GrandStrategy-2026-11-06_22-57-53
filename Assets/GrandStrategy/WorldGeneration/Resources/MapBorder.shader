@@ -4,6 +4,8 @@ Shader "GrandStrategy/Map Border"
     {
         _BorderColour ("Border colour", Color) = (0.06, 0.08, 0.09, 1)
         _WidthPixels ("Width in pixels", Float) = 1.6
+        [NoScaleOffset] _LandCoverage ("Land coverage", 2D) = "black" {}
+        _MapAspect ("Map aspect", Float) = 1
     }
 
     SubShader
@@ -18,14 +20,19 @@ Shader "GrandStrategy/Map Border"
             Blend SrcAlpha OneMinusSrcAlpha
 
             HLSLPROGRAM
+            #pragma editor_sync_compilation
             #pragma target 3.0
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
+            TEXTURE2D(_LandCoverage);
+            SAMPLER(sampler_LandCoverage);
+
             CBUFFER_START(UnityPerMaterial)
                 float4 _BorderColour;
                 float _WidthPixels;
+                float _MapAspect;
             CBUFFER_END
 
             struct Attributes
@@ -39,6 +46,7 @@ Shader "GrandStrategy/Map Border"
             {
                 float4 positionCS : SV_POSITION;
                 float3 segment : TEXCOORD0;
+                float2 mapUV : TEXCOORD1;
             };
 
             Varyings Vert(Attributes input)
@@ -59,11 +67,17 @@ Shader "GrandStrategy/Map Border"
                 position.xy += (cap * tangent + across * normal) / halfScreen * position.w;
                 output.positionCS = position;
                 output.segment = float3(input.corner.x * len + cap, across, len);
+                float2 centre = lerp(input.startOS.xz, input.endOS.xz, input.corner.x);
+                output.mapUV = centre / float2(_MapAspect, 1.0) + 0.5;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
+                // Leave a small dry-land margin around rivers, including where a smoothed
+                // stroke drifts off the source raster edge or has a screen-space cap.
+                float dry = SAMPLE_TEXTURE2D_LOD(_LandCoverage, sampler_LandCoverage, input.mapUV, 1).a;
+                clip(dry - 0.985);
                 float outside = max(0.0, max(-input.segment.x, input.segment.x - input.segment.z));
                 float distanceFromLine = length(float2(outside, input.segment.y));
                 float radius = _WidthPixels * 0.5;

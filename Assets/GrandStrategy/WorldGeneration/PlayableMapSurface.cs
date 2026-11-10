@@ -13,7 +13,6 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D regions;
         private Texture2D provinceCorners;
         private readonly ProvinceShape provinceShape;
-        private Texture2D ownership;
         private Texture2D biomeSurface;
         private Texture2D groundPatterns;
         private Texture2D landTint;
@@ -73,16 +72,6 @@ namespace GrandStrategy.WorldGeneration
                 material.SetFloat("_InverseReliefHeight", 1f / Mathf.Max(maximumReliefHeight, .0001f));
                 material.SetTexture("_ProvinceIndices", regions);
                 CreateProvinceCornerTexture();
-                var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
-                ownership = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
-                {
-                    name = "Province ownership", hideFlags = HideFlags.DontSave,
-                    filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp
-                };
-                material.SetTexture("_Ownership", ownership);
-                material.SetVector("_OwnershipSize", new Vector4(size, size, 1f / size, 1f / size));
-                SetOwnership(null, Color.white);
-
                 surface = new GameObject("Map surface", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))
                     { hideFlags = HideFlags.DontSave };
                 surface.GetComponent<MeshFilter>().sharedMesh = mesh;
@@ -94,7 +83,7 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_TerrainShadow", terrainShadow);
                 var sun = geometry.SunDirection;
                 material.SetVector("_MapSun", new Vector4(sun.x, sun.y, sun.z, 0f));
-                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, IsDryLand);
+                borders = new MapBorderOverlay(surface, geometry, Map, provinceShape, IsDryLand, colours);
                 nature = new MapNature(surface, geometry, this, terrain.Recipe.Seed, treeCatalog,
                     cell => SurfaceKind(cell, biomes), cell => SnowAt(cell, terrain, biomes),
                     cell => biomes?.Climate.TemperatureCelsius(cell) ?? 12f,
@@ -167,12 +156,15 @@ namespace GrandStrategy.WorldGeneration
                     var rgb = MapGroundPatterns.Palette(kind);
                     colourPixels[cell] = new Color32(rgb.R, rgb.G, rgb.B, dry ? (byte)255 : (byte)0);
                 }
+                // Centre the filtered channel at 128: land snow is positive and lake ice is negative.
+                // River and ocean texels are neutral, so filtered land snow cannot produce river ice.
+                var snowOrIce = dry ? SnowAt(cell, terrain, biomes)
+                    : kind == BiomeKind.Lake ? -MapNatureRules.LakeIce(biomes?.Climate.TemperatureCelsius(cell)) : 0f;
                 surfacePixels[cell] = new Color32(
                     (byte)kind,
                     (byte)Mathf.RoundToInt(shoal * 255f),
                     kind == BiomeKind.Lake || kind == BiomeKind.River ? (byte)255 : (byte)0,
-                    (byte)Mathf.RoundToInt((dry ? SnowAt(cell, terrain, biomes) :
-                        water[cell] == WaterKind.Lake ? MapNatureRules.LakeIce(biomes?.Climate.TemperatureCelsius(cell)) : 0f) * 255f));
+                    (byte)(128 + Mathf.RoundToInt(snowOrIce * 127f)));
                 var indexColour = EncodeProvince(province);
                 indexColour.a = provinceShape.CellMoved(cell % Map.Width, cell / Map.Width) ? (byte)255 : (byte)0;
                 indexPixels[cell] = indexColour;
@@ -261,23 +253,10 @@ namespace GrandStrategy.WorldGeneration
         {
             borders.SetView(mode);
             material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain ? 0f : 1f);
-            material.SetFloat("_RealmFill", mode == MapViewMode.Realms ? .68f : .41f);
         }
 
         public void SetSelection(int selected)
             => material.SetVector("_Selected", ShaderIndex(CampaignState.IsLand(Map, selected) ? selected : -1));
-
-        public void SetOwnership(CampaignState campaign, Color tribeColour)
-        {
-            var pixels = ownership.GetRawTextureData<Color32>();
-            pixels[0] = new Color32(0, 0, 0, 255); // Unassigned pixels use index zero.
-            for (var i = 0; i < Map.Provinces.Length; i++)
-                pixels[i + 1] = new Color32(campaign?.Owns(i) == true ? (byte)255 : (byte)0, 0, 0, 255);
-            ownership.Apply(false, false);
-            material.SetColor("_TribeColour", tribeColour);
-            material.SetFloat("_HasCampaign", campaign == null ? 0f : 1f);
-            borders?.SetRealm(campaign, tribeColour);
-        }
 
         private static Vector4 ShaderIndex(int province)
         {
@@ -301,7 +280,6 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
-            UnityEngine.Object.Destroy(ownership);
             UnityEngine.Object.Destroy(biomeSurface);
             UnityEngine.Object.Destroy(groundPatterns);
             UnityEngine.Object.Destroy(landTint);

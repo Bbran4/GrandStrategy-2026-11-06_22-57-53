@@ -45,15 +45,10 @@ Shader "GrandStrategy/Playable Map"
         _GroundDetail ("Ground detail", Float) = 0.25
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
         _ShowPolitics ("Political overlays", Float) = 1
-        _RealmFill ("Political fill opacity", Float) = 0.41
-        [HideInInspector] _HasCampaign ("Campaign active", Float) = 0
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _ProvinceCorners ("Province corner offsets", 2D) = "black" {}
         _ProvinceGrid ("Province grid dimensions", Vector) = (1, 1, 0.5, 0.5)
         _Selected ("Selected province", Vector) = (0, 0, 0, 0)
-        _Ownership ("Province ownership", 2D) = "black" {}
-        _OwnershipSize ("Ownership texture size", Vector) = (1, 1, 1, 1)
-        _TribeColour ("Tribe colour", Color) = (0.3, 0.7, 0.9, 1)
     }
 
     SubShader
@@ -117,21 +112,15 @@ Shader "GrandStrategy/Playable Map"
             SAMPLER(sampler_ProvinceIndices);
             TEXTURE2D(_ProvinceCorners);
             SAMPLER(sampler_ProvinceCorners);
-            TEXTURE2D(_Ownership);
-            SAMPLER(sampler_Ownership);
             CBUFFER_START(UnityPerMaterial)
                 float4 _Selected;
                 float4 _ProvinceGrid;
-                float4 _OwnershipSize;
-                float4 _TribeColour;
                 float4 _CapitalClearing;
                 float4 _GroundGrid;
                 float _InverseReliefHeight;
                 float4 _TerrainShadow_TexelSize;
                 float4 _MapSun;
                 float _ShowPolitics;
-                float _RealmFill;
-                float _HasCampaign;
                 float _GroundDetail;
                 float _GroundTileFrequency;
             CBUFFER_END
@@ -371,7 +360,9 @@ Shader "GrandStrategy/Playable Map"
                 float3 rock = lerp(float3(0.115, 0.112, 0.101), float3(0.33, 0.31, 0.27), stratum);
                 land = lerp(land, rock, exposed * 0.84);
 
-                float snow = smoothstep(0.12, 0.90, biomeSurface.a + (patches.g - 0.48) * 0.60 * biomeSurface.a);
+                float snowOrIce = (biomeSurface.a * 255.0 - 128.0) / 127.0;
+                float snowCoverage = max(snowOrIce, 0.0);
+                float snow = smoothstep(0.12, 0.90, snowCoverage * (1.0 + (patches.g - 0.48) * 0.60));
                 snow *= lerp(1.0, 0.57, exposed);
                 land = lerp(land, lerp(float3(0.47, 0.52, 0.53), float3(0.84, 0.86, 0.84), patches.g),
                     snow * 0.94);
@@ -496,7 +487,7 @@ Shader "GrandStrategy/Playable Map"
                 float channel = freshwater * (1.0 - smoothstep(0.46, 0.90, wideWater));
                 float3 channelTint = float3(0.108, 0.121, 0.110);
                 water = lerp(water, channelTint, channel * 0.72);
-                float ice = min(freshwater, biomeSurface.a / waterCoverage) * lerp(0.65, 0.96, patches.g);
+                float ice = min(freshwater, max(-snowOrIce, 0.0) / waterCoverage) * lerp(0.65, 0.96, patches.g);
                 UNITY_BRANCH
                 if (_GroundDetail > 0.0 && shoal + freshwater > 0.002)
                 {
@@ -543,13 +534,8 @@ Shader "GrandStrategy/Playable Map"
                 if (politicalCoverage <= 0.0) return half4(ground, 1);
 
                 float3 province = ProvinceAt(input.uv);
-                float index = dot(round(province * 255.0), float3(1.0, 256.0, 65536.0));
-                float row = floor(index * _OwnershipSize.z);
-                float column = index - row * _OwnershipSize.x;
-                float2 ownershipUV = (float2(column, row) + 0.5) * _OwnershipSize.zw;
-                float owned = SAMPLE_TEXTURE2D(_Ownership, sampler_Ownership, ownershipUV).r;
-                float3 colour = lerp(ground, _TribeColour.rgb, owned * _HasCampaign * _RealmFill * politicalCoverage);
-                colour = lerp(colour, float3(1.0, 0.78, 0.26), Matches(province, _Selected) * 0.26 * politicalCoverage);
+                float3 colour = lerp(ground, float3(1.0, 0.78, 0.26),
+                    Matches(province, _Selected) * 0.26 * politicalCoverage);
                 return half4(colour, 1);
             }
             ENDHLSL

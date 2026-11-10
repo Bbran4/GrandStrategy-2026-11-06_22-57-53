@@ -14,12 +14,6 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField] private ProvinceMapAsset provinceMap;
         [SerializeField] private MapTreeCatalog treeCatalog;
 
-        private static readonly Color[] TribeColours =
-        {
-            new Color(.19f, .63f, .90f), new Color(.86f, .28f, .23f),
-            new Color(.33f, .74f, .42f), new Color(.66f, .44f, .83f),
-            new Color(.95f, .57f, .20f)
-        };
         private static readonly string[] ColourNames = { "Blue", "Red", "Green", "Violet", "Ochre" };
         private static readonly int[] Speeds = { 1, 2, 4 };
         private const float MinimumZoom = .045f;
@@ -87,8 +81,7 @@ namespace GrandStrategy.WorldGeneration
         {
             if (surface == null || failure != null) return;
             var deltaTime = Time.unscaledDeltaTime;
-            if (campaign?.Advance(deltaTime) == true)
-                surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
+            campaign?.Advance(deltaTime);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -239,7 +232,6 @@ namespace GrandStrategy.WorldGeneration
             if (!surface.IsDryLand(next.CapitalCell))
                 throw new InvalidOperationException("The capital must be on dry land.");
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
-            surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
             settlement = capitalPoint;
             surface.SetCapital(capitalPoint);
@@ -266,7 +258,7 @@ namespace GrandStrategy.WorldGeneration
             try
             {
                 var save = CampaignSaveFile.Read(savePath);
-                ApplyCampaign(CampaignState.Restore(surface.Map, mapKey, save, TribeColours.Length));
+                ApplyCampaign(CampaignState.Restore(surface.Map, mapKey, save, ColourNames.Length));
                 saveStatus = "Campaign loaded and paused.";
             }
             catch (Exception error)
@@ -296,7 +288,6 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label("Click a province. Home resets the view.");
             GUILayout.BeginHorizontal();
             MapViewButton("Terrain", MapViewMode.Terrain);
-            MapViewButton("Realms", MapViewMode.Realms);
             MapViewButton("Territories", MapViewMode.Territories, surface.HasTerritories);
             MapViewButton("Provinces", MapViewMode.Provinces);
             GUILayout.EndHorizontal();
@@ -350,7 +341,7 @@ namespace GrandStrategy.WorldGeneration
             GUI.SetNextControlName("TribeName");
             tribeName = GUILayout.TextField(tribeName, CampaignState.MaxNameLength);
             if (GUILayout.Button("Tribe colour: " + ColourNames[colourIndex]))
-                colourIndex = (colourIndex + 1) % TribeColours.Length;
+                colourIndex = (colourIndex + 1) % ColourNames.Length;
 
             var dry = surface.IsDryLand(clickedCell) && surface.IsDryLand(selectedCell);
             if (!dry) GUILayout.Label("Click dry land to place the settlement.");

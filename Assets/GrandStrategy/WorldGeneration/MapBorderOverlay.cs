@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 
 namespace GrandStrategy.WorldGeneration
 {
-    internal enum MapViewMode { Terrain, Realms, Territories, Provinces }
+    internal enum MapViewMode { Terrain, Territories, Provinces }
 
     internal sealed class MapBorderOverlay : IDisposable
     {
@@ -16,32 +16,29 @@ namespace GrandStrategy.WorldGeneration
         private readonly Layer provinces;
         private readonly Layer territories;
         private readonly Func<int, bool> isDryLand;
-        private readonly Transform parent;
-        private readonly Shader shader;
-        private Layer realms;
 
         public bool HasTerritories => territoryRaster != null;
 
         public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map, ProvinceShape provinceShape,
-            Func<int, bool> isDryLand)
+            Func<int, bool> isDryLand, Texture2D landCoverage)
         {
             this.map = map;
             this.provinceShape = provinceShape;
             this.geometry = geometry;
             this.isDryLand = isDryLand;
-            parent = surface.transform;
             territoryRaster = GetTerritories(map);
 
             try
             {
-                shader = Resources.Load<Shader>("MapBorder");
+                var shader = Resources.Load<Shader>("MapBorder");
                 if (shader == null || !shader.isSupported)
                     throw new InvalidOperationException("The map border shader requires Universal Render Pipeline.");
 
-                provinces = new Layer(parent, shader, "Province borders", 1.25f, 0,
-                    new Color32(40, 45, 40, 235));
-                territories = new Layer(parent, shader, "Territory borders", 2.15f, 1,
-                    new Color32(45, 50, 48, 238));
+                var aspect = (float)map.Width / map.Height;
+                provinces = new Layer(surface.transform, shader, "Province borders", 1.25f, 0,
+                    new Color32(40, 45, 40, 235), landCoverage, aspect);
+                territories = new Layer(surface.transform, shader, "Territory borders", 2.15f, 1,
+                    new Color32(45, 50, 48, 238), landCoverage, aspect);
                 provinces.Mesh = CreateMesh(map.ProvinceAt, "Province outlines", true);
                 SetView(MapViewMode.Provinces);
             }
@@ -61,31 +58,14 @@ namespace GrandStrategy.WorldGeneration
             territories.Visible = showTerritories;
         }
 
-        public void SetRealm(CampaignState campaign, Color colour)
-        {
-            if (campaign == null)
-            {
-                realms?.Dispose();
-                realms = null;
-                return;
-            }
-
-            realms ??= new Layer(parent, shader, "Realm borders", 3.35f, 3, colour);
-            var next = CreateMesh(map.ProvinceAt, "Realm frontier", true, (a, b) =>
-                campaign.Owns(map.ProvinceAt[a]) != campaign.Owns(map.ProvinceAt[b]));
-            UnityEngine.Object.Destroy(realms.Mesh);
-            realms.Mesh = next;
-            realms.Colour = colour;
-            realms.Visible = true;
-        }
-
         private sealed class Layer : IDisposable
         {
             private readonly MeshFilter filter;
             private readonly MeshRenderer renderer;
             private readonly Material material;
 
-            public Layer(Transform parent, Shader shader, string name, float width, int order, Color colour)
+            public Layer(Transform parent, Shader shader, string name, float width, int order, Color colour,
+                Texture2D landCoverage, float aspect)
             {
                 var gameObject = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer))
                     { hideFlags = HideFlags.DontSave };
@@ -94,14 +74,15 @@ namespace GrandStrategy.WorldGeneration
                 renderer = gameObject.GetComponent<MeshRenderer>();
                 material = new Material(shader) { hideFlags = HideFlags.DontSave, renderQueue = 3000 + order };
                 material.SetFloat("_WidthPixels", width);
-                Colour = colour;
+                material.SetColor("_BorderColour", colour);
+                material.SetTexture("_LandCoverage", landCoverage);
+                material.SetFloat("_MapAspect", aspect);
                 renderer.sharedMaterial = material;
                 renderer.enabled = false;
             }
 
             public Mesh Mesh { get => filter.sharedMesh; set => filter.sharedMesh = value; }
             public bool Visible { set => renderer.enabled = value; }
-            public Color Colour { set => material.SetColor("_BorderColour", value); }
 
             public void Dispose()
             {
@@ -112,7 +93,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        private Mesh CreateMesh(int[] raster, string label, bool useProvinceShape = false, Func<int, int, bool> include = null)
+        private Mesh CreateMesh(int[] raster, string label, bool useProvinceShape = false)
         {
             var starts = new List<Vector3>();
             var ends = new List<Vector3>();
@@ -160,8 +141,7 @@ namespace GrandStrategy.WorldGeneration
                 var y = start / stride;
                 var first = Math.Abs(a - b) == 1 ? Cell(x, y - 1) : Cell(x - 1, y);
                 var second = Cell(x, y);
-                return IsLandProvinceCell(first) && IsLandProvinceCell(second)
-                    && (include == null || include(first, second));
+                return IsLandProvinceCell(first) && IsLandProvinceCell(second);
             }
 
             int Cell(int x, int y) => x >= 0 && x < map.Width && y >= 0 && y < map.Height
@@ -262,7 +242,6 @@ namespace GrandStrategy.WorldGeneration
         {
             provinces?.Dispose();
             territories?.Dispose();
-            realms?.Dispose();
         }
     }
 }
