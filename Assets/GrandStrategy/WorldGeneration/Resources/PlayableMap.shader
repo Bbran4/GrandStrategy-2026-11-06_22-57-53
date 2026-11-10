@@ -46,7 +46,6 @@ Shader "GrandStrategy/Playable Map"
         _GroundDetail ("Ground detail", Float) = 0.25
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
         [HideInInspector] _ShowBiomes ("Show biome colours", Float) = 0
-        [HideInInspector] _ShowRiverRoutes ("Show navigable river provinces", Float) = 1
         _ShowPolitics ("Political overlays", Float) = 1
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _ProvinceCorners ("Province corner offsets", 2D) = "black" {}
@@ -125,7 +124,6 @@ Shader "GrandStrategy/Playable Map"
                 float4 _TerrainShadow_TexelSize;
                 float4 _MapSun;
                 float _ShowPolitics;
-                float _ShowRiverRoutes;
                 float _ShowBiomes;
                 float4 _BiomeViewPalette[8];
                 float _GroundDetail;
@@ -551,8 +549,8 @@ Shader "GrandStrategy/Playable Map"
                 float waterCoverage = max(1.0 - map.a, 0.0001);
                 float shoal = saturate(biomeSurface.g / waterCoverage);
                 float freshwater = saturate(biomeSurface.b / waterCoverage);
-                float4 flow = SAMPLE_TEXTURE2D_GRAD(_RiverFlow, sampler_BiomeSurface, input.uv,
-                    screenX / _GroundGrid.xy, screenY / _GroundGrid.xy);
+                float3 flow = SAMPLE_TEXTURE2D_GRAD(_RiverFlow, sampler_BiomeSurface, input.uv,
+                    screenX / _GroundGrid.xy, screenY / _GroundGrid.xy).rgb;
                 float channel = min(freshwater, flow.b / waterCoverage);
                 float lake = freshwater - channel;
                 float3 channelTint = float3(0.058, 0.128, 0.192);
@@ -621,17 +619,6 @@ Shader "GrandStrategy/Playable Map"
                     water = lerp(water, land, edgeBlend * 0.14);
                 }
 
-                float riverAccess = min(channel, flow.a / waterCoverage) * _ShowRiverRoutes;
-                UNITY_BRANCH
-                if (riverAccess > 0.001)
-                {
-                    // A warm dash inside the channel denotes an authored river province.
-                    float2 velocity = (flow.rg * 255.0 - 128.0) / max(127.0 * flow.b, 1.0);
-                    float phase = frac(dot(ground, velocity) * 155.0);
-                    float dash = smoothstep(0.07, 0.22, phase) * (1.0 - smoothstep(0.55, 0.72, phase));
-                    float detail = 1.0 - smoothstep(0.10, 0.43, max(length(groundDx), length(groundDy)) * 155.0);
-                    water = lerp(water, float3(0.54, 0.38, 0.16), riverAccess * lerp(0.16, dash * 0.36, detail));
-                }
                 float visibleWater = saturate((1.0 - landCoverage) * (1.0 + channel * 0.30));
                 return lerp(land, water * (1.0 - 0.20 * terrainShade), visibleWater);
             }

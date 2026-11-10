@@ -9,13 +9,15 @@ namespace GrandStrategy.WorldGeneration
 
         // Fill only river cells with missing political IDs, starting from the nearest land edge.
         // The imported raster stays authoritative for picking, navigation, and campaign ownership.
-        internal static int[] FillRiverGaps(int width, int[] source, Func<int, bool> isRiver, Func<int, bool> canSeed)
+        internal static int[] FillRiverGaps(int width, int[] source, Func<int, bool> isRiver,
+            Func<int, bool> canSeed, Func<int, bool> preserveRiverRegion = null)
         {
             int[] result = null;
             var queue = new Queue<int>();
             for (var cell = 0; cell < source.Length; cell++)
             {
-                if (!isRiver(cell) || (source[cell] >= 0 && canSeed(cell))) continue;
+                if (!isRiver(cell) || (source[cell] >= 0
+                    && (canSeed(cell) || preserveRiverRegion?.Invoke(cell) == true))) continue;
                 result ??= (int[])source.Clone();
                 result[cell] = -1;
                 var x = cell % width;

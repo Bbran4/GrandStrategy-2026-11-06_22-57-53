@@ -650,8 +650,8 @@ namespace GrandStrategy.WorldGeneration
                 MapViewMode.Ownership => campaign == null ? "No provinces held" : "Gold labels mark provinces held",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
                     : "Click a province to inspect its biome",
-                MapViewMode.Territories => "Land & sea territories | Gold: river access",
-                MapViewMode.Provinces => "Land & sea provinces | Gold: river access",
+                MapViewMode.Territories => "Land, sea & navigable river territories",
+                MapViewMode.Provinces => "Land, sea & navigable river provinces",
                 _ => "Terrain and settlement"
             };
             GUI.Label(new Rect(dock.x + 6, dock.y + 78, dock.width - 12, 21), status, hudLabel);

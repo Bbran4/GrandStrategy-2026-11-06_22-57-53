@@ -23,22 +23,18 @@ namespace GrandStrategy.WorldGeneration
 
         public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map, ProvinceShape provinceShape,
             Func<int, bool> isDryLand, Func<int, bool> isRiver, Func<int, bool> isOcean,
-            Texture2D biomeSurface, Texture2D riverFlow)
+            Func<int, bool> isNavigableRiverCell, Texture2D biomeSurface, Texture2D riverFlow)
         {
             this.map = map;
             this.geometry = geometry;
             this.isDryLand = isDryLand;
             this.isRiver = isRiver;
             this.isOcean = isOcean;
-            var provinceRaster = MapBorderPaths.FillRiverGaps(map.Width, map.ProvinceAt, isRiver, CanSeedProvince);
+            var provinceRaster = MapBorderPaths.FillRiverGaps(map.Width, map.ProvinceAt, isRiver, CanSeedProvince,
+                isNavigableRiverCell);
             this.provinceShape = ReferenceEquals(provinceRaster, map.ProvinceAt) ? provinceShape
                 : new ProvinceShape(map.Width, map.Height, provinceRaster);
-            var importedTerritories = GetTerritories(map);
-            territoryRaster = importedTerritories == null ? null
-                : MapBorderPaths.FillRiverGaps(map.Width, importedTerritories, isRiver, cell =>
-                    CanSeedProvince(cell) && (!map.HasTerritoryPreview || (importedTerritories[cell] >= 0
-                        && importedTerritories[cell] < map.Territories.Length
-                        && string.Equals(map.Territories[importedTerritories[cell]]?.Type, "land", StringComparison.OrdinalIgnoreCase))));
+            territoryRaster = CreateTerritoryRaster(isNavigableRiverCell);
 
             try
             {
@@ -229,6 +225,32 @@ namespace GrandStrategy.WorldGeneration
 
         private Vector3 TerrainPoint(Vector2 corner)
             => geometry.Sample(new Vector2(corner.x / map.Width, corner.y / map.Height), out _) + Vector3.up * .0001f;
+
+        private int[] CreateTerritoryRaster(Func<int, bool> isNavigableRiverCell)
+        {
+            var imported = GetTerritories(map);
+            if (imported == null) return null;
+
+            var raster = imported;
+            var firstRiverId = map.HasTerritoryPreview ? map.Territories.Length : map.Provinces.Length;
+            for (var cell = 0; cell < raster.Length; cell++)
+            {
+                if (!isNavigableRiverCell(cell) || HasTerritoryType(cell, "ocean")) continue;
+                // A river province without its own water territory still needs a border in this view.
+                if (ReferenceEquals(raster, imported)) raster = (int[])imported.Clone();
+                raster[cell] = firstRiverId + map.ProvinceAt[cell];
+            }
+            return MapBorderPaths.FillRiverGaps(map.Width, raster, isRiver,
+                cell => CanSeedProvince(cell) && (!map.HasTerritoryPreview || HasTerritoryType(cell, "land")),
+                isNavigableRiverCell);
+
+            bool HasTerritoryType(int cell, string type)
+            {
+                var id = imported[cell];
+                return map.HasTerritoryPreview && id >= 0 && id < map.Territories.Length
+                    && string.Equals(map.Territories[id]?.Type, type, StringComparison.OrdinalIgnoreCase);
+            }
+        }
 
         private static int[] GetTerritories(ProvinceMap map)
         {

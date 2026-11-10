@@ -568,6 +568,16 @@ internal static class Program
         var joined = MapBorderPaths.FillRiverGaps(2, oneProvince, cell => cell >= 2 && cell < 6,
             cell => oneProvince[cell] == 0);
         Require(joined.All(id => id == 0), "A river inside one province must not gain a separate border.");
+        var authored = MapBorderPaths.FillRiverGaps(2, oneProvince, cell => cell >= 2 && cell < 6,
+            cell => oneProvince[cell] == 0, cell => oneProvince[cell] == 8);
+        Require(ReferenceEquals(authored, oneProvince),
+            "An authored river province must retain both of its bank boundaries.");
+
+        var partlyAuthored = new[] { 0, 0, 8, -1, 8, -1, 0, 0 };
+        var retained = MapBorderPaths.FillRiverGaps(2, partlyAuthored, cell => cell >= 2 && cell < 6,
+            cell => partlyAuthored[cell] == 0, cell => partlyAuthored[cell] == 8);
+        Require(retained.SequenceEqual(new[] { 0, 0, 8, 0, 8, 0, 0, 0 }),
+            "An authored river ID must not spread to nearby river pixels outside its polygon.");
 
         var raster = new[] { 0, 1, 1, 1 };
         var shape = new ProvinceShape(2, 2, raster);
