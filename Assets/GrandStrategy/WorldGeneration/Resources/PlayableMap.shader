@@ -255,6 +255,84 @@ Shader "GrandStrategy/Playable Map"
                 AccumulateGround(TEXTURE2D_ARGS(colourMap, sampler_GroundPatterns), \
                     TEXTURE2D_ARGS(normalMap, sampler_GroundPatterns), coords, frequency, weight, result)
 
+            struct TerrainPatches
+            {
+                float2 origin;
+                float2 corner;
+                float3 weights;
+                float strength;
+            };
+
+            TerrainPatches BuildTerrainPatches(float2 ground)
+            {
+                TerrainPatches patches = (TerrainPatches)0;
+                patches.strength = smoothstep(0.52, 0.88, _GroundDetail);
+                UNITY_BRANCH
+                if (patches.strength <= 0.0) return patches;
+
+                float2 grid = float2(ground.x + ground.y * 0.5, ground.y * 0.8660254) * 57.0;
+                patches.origin = floor(grid);
+                float2 f = frac(grid);
+                if (f.x + f.y < 1.0)
+                {
+                    patches.corner = 0.0;
+                    patches.weights = float3(1.0 - f.x - f.y, f.x, f.y);
+                }
+                else
+                {
+                    patches.corner = 1.0;
+                    patches.weights = float3(f.x + f.y - 1.0, 1.0 - f.y, 1.0 - f.x);
+                }
+                patches.weights = smoothstep(0.0, 1.0, patches.weights);
+                patches.weights /= dot(patches.weights, float3(1.0, 1.0, 1.0));
+                return patches;
+            }
+
+            float2 TerrainPatchOffset(float2 cell)
+            {
+                float3 p = frac(cell.xyx * float3(0.1031, 0.1030, 0.0973));
+                p += dot(p, p.yzx + 33.33);
+                return frac((p.xx + p.yz) * p.zy);
+            }
+
+            GroundCoordinates PatchCoordinates(GroundCoordinates ground, float frequency, float2 cell)
+            {
+                float2 offset = TerrainPatchOffset(cell);
+                float turn = offset.x < 0.5 ? -1.0 : 1.0;
+                // Rotate the matching normals and sample gradients with the texture.
+                ground.uv = ground.uv * turn + offset / frequency;
+                ground.dx *= turn;
+                ground.dy *= turn;
+                ground.tangent *= turn;
+                return ground;
+            }
+
+            void AccumulateStochasticGround(TEXTURE2D_PARAM(colourMap, colourSampler),
+                TEXTURE2D_PARAM(normalMap, normalSampler), GroundCoordinates ground, float frequency,
+                float weight, TerrainPatches patches, inout GroundSample result)
+            {
+                AccumulateGround(TEXTURE2D_ARGS(colourMap, colourSampler), TEXTURE2D_ARGS(normalMap, normalSampler),
+                    ground, frequency, weight * (1.0 - patches.strength), result);
+                float varied = weight * patches.strength;
+                UNITY_BRANCH
+                if (varied > 0.002)
+                {
+                    AccumulateGround(TEXTURE2D_ARGS(colourMap, colourSampler), TEXTURE2D_ARGS(normalMap, normalSampler),
+                        PatchCoordinates(ground, frequency, patches.origin + patches.corner), frequency,
+                        varied * patches.weights.x, result);
+                    AccumulateGround(TEXTURE2D_ARGS(colourMap, colourSampler), TEXTURE2D_ARGS(normalMap, normalSampler),
+                        PatchCoordinates(ground, frequency, patches.origin + float2(1.0, 0.0)), frequency,
+                        varied * patches.weights.y, result);
+                    AccumulateGround(TEXTURE2D_ARGS(colourMap, colourSampler), TEXTURE2D_ARGS(normalMap, normalSampler),
+                        PatchCoordinates(ground, frequency, patches.origin + float2(0.0, 1.0)), frequency,
+                        varied * patches.weights.z, result);
+                }
+            }
+
+            #define STOCHASTIC_LAYER(colourMap, normalMap, coords, frequency, weight, patches, result) \
+                AccumulateStochasticGround(TEXTURE2D_ARGS(colourMap, sampler_GroundPatterns), \
+                    TEXTURE2D_ARGS(normalMap, sampler_GroundPatterns), coords, frequency, weight, patches, result)
+
             // Paint the first overlay onto the base, then apply the second overlay on top.
             // The weights sum to one, so rules cannot change a biome's overall coverage.
             float3 PaintWeights(float first, float second)
@@ -523,12 +601,13 @@ Shader "GrandStrategy/Playable Map"
                     float stoneWeight = low.y * paint.desert.z + high.z * paint.tundra.x + high.w * paint.alpine.y;
                     float soilWeight = low.y * paint.desert.y + high.z * paint.tundra.y + high.w * paint.alpine.z;
 
-                    GROUND_LAYER(_GrassColour, _GrassNormal, tile, 34.0, low.z * paint.plains.x, landDetail);
-                    GROUND_LAYER(_MeadowColour, _MeadowNormal, tile, 32.0, low.z * paint.plains.y, landDetail);
-                    GROUND_LAYER(_SparseGrassColour, _SparseGrassNormal, tile, 39.0, sparseWeight, landDetail);
+                    TerrainPatches tiling = BuildTerrainPatches(ground);
+                    STOCHASTIC_LAYER(_GrassColour, _GrassNormal, tile, 34.0, low.z * paint.plains.x, tiling, landDetail);
+                    STOCHASTIC_LAYER(_MeadowColour, _MeadowNormal, tile, 32.0, low.z * paint.plains.y, tiling, landDetail);
+                    STOCHASTIC_LAYER(_SparseGrassColour, _SparseGrassNormal, tile, 39.0, sparseWeight, tiling, landDetail);
                     GROUND_LAYER(_LeafMudColour, _LeafMudNormal, tile, 37.0, mudWeight, landDetail);
-                    GROUND_LAYER(_LeafLitterColour, _LeafLitterNormal, litter, 43.0, litterWeight, landDetail);
-                    GROUND_LAYER(_DenseLitterColour, _DenseLitterNormal, tile, 42.0, denseWeight, landDetail);
+                    STOCHASTIC_LAYER(_LeafLitterColour, _LeafLitterNormal, litter, 43.0, litterWeight, tiling, landDetail);
+                    STOCHASTIC_LAYER(_DenseLitterColour, _DenseLitterNormal, tile, 42.0, denseWeight, tiling, landDetail);
                     GROUND_LAYER(_BorealColour, _BorealNormal, tile, 40.0, high.y * paint.boreal.x, landDetail);
                     GROUND_LAYER(_DesertColour, _DesertNormal, tile, 36.0, low.y * paint.desert.x, landDetail);
                     GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, stoneWeight, landDetail);
