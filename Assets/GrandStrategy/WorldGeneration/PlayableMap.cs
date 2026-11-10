@@ -49,7 +49,8 @@ namespace GrandStrategy.WorldGeneration
         private string failure;
         private int colourIndex;
         private string provinceDetails;
-        private Vector2 detailsScroll;
+        private Vector2 provinceScroll;
+        private bool showProvinceDetails;
         private Vector2 campaignScroll;
 
         private void Start()
@@ -114,7 +115,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 var position = mouse.position.ReadValue();
                 var guiPosition = new Vector2(position.x, Screen.height - position.y);
-                var overPanel = TopBar.Contains(guiPosition) || Panel.Contains(guiPosition)
+                var overPanel = TopBar.Contains(guiPosition) || ProvincePanel.Contains(guiPosition)
                     || CampaignPanel.Contains(guiPosition) || MapDock.Contains(guiPosition);
                 if (mouse.middleButton.wasPressedThisFrame) dragging = !overPanel;
                 if (!mouse.middleButton.isPressed) dragging = false;
@@ -187,7 +188,8 @@ namespace GrandStrategy.WorldGeneration
 
             if (selected != previous)
             {
-                detailsScroll = Vector2.zero;
+                provinceScroll = Vector2.zero;
+                showProvinceDetails = false;
                 provinceDetails = selected < 0 ? null : Describe(surface.Map.Provinces[selected]);
             }
             surface.SetSelection(selected);
@@ -297,15 +299,20 @@ namespace GrandStrategy.WorldGeneration
             if (surface == null) return;
 
             PrepareHudStyles();
-            DrawSettlement();
             DrawTopBar();
             DrawMapDock();
             DrawCampaign();
-            var panel = Panel;
+            DrawProvincePanel();
+            editingName = GUI.GetNameOfFocusedControl() == "TribeName";
+        }
+
+        private void DrawProvincePanel()
+        {
+            var panel = ProvincePanel;
             DrawPanelFrame(panel);
             GUILayout.BeginArea(new Rect(panel.x + 9, panel.y + 7, Mathf.Max(1, panel.width - 18), Mathf.Max(1, panel.height - 14)));
-            GUILayout.Label("Province dossier", hudHeading);
-            GUILayout.Label("WASD to pan | Scroll to zoom | Home to reset");
+            provinceScroll = GUILayout.BeginScrollView(provinceScroll);
+            GUILayout.Label(selected >= 0 ? "Province " + surface.Map.Provinces[selected].Id : "Province", hudHeading);
             if (selectedCell >= 0)
             {
                 var territory = SelectedTerritoryId();
@@ -316,18 +323,18 @@ namespace GrandStrategy.WorldGeneration
             else if (selectedCell >= 0)
                 GUILayout.Label("No province at this location.");
             else
+            {
                 GUILayout.Label(campaign == null ? "Choose a land province to establish a tribe." : "Click a province to inspect it.");
+                GUILayout.Label("WASD to pan | Scroll to zoom | Home to reset");
+            }
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
-            editingName = GUI.GetNameOfFocusedControl() == "TribeName";
         }
 
         private void DrawProvince(ProvinceInfo province)
         {
-            GUILayout.Space(5);
-            GUILayout.Label("Province " + province.Id);
-            detailsScroll = GUILayout.BeginScrollView(detailsScroll, GUILayout.Height(115));
-            GUILayout.Label(provinceDetails);
-            GUILayout.EndScrollView();
+            showProvinceDetails = GUILayout.Toggle(showProvinceDetails, "Terrain and neighbours");
+            if (showProvinceDetails) GUILayout.Label(provinceDetails);
 
             if (campaign != null)
             {
@@ -376,6 +383,8 @@ namespace GrandStrategy.WorldGeneration
             {
                 GUILayout.Label(selected == campaign.Capital
                     ? campaign.TribeName + " | Capital" : campaign.TribeName + " | Integrated province");
+                DrawConstruction();
+                if (selected == campaign.Capital) DrawCapitalActions();
                 return;
             }
 
@@ -421,7 +430,7 @@ namespace GrandStrategy.WorldGeneration
             DrawPanelFrame(panel);
             GUILayout.BeginArea(new Rect(panel.x + 9, panel.y + 7, Mathf.Max(1, panel.width - 18), Mathf.Max(1, panel.height - 14)));
             campaignScroll = GUILayout.BeginScrollView(campaignScroll);
-            GUILayout.Label(campaign == null ? "Campaign" : "Settlement", hudHeading);
+            GUILayout.Label("Campaign", hudHeading);
             if (campaign != null)
             {
                 if (campaign.Day < CampaignState.WinterStart)
@@ -431,8 +440,9 @@ namespace GrandStrategy.WorldGeneration
                 else
                     GUILayout.Label(campaign.WinterShortfall == 0 ? "First winter survived without hunger."
                         : $"First winter survived | {campaign.WinterShortfall} food missed");
-                if (campaign.WinterFoodRemaining > 0)
-                    GUILayout.Label($"Winter stores needed: {campaign.WinterFoodRemaining} food");
+                var winterStores = campaign.WinterFoodRemaining;
+                if (winterStores > 0)
+                    GUILayout.Label($"Winter stores needed: {winterStores} food");
                 if (campaign.FirstExpansion != ExpansionApproach.None)
                     GUILayout.Label($"First expansion: {campaign.FirstExpansion}");
                 if (campaign.Paused && campaign.DaysToNextDecision > 0
@@ -446,7 +456,8 @@ namespace GrandStrategy.WorldGeneration
                     var target = surface.Map.Provinces[campaign.IntegrationTarget].Id;
                     GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
-                DrawSettlementChoices();
+                GUILayout.Label($"Taxes: +{campaign.TaxIncome:N0} coin every {CampaignState.TaxInterval} days");
+                DrawNearbyCommunities();
             }
 
             GUILayout.BeginHorizontal();
@@ -461,7 +472,33 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.EndArea();
         }
 
-        private void DrawSettlementChoices()
+        private void DrawConstruction()
+        {
+            GUILayout.Label("Buildings", hudHeading);
+            DrawBuilding(SettlementBuilding.Farm);
+            DrawBuilding(SettlementBuilding.LumberCamp);
+            DrawBuilding(SettlementBuilding.IronMine);
+        }
+
+        private void DrawBuilding(SettlementBuilding building)
+        {
+            var info = CampaignState.BuildingInfo(building);
+            var output = $"+{info.Yield} {info.Resource} / {CampaignState.ProductionInterval} days";
+            if (campaign.HasBuilding(selected, building))
+            {
+                GUILayout.Label($"{info.Name} | {output}");
+                return;
+            }
+
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanBuild(selected, building);
+            if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)"))
+                campaign.TryBuild(selected, building);
+            GUI.enabled = wasEnabled;
+            GUILayout.Label(output);
+        }
+
+        private void DrawCapitalActions()
         {
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && campaign.CanBuildGranary;
@@ -478,7 +515,10 @@ namespace GrandStrategy.WorldGeneration
                 saveStatus = "Warband raised. It uses 1 food per five days.";
             }
             GUI.enabled = wasEnabled;
+        }
 
+        private void DrawNearbyCommunities()
+        {
             var map = surface.Map;
             var neighbours = map.Provinces[campaign.Capital].Neighbours ?? Array.Empty<int>();
             var listed = 0;
@@ -490,26 +530,13 @@ namespace GrandStrategy.WorldGeneration
                 {
                     selected = neighbour;
                     selectedCell = clickedCell = -1;
-                    detailsScroll = Vector2.zero;
+                    provinceScroll = Vector2.zero;
+                    showProvinceDetails = false;
                     provinceDetails = Describe(map.Provinces[neighbour]);
                     surface.SetSelection(neighbour);
                 }
                 if (listed == 3) break;
             }
-        }
-
-        private void DrawSettlement()
-        {
-            if (campaign == null) return;
-            var point = mapCamera.WorldToScreenPoint(settlement + Vector3.up * .003f);
-            if (point.z <= 0 || point.x < 0 || point.x > Screen.width || point.y < 0 || point.y > Screen.height)
-                return;
-            var y = Screen.height - point.y;
-            var label = new GUIContent(mapView == MapViewMode.Realm || mapView == MapViewMode.Ownership
-                ? campaign.TribeName + " | Capital" : campaign.TribeName);
-            var width = GUI.skin.box.CalcSize(label).x + 12f;
-            GUI.Box(new Rect(point.x - width * .5f, y - 35f, width, 23f), label);
-            GUI.Label(new Rect(point.x - 5f, y - 13f, 14f, 18f), "▼");
         }
 
         private const float HudMargin = 12f;
@@ -531,15 +558,21 @@ namespace GrandStrategy.WorldGeneration
         private Rect TopBar => new Rect(0, 0, Screen.width, CompactHud ? 84 : 56);
         private float PanelWidth => Mathf.Max(1f, Mathf.Min(325f, (Screen.width - 36f) * .5f));
         private float PanelTop => TopBar.yMax + HudMargin;
-        private Rect Panel => new Rect(HudMargin, PanelTop, PanelWidth,
-            Mathf.Max(1f, Mathf.Min(selected >= 0 ? 412 : 110, Screen.height - PanelTop - HudMargin)));
+        private Rect ProvincePanel
+        {
+            get
+            {
+                var height = Mathf.Max(1f, Mathf.Min(selected >= 0 ? 390 : 80, Screen.height - PanelTop - HudMargin));
+                return new Rect(HudMargin, Screen.height - HudMargin - height, PanelWidth, height);
+            }
+        }
         private Rect CampaignPanel => new Rect(Screen.width - PanelWidth - HudMargin, PanelTop, PanelWidth,
             Mathf.Max(1f, Mathf.Min(campaign == null ? 118 : 350, MapDock.yMin - PanelTop - HudMargin)));
         private Rect MapDock
         {
             get
             {
-                var width = Mathf.Max(1f, Mathf.Min(340f, Screen.width - HudMargin * 2f));
+                var width = Mathf.Max(1f, Mathf.Min(340f, Screen.width - PanelWidth - HudMargin * 3f));
                 return new Rect(Screen.width - HudMargin - width, Screen.height - HudMargin - DockHeight, width, DockHeight);
             }
         }
@@ -616,16 +649,16 @@ namespace GrandStrategy.WorldGeneration
 
             var resourceX = compact ? HudMargin : titleWidth + 8f;
             var available = compact ? bar.width - HudMargin * 2f : clockX - resourceX - 8f;
-            var slot = Mathf.Max(1f, Mathf.Min(116f, available / 4f));
+            var slot = Mathf.Max(1f, Mathf.Min(116f, available / 5f));
             var resourceY = compact ? 38f : 8f;
             DrawResource("Coin", campaign?.Coin, resourceX, resourceY, slot);
             DrawResource("Food", campaign?.Food, resourceX + slot, resourceY, slot);
             DrawResource("Wood", campaign?.Wood, resourceX + slot * 2, resourceY, slot);
-            DrawResource("Population", campaign == null ? (int?)null : campaign.Population(campaign.Capital),
-                resourceX + slot * 3, resourceY, slot);
+            DrawResource("Iron", campaign?.Iron, resourceX + slot * 3, resourceY, slot);
+            DrawResource("Population", campaign?.OwnedPopulation, resourceX + slot * 4, resourceY, slot);
         }
 
-        private void DrawResource(string label, int? value, float x, float y, float width)
+        private void DrawResource(string label, long? value, float x, float y, float width)
         {
             PaintHudRect(new Rect(x + width - 1, y + 2, 1, 32), HudBorder);
             GUI.Label(new Rect(x, y, width, 16), label, hudLabel);

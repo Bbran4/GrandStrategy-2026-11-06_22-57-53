@@ -510,6 +510,58 @@ internal static class Program
             && warrior.Food > startingFood && warrior.Population(warrior.Capital) < population,
             "Force must secure a province and supplies with casualties.");
 
+        var economy = CampaignState.Found(map, key, 0, "Economy", 0);
+        Require(economy.OwnedPopulation == economy.Population(0) && economy.Iron == 0,
+            "Independent population must stay out of the tribal total.");
+        Require(!economy.TryBuild(1, SettlementBuilding.Farm) && !economy.TryBuild(3, SettlementBuilding.IronMine)
+            && economy.Coin == CampaignState.StartingCoin && economy.Wood == initialWood,
+            "Construction in independent or water provinces must not spend resources.");
+        Require(economy.TryBuild(0, SettlementBuilding.Farm) && economy.TryBuild(0, SettlementBuilding.LumberCamp)
+            && economy.TryBuild(0, SettlementBuilding.IronMine) && !economy.TryBuild(0, SettlementBuilding.Farm)
+            && economy.Coin == 20 && economy.Wood == 0, "Each building must charge exactly once per province.");
+
+        var firstTax = economy.TaxIncome;
+        economy.Paused = false;
+        economy.Advance(14);
+        Require(economy.Day == 15 && economy.Coin == 20 + firstTax
+            && economy.Food == startingFood + 3 * (CampaignState.Fertility(map.Provinces[0]) + 3)
+            && economy.Wood == 7 && economy.Iron == 3, "Taxes and construction output must follow the calendar.");
+
+        var economySave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(economy.ToSave(), json), json);
+        economy = CampaignState.Restore(map, key, economySave, 5);
+        Require(economy.HasBuilding(0, SettlementBuilding.Farm) && economy.HasBuilding(0, SettlementBuilding.LumberCamp)
+            && economy.HasBuilding(0, SettlementBuilding.IronMine) && economy.Iron == 3 && economy.Coin == 20 + firstTax,
+            "Province buildings and resources must survive a save round trip.");
+
+        Require(restored.OwnedPopulation == (long)restored.Population(0) + restored.Population(1),
+            "Integration must add the new province's population to the tribal total.");
+
+        var postWinter = CampaignState.Found(map, key, 0, "Tax timing", 0).ToSave();
+        postWinter.Day = CampaignState.WinterEnd;
+        var batched = CampaignState.Restore(map, key, postWinter, 5);
+        Require(batched.TryStartIntegration(1), "Could not start post-winter integration.");
+        var steppedSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(batched.ToSave(), json), json);
+        var stepped = CampaignState.Restore(map, key, steppedSave, 5);
+        batched.Paused = stepped.Paused = false;
+        batched.Advance(45);
+        for (var day = 0; day < 45; day++) stepped.Advance(1);
+        Require(batched.Owns(1) && batched.Coin == CampaignState.StartingCoin - CampaignState.IntegrationCost
+            + firstTax + 2 * batched.TaxIncome && batched.Coin == stepped.Coin && batched.Food == stepped.Food
+            && batched.Wood == stepped.Wood, "Fast-forward must apply the new tax base from the day a province joins.");
+
+        batched.Advance(450);
+        Require(batched.Coin > CampaignState.StartingCoin, "Taxes must grow the treasury beyond the starting balance.");
+        var taxSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(batched.ToSave(), json), json);
+        Require(CampaignState.Restore(map, key, taxSave, 5).Coin == batched.Coin,
+            "A treasury above the starting balance must survive reload.");
+
+        var previousSave = CampaignState.Found(map, key, 0, "Previous save", 0).ToSave();
+        previousSave.Version = 2;
+        previousSave.Buildings = null;
+        var upgraded = CampaignState.Restore(map, key, previousSave, 5);
+        Require(upgraded.Iron == 0 && !upgraded.HasBuilding(0, SettlementBuilding.Farm)
+            && upgraded.TryBuild(0, SettlementBuilding.Farm), "Version 2 saves must gain empty construction slots.");
+
         var legacy = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(campaign.ToSave(), json), json);
         legacy.Version = 1;
         legacy.Food = legacy.Wood = 0;

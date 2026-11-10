@@ -5,6 +5,9 @@ namespace GrandStrategy.WorldGeneration
 {
     internal enum ExpansionApproach { None, Diplomacy, Trade, Force }
 
+    [Flags]
+    internal enum SettlementBuilding { Farm = 1, LumberCamp = 2, IronMine = 4 }
+
     [Serializable]
     internal sealed class CampaignSave
     {
@@ -22,6 +25,8 @@ namespace GrandStrategy.WorldGeneration
         public int IntegrationDaysLeft;
         public int Food;
         public int Wood;
+        public int Iron;
+        public int[] Buildings;
         public bool Granary;
         public bool Warband;
         public int TradePartner;
@@ -43,7 +48,11 @@ namespace GrandStrategy.WorldGeneration
         public const int WarbandWood = 35;
         public const int WarbandCoin = 45;
         public const int ForceFood = 8;
-        private const int SaveVersion = 2;
+        public const int TaxInterval = 15;
+        public const int ProductionInterval = 5;
+        private const int SaveVersion = 3;
+        private const SettlementBuilding AllBuildings =
+            SettlementBuilding.Farm | SettlementBuilding.LumberCamp | SettlementBuilding.IronMine;
         private const int StartingFood = 40;
         private const int StartingWood = 45;
         private const int ResourceLimit = 999;
@@ -73,12 +82,27 @@ namespace GrandStrategy.WorldGeneration
         public bool Paused { get; set; } = true;
         public int Food => data.Food;
         public int Wood => data.Wood;
+        public int Iron => data.Iron;
+        public long OwnedPopulation
+        {
+            get
+            {
+                long total = 0;
+                for (var i = 0; i < data.Pop.Length; i++)
+                    if (Owns(i)) total += data.Pop[i];
+                return total;
+            }
+        }
+        public long TaxIncome => (OwnedPopulation + 99) / 100;
         public bool HasGranary => data.Granary;
         public bool HasWarband => data.Warband;
         public int TradePartner => data.TradePartner;
         public int WinterShortfall => data.WinterShortfall;
-        public int WinterFoodRemaining => Math.Max(0, WinterEnd / 5 - Math.Max(Day, WinterStart) / 5) * WinterFoodPerPeriod;
-        private int WinterFoodPerPeriod => (HasGranary ? 8 : 14) + (HasWarband ? 1 : 0);
+        public int WinterFoodRemaining => Math.Max(0, WinterEnd / ProductionInterval
+            - Math.Max(Day, WinterStart) / ProductionInterval) * WinterFoodPerPeriod;
+        private int WinterFoodPerPeriod => Math.Max(0, WinterConsumption - FarmFood);
+        private int WinterConsumption => (HasGranary ? 8 : 14) + (HasWarband ? 1 : 0);
+        private int FarmFood => BuildingCount(SettlementBuilding.Farm) * BuildingInfo(SettlementBuilding.Farm).Yield;
         public ExpansionApproach FirstExpansion => data.FirstExpansion;
         public ExpansionApproach PendingApproach => data.PendingApproach;
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
@@ -110,6 +134,7 @@ namespace GrandStrategy.WorldGeneration
                 Speed = 1,
                 Coin = StartingCoin,
                 Owned = owned,
+                Buildings = new int[owned.Length],
                 Pop = pop,
                 IntegrationTarget = -1,
                 TradePartner = -1,
@@ -120,11 +145,11 @@ namespace GrandStrategy.WorldGeneration
 
         public static CampaignState Restore(ProvinceMap map, string mapKey, CampaignSave save, int colourCount)
         {
-            if (save == null || (save.Version != 1 && save.Version != SaveVersion) || save.MapKey != mapKey)
+            if (save == null || (save.Version < 1 || save.Version > SaveVersion) || save.MapKey != mapKey)
                 throw new ArgumentException("The save version or authored map does not match.");
             var capital = ProvinceAt(map, save.CapitalCell);
             if (!IsLand(map, capital) || !IsValidName(save.TribeName) || save.Colour < 0 || save.Colour >= colourCount
-                || save.Day < 1 || !IsValidSpeed(save.Speed) || save.Coin < 0 || save.Coin > StartingCoin
+                || save.Day < 1 || !IsValidSpeed(save.Speed) || save.Coin < 0 || save.Coin > (save.Version < SaveVersion ? StartingCoin : ResourceLimit)
                 || save.Owned?.Length != map.Provinces.Length || save.Pop?.Length != map.Provinces.Length
                 || !save.Owned[capital])
                 throw new ArgumentException("The save contains invalid campaign data.");
@@ -132,6 +157,15 @@ namespace GrandStrategy.WorldGeneration
             for (var i = 0; i < save.Pop.Length; i++)
                 if (save.Pop[i] < 0 || (!IsLand(map, i) && (save.Pop[i] != 0 || save.Owned[i])))
                     throw new ArgumentException("The save contains invalid province population or ownership.");
+
+            if (save.Version == SaveVersion)
+            {
+                if (save.Iron < 0 || save.Iron > ResourceLimit || save.Buildings?.Length != map.Provinces.Length)
+                    throw new ArgumentException("The save contains invalid building or iron data.");
+                for (var i = 0; i < save.Buildings.Length; i++)
+                    if ((save.Buildings[i] & ~(int)AllBuildings) != 0 || (save.Buildings[i] != 0 && !save.Owned[i]))
+                        throw new ArgumentException("The save contains invalid province buildings.");
+            }
 
             var state = new CampaignState(map, save);
             var target = save.IntegrationTarget;
@@ -145,7 +179,6 @@ namespace GrandStrategy.WorldGeneration
 
             if (legacy)
             {
-                save.Version = SaveVersion;
                 save.Food = StartingFood;
                 save.Wood = StartingWood;
                 save.TradePartner = -1;
@@ -158,6 +191,13 @@ namespace GrandStrategy.WorldGeneration
                 || (pending == ExpansionApproach.Force && !save.Warband)
                 || !Enum.IsDefined(typeof(ExpansionApproach), save.FirstExpansion))
                 throw new ArgumentException("The save contains invalid settlement data.");
+
+            if (save.Version < SaveVersion)
+            {
+                save.Buildings = new int[map.Provinces.Length];
+                save.Iron = 0;
+                save.Version = SaveVersion;
+            }
             return state;
         }
 
@@ -197,6 +237,42 @@ namespace GrandStrategy.WorldGeneration
         private static int Count(ProvinceInfo province, BiomeKind biome)
             => province.BiomeCounts != null && (int)biome < province.BiomeCounts.Length
                 ? province.BiomeCounts[(int)biome] : 0;
+
+        public static (string Name, int Coin, int Wood, int Yield, string Resource) BuildingInfo(SettlementBuilding building)
+            => building switch
+            {
+                SettlementBuilding.Farm => ("Farm", 25, 15, 3, "food"),
+                SettlementBuilding.LumberCamp => ("Lumber camp", 20, 10, 2, "wood"),
+                SettlementBuilding.IronMine => ("Iron mine", 35, 20, 1, "iron"),
+                _ => throw new ArgumentOutOfRangeException(nameof(building))
+            };
+
+        public bool HasBuilding(int province, SettlementBuilding building)
+            => Owns(province) && (data.Buildings[province] & (int)building) != 0;
+
+        public bool CanBuild(int province, SettlementBuilding building)
+        {
+            var info = BuildingInfo(building);
+            return Owns(province) && !HasBuilding(province, building) && Coin >= info.Coin && Wood >= info.Wood;
+        }
+
+        public bool TryBuild(int province, SettlementBuilding building)
+        {
+            if (!CanBuild(province, building)) return false;
+            var info = BuildingInfo(building);
+            data.Coin -= info.Coin;
+            data.Wood -= info.Wood;
+            data.Buildings[province] |= (int)building;
+            return true;
+        }
+
+        private int BuildingCount(SettlementBuilding building)
+        {
+            var count = 0;
+            for (var province = 0; province < data.Buildings.Length; province++)
+                if (HasBuilding(province, building)) count++;
+            return count;
+        }
 
         public bool TryBuildGranary()
         {
@@ -288,34 +364,58 @@ namespace GrandStrategy.WorldGeneration
             var elapsed = Math.Min(fractionOfDay + seconds * Speed, stop - Day);
             var days = (int)elapsed;
             fractionOfDay = elapsed - days;
-            var previousDay = Day;
             var destination = Day + days;
             var expanded = false;
-            var harvest = Fertility(map.Provinces[Capital]);
+            var harvest = Fertility(map.Provinces[Capital]) - (HasWarband ? 1 : 0);
 
-            // Only the opening winter needs day-by-day ordering. After thaw, batch stable production.
+            // Winter consumption and population losses affect taxes on the same day.
             while (Day < destination && Day < WinterEnd)
             {
+                var previousDay = Day;
                 data.Day++;
                 expanded |= AdvanceIntegration(1);
-                if (Day % 5 == 0)
-                {
-                    if (Day < WinterStart) AddFood(harvest - (HasWarband ? 1 : 0));
-                    else if (Day > WinterStart) ConsumeWinterFood(WinterFoodPerPeriod);
-                }
+                ApplyEconomy(previousDay, harvest);
             }
 
-            if (Day < destination)
+            // Batch stable production after thaw, splitting at any ownership change.
+            while (Day < destination)
             {
-                expanded |= AdvanceIntegration(destination - Day);
-                AddFood((long)(destination / 5 - Day / 5) * (harvest - (HasWarband ? 1 : 0)));
-                data.Day = destination;
+                var previousDay = Day;
+                var span = destination - Day;
+                if (IntegrationTarget >= 0 && IntegrationDaysLeft <= span)
+                    span = Math.Max(1, IntegrationDaysLeft - 1);
+                data.Day += span;
+                expanded |= AdvanceIntegration(span);
+                ApplyEconomy(previousDay, harvest);
             }
 
-            // Wood arrives slowly enough that the first building and a warband compete for it.
-            data.Wood = Math.Min(ResourceLimit, Wood + Day / 15 - previousDay / 15);
             if (days != 0 && (Day == WinterStart || Day == WinterEnd)) Paused = true;
             return expanded;
+        }
+
+        private void ApplyEconomy(int previousDay, int harvest)
+        {
+            var periods = Day / ProductionInterval - previousDay / ProductionInterval;
+            var taxes = Day / TaxInterval - previousDay / TaxInterval;
+            if (periods > 0)
+            {
+                var farmFood = FarmFood;
+                if (Day > WinterStart && Day <= WinterEnd)
+                {
+                    var winterUse = WinterConsumption;
+                    ConsumeWinterFood(Math.Max(0, winterUse - farmFood));
+                    AddFood(Math.Max(0, farmFood - winterUse));
+                }
+                else
+                    AddFood((long)periods * (farmFood + (Day == WinterStart ? 0 : harvest)));
+
+                var lumber = BuildingCount(SettlementBuilding.LumberCamp) * BuildingInfo(SettlementBuilding.LumberCamp).Yield;
+                var iron = BuildingCount(SettlementBuilding.IronMine) * BuildingInfo(SettlementBuilding.IronMine).Yield;
+                data.Wood = (int)Math.Min(ResourceLimit, Wood + (long)periods * lumber + taxes);
+                data.Iron = (int)Math.Min(ResourceLimit, Iron + (long)periods * iron);
+            }
+            if (taxes > 0)
+                data.Coin = (int)Math.Min(ResourceLimit, Coin + taxes * Math.Min(ResourceLimit, TaxIncome));
         }
 
         private bool AdvanceIntegration(int days)
