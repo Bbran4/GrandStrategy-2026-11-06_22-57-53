@@ -35,6 +35,7 @@ Shader "GrandStrategy/Playable Map"
         [NoScaleOffset] _TundraSoilColour ("Tundra soil colour", 2D) = "gray" {}
         [NoScaleOffset] _TundraSoilNormal ("Tundra soil normal", 2D) = "bump" {}
         _GroundTileFrequency ("Ground tile frequency", Float) = 3
+        [HideInInspector] _InverseReliefHeight ("Inverse maximum relief height", Float) = 1
         _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
         _BiomeSurface ("Biome IDs, ocean shoals, freshwater and snow", 2D) = "black" {}
         _GroundPatterns ("Ground patterns", 2D) = "gray" {}
@@ -125,6 +126,7 @@ Shader "GrandStrategy/Playable Map"
                 float4 _TribeColour;
                 float4 _CapitalClearing;
                 float4 _GroundGrid;
+                float _InverseReliefHeight;
                 float4 _TerrainShadow_TexelSize;
                 float4 _MapSun;
                 float _ShowPolitics;
@@ -257,6 +259,63 @@ Shader "GrandStrategy/Playable Map"
                 AccumulateGround(TEXTURE2D_ARGS(colourMap, sampler_GroundPatterns), \
                     TEXTURE2D_ARGS(normalMap, sampler_GroundPatterns), coords, frequency, weight, result)
 
+            // Paint the first overlay onto the base, then apply the second overlay on top.
+            // The weights sum to one, so rules cannot change a biome's overall coverage.
+            float3 PaintWeights(float first, float second)
+            {
+                first = saturate(first);
+                second = saturate(second);
+                return float3((1.0 - first) * (1.0 - second), first * (1.0 - second), second);
+            }
+
+            struct BiomePaint
+            {
+                float3 wetland;
+                float3 desert;
+                float3 plains;
+                float3 temperate;
+                float3 tropical;
+                float3 boreal;
+                float3 tundra;
+                float3 alpine;
+            };
+
+            BiomePaint EvaluateBiomePaint(float slope, float elevation, float bank, float forestEdge,
+                float4 broad, float4 patches, float3 plainsMix, float3 forestMix)
+            {
+                float slopeRock = smoothstep(0.025, 0.24, slope + (patches.g - 0.5) * 0.08);
+                float upland = smoothstep(0.22, 0.76, elevation + (broad.g - 0.5) * 0.16);
+                float bankMud = bank * (1.0 - slopeRock);
+                float litter = smoothstep(0.25, 0.75, broad.a * 0.52 + patches.b * 0.48);
+                float patchRock = smoothstep(0.29, 0.71, broad.g * 0.56 + patches.r * 0.44);
+
+                BiomePaint paint;
+                // Mud, grassy margins, pebbles at the water's edge.
+                paint.wetland = PaintWeights((1.0 - bankMud) * (1.0 - slopeRock) * plainsMix.z * 0.65,
+                    bank * patchRock * 0.43);
+                // Sand, firm soil, stony slopes.
+                paint.desert = PaintWeights(patchRock * (0.24 + 0.42 * slopeRock), slopeRock * upland * 0.46);
+                // Short grass, meadow, sparse grass on slopes and at woodland edges.
+                paint.plains = PaintWeights(plainsMix.z * (1.0 - slopeRock) * 0.78,
+                    plainsMix.y * 0.40 + slopeRock * 0.32 + forestEdge * (0.27 + patches.r * 0.33));
+                // Leaf litter, dense litter, muddy patches.
+                paint.temperate = PaintWeights(litter * (1.0 - slopeRock * 0.30),
+                    forestMix.y * 0.30 + bankMud * 0.26 + forestEdge * (0.32 + patches.a * 0.36));
+                // Dense litter, upland litter, low and sheltered mud.
+                paint.tropical = PaintWeights(upland * litter * 0.75,
+                    (1.0 - upland) * forestMix.y * 0.40 + bankMud * 0.38 + forestEdge * 0.28);
+                // Dark earth, dense litter on sheltered ground, mud near water.
+                paint.boreal = PaintWeights(litter * (1.0 - slopeRock * 0.7) * 0.75,
+                    forestMix.y * 0.27 + bankMud * 0.40 + forestEdge * 0.24);
+                // Stone, grey soil, sparse grass on lower and gentler ground.
+                paint.tundra = PaintWeights(patchRock * (1.0 - slopeRock * 0.65),
+                    (1.0 - upland) * (1.0 - slopeRock) * plainsMix.z * 0.64);
+                // Bedrock, scree below high ridges, soil on gentle shelves.
+                paint.alpine = PaintWeights(patchRock * (1.0 - upland * 0.45),
+                    (1.0 - slopeRock) * (1.0 - upland) * litter * 0.48);
+                return paint;
+            }
+
             float3 ShadeGround(Varyings input, float3 normal, float4 map)
             {
                 float4 biomeSurface = SAMPLE_TEXTURE2D(_BiomeSurface, sampler_BiomeSurface, input.uv);
@@ -350,39 +409,35 @@ Shader "GrandStrategy/Playable Map"
                     float vegetated = plainsWeight + forestWeight;
                     float forestShare = forestWeight / max(vegetated, 0.0001);
                     float edge = 4.0 * forestShare * (1.0 - forestShare);
-                    float sparse = saturate(plainsMix.y * 0.46 + edge * (0.27 + patches.r * 0.33));
-                    float leafMud = saturate(forestMix.y * 0.40 + edge * (0.32 + patches.a * 0.36));
+                    float bank = 1.0 - smoothstep(0.52, 0.98, waterField.a);
+                    float elevation = saturate(position.y * _InverseReliefHeight);
+                    BiomePaint paint = EvaluateBiomePaint(1.0 - normal.y, elevation, bank, edge,
+                        broad, patches, plainsMix, forestMix);
 
                     float rockCover = exposed * 0.84;
                     float baseWeight = (1.0 - snow) * (1.0 - rockCover);
                     low *= baseWeight;
                     high *= baseWeight;
-                    // Split each biome's weight across patchy variants before sampling shared materials.
-                    float plainsMeadow = low.z * (1.0 - sparse) * plainsMix.z * 0.78;
-                    float plainsGrass = low.z * (1.0 - sparse) - plainsMeadow;
-                    float tundraGrass = high.z * smoothstep(0.34, 0.72, broad.r * 0.58 + patches.a * 0.42) * 0.48;
-                    float tundraSoil = (high.z - tundraGrass) * smoothstep(0.29, 0.71, broad.g * 0.56 + patches.r * 0.44);
-                    float tundraStone = high.z - tundraGrass - tundraSoil;
+                    float rockWeight = high.w * paint.alpine.x + rockCover * (1.0 - snow);
+                    float sparseWeight = low.x * paint.wetland.y + low.z * paint.plains.z + high.z * paint.tundra.z;
+                    float mudWeight = low.x * paint.wetland.x + low.w * paint.temperate.z
+                        + high.x * paint.tropical.z + high.y * paint.boreal.z;
+                    float litterWeight = low.w * paint.temperate.x + high.x * paint.tropical.y;
+                    float denseWeight = low.w * paint.temperate.y + high.x * paint.tropical.x + high.y * paint.boreal.y;
+                    float stoneWeight = low.y * paint.desert.z + high.z * paint.tundra.x + high.w * paint.alpine.y;
+                    float soilWeight = low.y * paint.desert.y + high.z * paint.tundra.y + high.w * paint.alpine.z;
 
-                    float mudWeight = low.x + (low.w + high.x + high.y) * leafMud;
-                    float rockWeight = high.w + rockCover * (1.0 - snow);
-                    float denseShare = smoothstep(0.25, 0.75, broad.a * 0.52 + patches.b * 0.48);
-                    float temperateLitter = low.w * (1.0 - leafMud);
-                    float borealFloor = high.y * (1.0 - leafMud);
-                    float borealLitter = borealFloor * smoothstep(0.28, 0.73, broad.b * 0.55 + patches.g * 0.45) * 0.78;
-                    float denseWeight = temperateLitter * denseShare + high.x * (1.0 - leafMud) + borealLitter;
-
-                    GROUND_LAYER(_GrassColour, _GrassNormal, tile, 34.0, plainsGrass, landDetail);
-                    GROUND_LAYER(_MeadowColour, _MeadowNormal, tile, 32.0, plainsMeadow, landDetail);
-                    GROUND_LAYER(_SparseGrassColour, _SparseGrassNormal, tile, 39.0, low.z * sparse + tundraGrass, landDetail);
+                    GROUND_LAYER(_GrassColour, _GrassNormal, tile, 34.0, low.z * paint.plains.x, landDetail);
+                    GROUND_LAYER(_MeadowColour, _MeadowNormal, tile, 32.0, low.z * paint.plains.y, landDetail);
+                    GROUND_LAYER(_SparseGrassColour, _SparseGrassNormal, tile, 39.0, sparseWeight, landDetail);
                     GROUND_LAYER(_LeafMudColour, _LeafMudNormal, tile, 37.0, mudWeight, landDetail);
-                    GROUND_LAYER(_LeafLitterColour, _LeafLitterNormal, litter, 43.0,
-                        temperateLitter * (1.0 - denseShare), landDetail);
+                    GROUND_LAYER(_LeafLitterColour, _LeafLitterNormal, litter, 43.0, litterWeight, landDetail);
                     GROUND_LAYER(_DenseLitterColour, _DenseLitterNormal, tile, 42.0, denseWeight, landDetail);
-                    GROUND_LAYER(_BorealColour, _BorealNormal, tile, 40.0, borealFloor - borealLitter, landDetail);
-                    GROUND_LAYER(_DesertColour, _DesertNormal, tile, 36.0, low.y, landDetail);
-                    GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, tundraStone, landDetail);
-                    GROUND_LAYER(_TundraSoilColour, _TundraSoilNormal, tile, 36.0, tundraSoil, landDetail);
+                    GROUND_LAYER(_BorealColour, _BorealNormal, tile, 40.0, high.y * paint.boreal.x, landDetail);
+                    GROUND_LAYER(_DesertColour, _DesertNormal, tile, 36.0, low.y * paint.desert.x, landDetail);
+                    GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, stoneWeight, landDetail);
+                    GROUND_LAYER(_TundraSoilColour, _TundraSoilNormal, tile, 36.0, soilWeight, landDetail);
+                    GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 26.0, low.x * paint.wetland.z, landDetail);
                     // Steep banks need vertical texture projection. Keep the established top projection inland.
                     float cliff = smoothstep(0.16, 0.46, 1.0 - normal.y)
                         * (1.0 - smoothstep(0.55, 0.97, waterField.a));

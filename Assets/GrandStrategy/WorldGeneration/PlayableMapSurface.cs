@@ -69,6 +69,8 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_LandMaterialsLow", landMaterialsLow);
                 material.SetTexture("_LandMaterialsHigh", landMaterialsHigh);
                 material.SetVector("_GroundGrid", new Vector4(Map.Width, Map.Height, 1f / Aspect, 0f));
+                var maximumReliefHeight = world.HeightScale * (1f - terrain.Recipe.SeaLevel);
+                material.SetFloat("_InverseReliefHeight", 1f / Mathf.Max(maximumReliefHeight, .0001f));
                 material.SetTexture("_ProvinceIndices", regions);
                 CreateProvinceCornerTexture();
                 var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
