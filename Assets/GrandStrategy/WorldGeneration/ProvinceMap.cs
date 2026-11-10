@@ -20,6 +20,9 @@ namespace GrandStrategy.WorldGeneration
         public bool TouchesOpenSea;
         public int[] Neighbours;
         public int[] BiomeCounts;
+        [NonSerialized] public int[] TradeWaterways;
+
+        internal ProvinceInfo Copy() => (ProvinceInfo)MemberwiseClone();
     }
 
     [Serializable]
@@ -126,6 +129,84 @@ namespace GrandStrategy.WorldGeneration
                 ProvinceAt = rgb, TerritoryAt = territoryAt, UnassignedPixels = unassigned,
                 HasRiverData = rivers != null, HasRiverFootprint = riverSurface != null, HasCoastData = water != null
             };
+        }
+
+        // Build gameplay geography from the same world layers that the playable map renders.
+        internal ProvinceMap WithSettlementGeography(WaterMap water, byte[] rivers, byte[] biomes)
+        {
+            var result = (ProvinceMap)MemberwiseClone();
+            result.Provinces = Array.ConvertAll(Provinces, p => p.Copy());
+            var waterways = new HashSet<int>[Provinces.Length];
+            var land = Array.ConvertAll(Provinces, p => string.Equals(p.Type, "land", StringComparison.OrdinalIgnoreCase));
+            var length = ProvinceAt.Length;
+            var visited = new bool[length];
+            var queue = new int[length];
+            var component = 0;
+            if (biomes != null)
+            {
+                var biomeCount = Enum.GetValues(typeof(BiomeKind)).Length;
+                for (var i = 0; i < land.Length; i++)
+                    if (land[i]) result.Provinces[i].BiomeCounts = new int[biomeCount];
+            }
+
+            for (var cell = 0; cell < length; cell++)
+            {
+                var province = ProvinceAt[cell];
+                if (!IsWaterway(cell))
+                {
+                    if (biomes != null && province >= 0 && land[province] && water[cell] == WaterKind.Land)
+                        result.Provinces[province].BiomeCounts[biomes[cell]]++;
+                    continue;
+                }
+                if (visited[cell]) continue;
+                component++;
+                var tail = 1;
+                queue[0] = cell;
+                visited[cell] = true;
+                for (var head = 0; head < tail; head++)
+                {
+                    var current = queue[head];
+                    var x = current % Width;
+                    var y = current / Width;
+                    if (x > 0) Visit(current - 1);
+                    if (x + 1 < Width) Visit(current + 1);
+                    if (y > 0) Visit(current - Width);
+                    if (y + 1 < Height) Visit(current + Width);
+                    // Rivers can run diagonally across the raster.
+                    if (!IsRiver(current)) continue;
+                    if (y > 0 && x > 0 && IsRiver(current - Width - 1)) Visit(current - Width - 1);
+                    if (y > 0 && x + 1 < Width && IsRiver(current - Width + 1)) Visit(current - Width + 1);
+                    if (y + 1 < Height && x > 0 && IsRiver(current + Width - 1)) Visit(current + Width - 1);
+                    if (y + 1 < Height && x + 1 < Width && IsRiver(current + Width + 1)) Visit(current + Width + 1);
+                }
+
+                void Visit(int next)
+                {
+                    if (IsWaterway(next))
+                    {
+                        if (visited[next]) return;
+                        visited[next] = true;
+                        queue[tail++] = next;
+                        return;
+                    }
+                    var shore = ProvinceAt[next];
+                    if (water[next] == WaterKind.Land && shore >= 0 && land[shore])
+                        (waterways[shore] ??= new HashSet<int>()).Add(component);
+                }
+            }
+
+            for (var i = 0; i < result.Provinces.Length; i++)
+            {
+                var channels = waterways[i];
+                var ids = channels == null ? Array.Empty<int>() : new int[channels.Count];
+                channels?.CopyTo(ids);
+                Array.Sort(ids);
+                result.Provinces[i].TradeWaterways = ids;
+            }
+            return result;
+
+            bool IsRiver(int cell) => water[cell] == WaterKind.Land && rivers != null && rivers[cell] != 0;
+            bool IsWaterway(int cell) => water[cell] == WaterKind.Ocean || IsRiver(cell);
         }
 
         // The importer hands over the PNG buffer for conversion in place.

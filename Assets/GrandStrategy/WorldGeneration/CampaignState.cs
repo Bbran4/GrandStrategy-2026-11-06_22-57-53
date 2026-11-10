@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace GrandStrategy.WorldGeneration
@@ -6,14 +7,15 @@ namespace GrandStrategy.WorldGeneration
     internal enum ExpansionApproach { None, Diplomacy, Trade, Force }
 
     [Flags]
-    internal enum SettlementBuilding { Farm = 1, LumberCamp = 2, IronMine = 4 }
+    internal enum SettlementBuilding { Farm = 1, LumberCamp = 2, IronMine = 4, Docks = 8 }
 
     internal enum TradeResource { Coin, Food, Wood, Iron }
 
-    internal readonly struct TradeOffer
+    [Serializable]
+    internal struct TradeOffer
     {
-        public readonly TradeResource Give, Want;
-        public readonly int GiveAmount, WantAmount;
+        public TradeResource Give, Want;
+        public int GiveAmount, WantAmount;
 
         public TradeOffer(TradeResource give, int giveAmount, TradeResource want, int wantAmount)
         {
@@ -22,6 +24,15 @@ namespace GrandStrategy.WorldGeneration
             Want = want;
             WantAmount = wantAmount;
         }
+    }
+
+    [Serializable]
+    internal struct TradeAgreement
+    {
+        public int Province;
+        public TradeOffer Offer;
+        public int LastAttemptDay;
+        public string LastIssue;
     }
 
     [Serializable]
@@ -53,6 +64,10 @@ namespace GrandStrategy.WorldGeneration
         public int[] Buildings;
         public bool Granary;
         public bool Warband;
+        public bool IronWarband;
+        public int FoodReserve;
+        public List<TradeAgreement> Agreements;
+        public long TaxCollected, TradeReceipts, TradeSpending;
         public int TradePartner; // Legacy single partner for saves through version 3.
         public NeighbourMarket[] Markets;
         public long LastPopulationChange;
@@ -74,15 +89,19 @@ namespace GrandStrategy.WorldGeneration
         public const int WarbandWood = 35;
         public const int WarbandCoin = 45;
         public const int ForceFood = 8;
+        public const int IronWarbandIron = 10;
+        public const int IronWarbandWood = 15;
+        public const int IronWarbandCoin = 25;
+        private const int DefaultFoodReserve = 10;
         public const int TaxInterval = 15;
         public const int ProductionInterval = 5;
         public const int FoodInterval = 15;
         private const int PeoplePerFood = 125;
         private const double MaxGrowthRate = .02;
         private const double MaxStarvationRate = .10;
-        private const int SaveVersion = 4;
+        private const int SaveVersion = 5;
         private const SettlementBuilding AllBuildings =
-            SettlementBuilding.Farm | SettlementBuilding.LumberCamp | SettlementBuilding.IronMine;
+            SettlementBuilding.Farm | SettlementBuilding.LumberCamp | SettlementBuilding.IronMine | SettlementBuilding.Docks;
         private const int StartingFood = 40;
         private const int StartingWood = 45;
         private const int ResourceLimit = 999;
@@ -93,6 +112,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly ProvinceMap map;
         private readonly CampaignSave data;
         private double fractionOfDay;
+        private HashSet<int> dockWaterways;
 
         private CampaignState(ProvinceMap map, CampaignSave data)
         {
@@ -124,8 +144,17 @@ namespace GrandStrategy.WorldGeneration
             }
         }
         public long TaxIncome => (OwnedPopulation + 99) / 100;
+        public long TaxCollected => data.TaxCollected;
+        public long TradeReceipts => data.TradeReceipts;
+        public long TradeSpending => data.TradeSpending;
+        public int FoodReserve => data.FoodReserve;
+        public IReadOnlyList<TradeAgreement> TradeAgreements => data.Agreements;
+        public int TradeCapacity => 1 + BuildingTotal(SettlementBuilding.Docks);
         public bool HasGranary => data.Granary;
         public bool HasWarband => data.Warband;
+        public bool HasIronWarband => data.IronWarband;
+        public bool CanUpgradeWarband => HasWarband && !HasIronWarband
+            && Iron >= IronWarbandIron && Wood >= IronWarbandWood && Coin >= IronWarbandCoin;
         public long FoodUpkeep => (OwnedPopulation + PeoplePerFood - 1) / PeoplePerFood;
         public long LastPopulationChange => data.LastPopulationChange;
         public int WinterShortfall => data.WinterShortfall;
@@ -141,7 +170,19 @@ namespace GrandStrategy.WorldGeneration
             }
         }
         private int WinterFoodOutput => FarmFood - (HasGranary ? 0 : 2) - (HasWarband ? 1 : 0);
-        private int FarmFood => BuildingCount(SettlementBuilding.Farm) * BuildingInfo(SettlementBuilding.Farm).Yield;
+        private int FarmFood => BuildingTotal(SettlementBuilding.Farm);
+        public int SubsistenceFood(int province) => province == Capital ? Fertility(map.Provinces[province]) : 1;
+
+        private int WarmFoodOutput
+        {
+            get
+            {
+                var food = FarmFood - (HasWarband ? 1 : 0);
+                for (var province = 0; province < data.Owned.Length; province++)
+                    if (Owns(province)) food += SubsistenceFood(province);
+                return food;
+            }
+        }
         public ExpansionApproach FirstExpansion => data.FirstExpansion;
         public ExpansionApproach PendingApproach => data.PendingApproach;
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
@@ -175,6 +216,8 @@ namespace GrandStrategy.WorldGeneration
                 Owned = owned,
                 Buildings = new int[owned.Length],
                 Markets = new NeighbourMarket[owned.Length],
+                Agreements = new List<TradeAgreement>(),
+                FoodReserve = DefaultFoodReserve,
                 Pop = pop,
                 IntegrationTarget = -1,
                 TradePartner = -1,
@@ -260,8 +303,15 @@ namespace GrandStrategy.WorldGeneration
                     save.Markets[save.TradePartner] = market;
                 }
                 save.TradePartner = -1;
+            }
+            if (save.Version < 5)
+            {
+                save.Agreements = new List<TradeAgreement>();
+                save.FoodReserve = DefaultFoodReserve;
                 save.Version = SaveVersion;
             }
+            else
+                state.ValidateTradeAgreements();
             return state;
         }
 
@@ -291,51 +341,74 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public static bool HasTradeAccess(ProvinceInfo province)
-            => province.RiverBankEdges > 0 || province.RiverSamples > 0 || province.TouchesOpenSea;
+            => province.TradeWaterways != null ? province.TradeWaterways.Length > 0
+                : province.RiverBankEdges > 0 || province.RiverSamples > 0 || province.TouchesOpenSea;
 
-        public static bool IsDefensible(ProvinceInfo province)
+        private static bool IsMountain(ProvinceInfo province)
             => Count(province, BiomeKind.Alpine) > province.PixelCount / 5
                 || string.Equals(province.Terrain, "mountain", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(province.Terrain, "mountains", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsTundra(ProvinceInfo province)
+        {
+            var tundra = Count(province, BiomeKind.Tundra);
+            if (tundra == 0) return string.Equals(province.Terrain, "tundra", StringComparison.OrdinalIgnoreCase);
+            for (var biome = (int)BiomeKind.Wetland; biome <= (int)BiomeKind.Alpine; biome++)
+                if (Count(province, (BiomeKind)biome) > tundra) return false;
+            return true;
+        }
+
+        public static bool IsDefensible(ProvinceInfo province) => IsMountain(province);
 
         private static int Count(ProvinceInfo province, BiomeKind biome)
             => province.BiomeCounts != null && (int)biome < province.BiomeCounts.Length
                 ? province.BiomeCounts[(int)biome] : 0;
 
-        public static (string Name, int Coin, int Wood, int Yield, string Resource) BuildingInfo(SettlementBuilding building)
-            => building switch
+        public (string Name, int Coin, int Wood, int Yield, string Resource, string SiteIssue) BuildingInfo(
+            int province, SettlementBuilding building)
+        {
+            var site = map.Provinces[province];
+            return building switch
             {
-                SettlementBuilding.Farm => ("Farm", 25, 15, 3, "food"),
-                SettlementBuilding.LumberCamp => ("Lumber camp", 20, 10, 2, "wood"),
-                SettlementBuilding.IronMine => ("Iron mine", 35, 20, 1, "iron"),
+                SettlementBuilding.Farm => ("Farm", 25, 15, Fertility(site), "food",
+                    IsTundra(site) ? "Farms cannot be built in tundra." : null),
+                SettlementBuilding.LumberCamp => ("Lumber camp", 20, 10, TimberCoverage(site) * 2L >= site.PixelCount ? 3 : 2, "wood",
+                    HasTimber(site) ? null : "Requires more than 25% forest cover."),
+                SettlementBuilding.IronMine => ("Iron mine", 35, 20, Count(site, BiomeKind.Alpine) * 2L >= site.PixelCount ? 2 : 1, "iron",
+                    IsMountain(site) ? null : "Requires mountainous terrain."),
+                SettlementBuilding.Docks => ("Docks", 25, 25, 1, null,
+                    HasTradeAccess(site) ? null : "Requires an ocean coast or river bank."),
                 _ => throw new ArgumentOutOfRangeException(nameof(building))
             };
+        }
 
         public bool HasBuilding(int province, SettlementBuilding building)
             => Owns(province) && (data.Buildings[province] & (int)building) != 0;
 
         public bool CanBuild(int province, SettlementBuilding building)
         {
-            var info = BuildingInfo(building);
-            return Owns(province) && !HasBuilding(province, building) && Coin >= info.Coin && Wood >= info.Wood;
+            if (!Owns(province) || HasBuilding(province, building)) return false;
+            var info = BuildingInfo(province, building);
+            return info.SiteIssue == null && Coin >= info.Coin && Wood >= info.Wood;
         }
 
         public bool TryBuild(int province, SettlementBuilding building)
         {
             if (!CanBuild(province, building)) return false;
-            var info = BuildingInfo(building);
+            var info = BuildingInfo(province, building);
             data.Coin -= info.Coin;
             data.Wood -= info.Wood;
             data.Buildings[province] |= (int)building;
+            if (building == SettlementBuilding.Docks) dockWaterways = null;
             return true;
         }
 
-        private int BuildingCount(SettlementBuilding building)
+        private int BuildingTotal(SettlementBuilding building)
         {
-            var count = 0;
+            var total = 0;
             for (var province = 0; province < data.Buildings.Length; province++)
-                if (HasBuilding(province, building)) count++;
-            return count;
+                if (HasBuilding(province, building)) total += BuildingInfo(province, building).Yield;
+            return total;
         }
 
         public bool TryBuildGranary()
@@ -356,15 +429,93 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        public bool TryUpgradeWarband()
+        {
+            if (!CanUpgradeWarband) return false;
+            data.Iron -= IronWarbandIron;
+            data.Wood -= IronWarbandWood;
+            data.Coin -= IronWarbandCoin;
+            data.IronWarband = true;
+            return true;
+        }
+
+        public bool CanTradeWith(int province)
+        {
+            if (CanReachIndependentProvince(province)) return true;
+            if (!IsLand(map, province) || Owns(province)) return false;
+            var waterways = map.Provinces[province].TradeWaterways;
+            if (waterways == null || waterways.Length == 0) return false;
+
+            if (dockWaterways == null)
+            {
+                dockWaterways = new HashSet<int>();
+                for (var port = 0; port < map.Provinces.Length; port++)
+                    if (HasBuilding(port, SettlementBuilding.Docks) && map.Provinces[port].TradeWaterways != null)
+                        dockWaterways.UnionWith(map.Provinces[port].TradeWaterways);
+            }
+            foreach (var route in waterways)
+                if (dockWaterways.Contains(route)) return true;
+            return false;
+        }
+
+        public void SetFoodReserve(int reserve) => data.FoodReserve = Math.Max(0, Math.Min(ResourceLimit, reserve));
+
+        public string AgreementIssue(int province, TradeOffer offer)
+        {
+            if (data.Agreements.Exists(agreement => agreement.Province == province))
+                return "There is already an agreement with this neighbour.";
+            if (data.Agreements.Count >= TradeCapacity)
+                return "No agreement slots available. Build docks to add one.";
+            return EvaluateTrade(province, offer).Status;
+        }
+
+        public bool TryStartTradeAgreement(int province, TradeOffer offer)
+        {
+            if (AgreementIssue(province, offer) != null) return false;
+            data.Agreements.Add(new TradeAgreement { Province = province, Offer = offer });
+            return true;
+        }
+
+        public void CancelTradeAgreement(int province)
+            => data.Agreements.RemoveAll(agreement => agreement.Province == province);
+
+        private void ProcessTradeAgreements()
+        {
+            for (var i = 0; i < data.Agreements.Count; i++)
+            {
+                var agreement = data.Agreements[i];
+                agreement.LastAttemptDay = Day;
+                agreement.LastIssue = EvaluateTrade(agreement.Province, agreement.Offer).Status;
+                if (agreement.LastIssue == null && agreement.Offer.Give == TradeResource.Food
+                    && Food - agreement.Offer.GiveAmount < FoodUpkeep + FoodReserve)
+                    agreement.LastIssue = "Protected food reserve.";
+                if (agreement.LastIssue == null)
+                    ExecuteTrade(agreement.Province, agreement.Offer);
+                data.Agreements[i] = agreement;
+            }
+        }
+
+        private void ValidateTradeAgreements()
+        {
+            if (!ValidStock(FoodReserve) || data.Agreements == null || data.Agreements.Count > TradeCapacity
+                || TaxCollected < 0 || TradeReceipts < 0 || TradeSpending < 0 || (HasIronWarband && !HasWarband))
+                throw new ArgumentException("The save contains invalid treasury or trade agreement data.");
+
+            var partners = new HashSet<int>();
+            foreach (var agreement in data.Agreements)
+                if (!IsLand(map, agreement.Province) || Owns(agreement.Province) || !ValidTradeOffer(agreement.Offer)
+                    || !partners.Add(agreement.Province) || agreement.LastAttemptDay < 0
+                    || agreement.LastAttemptDay > Day)
+                    throw new ArgumentException("The save contains an invalid trade agreement.");
+        }
+
         public bool HasTradedWith(int province) => province >= 0 && province < data.Markets.Length
             && data.Markets[province].Traded;
 
         public (int Willingness, string Status, int Stock) EvaluateTrade(int province, TradeOffer offer)
         {
-            if (!CanReachIndependentProvince(province)) return (0, "Choose an independent neighbour.", 0);
-            if ((uint)offer.Give > (uint)TradeResource.Iron || (uint)offer.Want > (uint)TradeResource.Iron
-                || offer.Give == offer.Want || !ValidStock(offer.GiveAmount) || !ValidStock(offer.WantAmount)
-                || offer.GiveAmount == 0 || offer.WantAmount == 0)
+            if (!CanTradeWith(province)) return (0, "Choose an independent community within trade reach.", 0);
+            if (!ValidTradeOffer(offer))
                 return (0, "Choose different goods and enter positive amounts.", 0);
 
             var market = MarketAt(province);
@@ -387,8 +538,13 @@ namespace GrandStrategy.WorldGeneration
 
         public bool TryTrade(int province, TradeOffer offer)
         {
-            var evaluation = EvaluateTrade(province, offer);
-            if (evaluation.Status != null) return false;
+            if (EvaluateTrade(province, offer).Status != null) return false;
+            ExecuteTrade(province, offer);
+            return true;
+        }
+
+        private void ExecuteTrade(int province, TradeOffer offer)
+        {
             var market = MarketAt(province);
             SetMarketBalance(ref market, offer.Give, MarketBalance(market, offer.Give) + offer.GiveAmount);
             SetMarketBalance(ref market, offer.Want, MarketBalance(market, offer.Want) - offer.WantAmount);
@@ -396,7 +552,8 @@ namespace GrandStrategy.WorldGeneration
             data.Markets[province] = market;
             AdjustResource(offer.Give, -offer.GiveAmount);
             AdjustResource(offer.Want, offer.WantAmount);
-            return true;
+            if (offer.Want == TradeResource.Coin) RecordCoin(ref data.TradeReceipts, offer.WantAmount);
+            if (offer.Give == TradeResource.Coin) RecordCoin(ref data.TradeSpending, offer.GiveAmount);
         }
 
         private NeighbourMarket MarketAt(int province)
@@ -408,7 +565,7 @@ namespace GrandStrategy.WorldGeneration
             var coin = HasTradeAccess(info) ? 36 : 24;
             var food = 8 + 8 * Fertility(info);
             var wood = HasTimber(info) ? 28 : 12;
-            var iron = IsDefensible(info) ? 16 : 6;
+            var iron = IsMountain(info) ? 16 : 0;
             var elapsed = period - market.Period;
             return new NeighbourMarket
             {
@@ -428,9 +585,11 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        private static bool HasTimber(ProvinceInfo info)
+        private static int TimberCoverage(ProvinceInfo info)
             => Count(info, BiomeKind.TemperateForest) + Count(info, BiomeKind.TropicalForest)
-                + Count(info, BiomeKind.BorealForest) > info.PixelCount / 4;
+                + Count(info, BiomeKind.BorealForest);
+
+        private static bool HasTimber(ProvinceInfo info) => TimberCoverage(info) > info.PixelCount / 4;
 
         private static int TradeValue(ProvinceInfo info, TradeResource resource) => resource switch
         {
@@ -481,7 +640,15 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        private static bool ValidTradeOffer(TradeOffer offer)
+            => (uint)offer.Give <= (uint)TradeResource.Iron && (uint)offer.Want <= (uint)TradeResource.Iron
+                && offer.Give != offer.Want && offer.GiveAmount > 0 && offer.WantAmount > 0
+                && ValidStock(offer.GiveAmount) && ValidStock(offer.WantAmount);
+
         private static bool ValidStock(int amount) => amount >= 0 && amount <= ResourceLimit;
+
+        private static void RecordCoin(ref long total, int amount)
+            => total += Math.Min(long.MaxValue - total, amount);
 
         public bool CanStartIntegration(int province, ExpansionApproach approach)
         {
@@ -543,7 +710,6 @@ namespace GrandStrategy.WorldGeneration
             fractionOfDay = elapsed - days;
             var destination = Day + days;
             var expanded = false;
-            var harvest = Fertility(map.Provinces[Capital]) - (HasWarband ? 1 : 0);
 
             // Settle production and population upkeep in calendar order, including during fast-forward.
             while (Day < destination)
@@ -555,32 +721,39 @@ namespace GrandStrategy.WorldGeneration
                     span = Math.Max(1, IntegrationDaysLeft - 1);
                 data.Day += span;
                 expanded |= AdvanceIntegration(span);
-                ApplyEconomy(previousDay, harvest);
+                ApplyEconomy(previousDay);
             }
 
             if (days != 0 && (Day == WinterStart || Day == WinterEnd)) Paused = true;
             return expanded;
         }
 
-        private void ApplyEconomy(int previousDay, int harvest)
+        private void ApplyEconomy(int previousDay)
         {
             var periods = Day / ProductionInterval - previousDay / ProductionInterval;
             var taxes = Day / TaxInterval - previousDay / TaxInterval;
             if (periods > 0)
             {
-                var output = Day > WinterStart && Day <= WinterEnd ? WinterFoodOutput : FarmFood + harvest;
+                var output = Day > WinterStart && Day <= WinterEnd ? WinterFoodOutput : WarmFoodOutput;
                 if (Day == WinterStart) AddFood((long)(periods - 1) * output + FarmFood);
                 else AddFood((long)periods * output);
 
-                var lumber = BuildingCount(SettlementBuilding.LumberCamp) * BuildingInfo(SettlementBuilding.LumberCamp).Yield;
-                var iron = BuildingCount(SettlementBuilding.IronMine) * BuildingInfo(SettlementBuilding.IronMine).Yield;
+                var lumber = BuildingTotal(SettlementBuilding.LumberCamp);
+                var iron = BuildingTotal(SettlementBuilding.IronMine);
                 data.Wood = (int)Math.Min(ResourceLimit, Wood + (long)periods * lumber + taxes);
                 data.Iron = (int)Math.Min(ResourceLimit, Iron + (long)periods * iron);
             }
             if (Day / FoodInterval > previousDay / FoodInterval)
+            {
+                ProcessTradeAgreements();
                 FeedPopulation();
+            }
             if (taxes > 0)
-                data.Coin = (int)Math.Min(ResourceLimit, Coin + taxes * Math.Min(ResourceLimit, TaxIncome));
+            {
+                var collected = (int)Math.Min(ResourceLimit - Coin, taxes * Math.Min(ResourceLimit, TaxIncome));
+                data.Coin += collected;
+                RecordCoin(ref data.TaxCollected, collected);
+            }
         }
 
         private void FeedPopulation()
@@ -618,12 +791,14 @@ namespace GrandStrategy.WorldGeneration
             var target = IntegrationTarget;
             if (PendingApproach == ExpansionApproach.Force)
             {
-                LosePopulation(Capital, IsDefensible(map.Provinces[target]) ? 18 : 8);
+                var losses = IsDefensible(map.Provinces[target]) ? 18 : 8;
+                LosePopulation(Capital, HasIronWarband ? losses / 2 : losses);
                 LosePopulation(target, 12);
                 AddFood(38);
             }
             if (FirstExpansion == ExpansionApproach.None) data.FirstExpansion = PendingApproach;
             data.Owned[target] = true;
+            CancelTradeAgreement(target);
             data.IntegrationTarget = -1;
             data.PendingApproach = ExpansionApproach.None;
             return true;

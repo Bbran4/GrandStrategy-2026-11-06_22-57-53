@@ -66,6 +66,7 @@ internal static class Program
         CheckProvinceMap();
         CheckWorldRecipe();
         CheckCampaign();
+        CheckSettlementGeography();
         CheckBorderPaths();
         CheckProvinceShape();
         CheckNature();
@@ -420,8 +421,8 @@ internal static class Program
         var recipe = Small();
         var regions = new[]
         {
-            new ProvinceInfo { Id = "Capital", Rgb = 1, Type = "land" },
-            new ProvinceInfo { Id = "Neighbour", Rgb = 2, Type = "land" },
+            new ProvinceInfo { Id = "Capital", Rgb = 1, Type = "land", Terrain = "mountains" },
+            new ProvinceInfo { Id = "Neighbour", Rgb = 2, Type = "land", Terrain = "mountains" },
             new ProvinceInfo { Id = "Beyond", Rgb = 3, Type = "land" },
             new ProvinceInfo { Id = "Sea", Rgb = 4, Type = "ocean" }
         };
@@ -430,7 +431,9 @@ internal static class Program
         raster[1] = 2;
         raster[2] = 3;
         raster[recipe.Width] = 4;
-        var map = ProvinceMap.Build(recipe, raster, regions);
+        var biomes = new byte[raster.Length];
+        biomes[0] = (byte)BiomeKind.TemperateForest;
+        var map = ProvinceMap.Build(recipe, raster, regions, biomes: biomes);
         var key = CampaignState.MapKey(map, recipe.Seed);
         Require(key != CampaignState.MapKey(map, recipe.Seed + 1), "Save keys should distinguish world seeds.");
         Reject(() => CampaignState.Found(map, key, recipe.Width, "Tribe", 0), "A water province was made capital.");
@@ -520,7 +523,8 @@ internal static class Program
         Require(!trader.TryTrade(2, buyFood) && !trader.TryTrade(1, lowOffer)
             && trader.EvaluateTrade(1, lowOffer).Willingness < 100 && trader.Coin == CampaignState.StartingCoin,
             "Inaccessible and unfavorable trades must leave both sides unchanged.");
-        Require(trader.TryTrade(1, buyFood) && trader.EvaluateTrade(1, buyFood).Stock == initialStock - 10
+        Require(trader.TryTrade(1, buyFood) && trader.TradeSpending == 30
+            && trader.EvaluateTrade(1, buyFood).Stock == initialStock - 10
             && trader.Food == startingFood + 10 && trader.Coin == CampaignState.StartingCoin - 30,
             "Buying food must exchange both stock balances.");
         Require(trader.TryTrade(1, buyIron) && trader.Iron == 2 && trader.Wood == initialWood - 10
@@ -569,7 +573,8 @@ internal static class Program
         Require(economy.Day == 15 && economy.Coin == 20 + firstTax
             && economy.Population(0) > population && economy.Population(1) == population
             && economy.Food == startingFood + 3 * (CampaignState.Fertility(map.Provinces[0]) + 3) - firstUpkeep
-            && economy.Wood == 7 && economy.Iron == 3, "Taxes and construction output must follow the calendar.");
+            && economy.Wood == 10 && economy.Iron == 3 && economy.TaxCollected == firstTax,
+            "Taxes and site-specific construction output must follow the calendar.");
 
         var economySave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(economy.ToSave(), json), json);
         economy = CampaignState.Restore(map, key, economySave, 5);
@@ -599,6 +604,43 @@ internal static class Program
         Require(CampaignState.Restore(map, key, taxSave, 5).Coin == batched.Coin,
             "A treasury above the starting balance must survive reload.");
 
+        var exporter = CampaignState.Found(map, key, 0, "Exporter", 0);
+        var export = new TradeOffer(TradeResource.Food, 12, TradeResource.Coin, 5);
+        Require(exporter.TryStartTradeAgreement(1, export) && !exporter.TryStartTradeAgreement(1, export)
+            && exporter.Food == startingFood && exporter.TradeReceipts == 0,
+            "Signing reserves a slot but waits for the next economy tick.");
+        exporter.SetFoodReserve(45);
+        exporter.Paused = false;
+        exporter.Advance(14);
+        Require(exporter.TradeAgreements[0].LastAttemptDay == 15
+            && exporter.TradeAgreements[0].LastIssue == "Protected food reserve." && exporter.TradeReceipts == 0,
+            "The reserve must block food exports without transferring goods or coin.");
+        var exportSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(exporter.ToSave(), json), json);
+        exporter = CampaignState.Restore(map, key, exportSave, 5);
+        Require(exporter.FoodReserve == 45 && exporter.TradeAgreements[0].LastIssue == "Protected food reserve.",
+            "The agreement and reserve must survive a save round trip.");
+        exporter.SetFoodReserve(10);
+        exporter.Paused = false;
+        exporter.Advance(15);
+        Require(exporter.TradeAgreements[0].LastIssue == null && exporter.TradeReceipts == 5
+            && exporter.Coin == CampaignState.StartingCoin + exporter.TaxCollected + exporter.TradeReceipts,
+            "An agreement must resume and book receipts separately from taxes.");
+        Require(exporter.TryStartIntegration(1), "Could not integrate the trade partner.");
+        exporter.Advance(30);
+        Require(exporter.Owns(1) && exporter.TradeAgreements.Count == 0 && exporter.TradeReceipts == 10,
+            "An agreement must end before shipping on the day its partner joins.");
+
+        var equippedSave = CampaignState.Found(map, key, 0, "Iron warband", 0).ToSave();
+        equippedSave.Warband = true;
+        equippedSave.Iron = CampaignState.IronWarbandIron;
+        var equipped = CampaignState.Restore(map, key, equippedSave, 5);
+        Require(equipped.TryUpgradeWarband() && equipped.HasIronWarband && !equipped.TryUpgradeWarband()
+            && equipped.Iron == 0 && equipped.TryStartIntegration(1, ExpansionApproach.Force),
+            "Equipping the warband must spend iron exactly once.");
+        equipped.Paused = false;
+        equipped.Advance(10);
+        Require(equipped.Population(0) == warriorPopulation - 9, "Iron equipment must halve friendly losses.");
+
         var previousSave = CampaignState.Found(map, key, 0, "Previous save", 0).ToSave();
         previousSave.Version = 2;
         previousSave.Buildings = null;
@@ -626,6 +668,68 @@ internal static class Program
         Require(migrated.Food == startingFood && migrated.Wood == initialWood && !migrated.HasTradedWith(1)
             && migrated.PendingApproach == ExpansionApproach.Diplomacy && migrated.IntegrationTarget == 1,
             "Legacy campaigns must keep progress and get initial village supplies.");
+    }
+
+    private static void CheckSettlementGeography()
+    {
+        var recipe = Small();
+        var width = recipe.Width;
+        var raster = new int[width * recipe.Height];
+        var biomes = new byte[raster.Length];
+        var rivers = new byte[raster.Length];
+        var heights = Enumerable.Repeat(1f, raster.Length).ToArray();
+        var coast = width + 1;
+        var mountain = 3 * width + 6;
+        var tundra = 2 * width + 10;
+        var isolated = 2 * width + 20;
+        raster[coast] = 1;
+        raster[mountain] = 2;
+        raster[tundra] = 3;
+        raster[isolated] = 4;
+        biomes[coast] = (byte)BiomeKind.BorealForest;
+        biomes[mountain] = (byte)BiomeKind.Alpine;
+        biomes[tundra] = (byte)BiomeKind.Tundra;
+        biomes[isolated] = (byte)BiomeKind.Grassland;
+        for (var x = 0; x <= 8; x++) heights[x] = 0;
+        heights[tundra + 1] = 0;
+        rivers[width + 4] = rivers[2 * width + 4] = rivers[3 * width + 5] = 1;
+        rivers[isolated + 1] = 1;
+        var regions = new[]
+        {
+            new ProvinceInfo { Id = "Coast", Rgb = 1, Type = "land" },
+            new ProvinceInfo { Id = "Mountain", Rgb = 2, Type = "land" },
+            new ProvinceInfo { Id = "Tundra", Rgb = 3, Type = "land" },
+            new ProvinceInfo { Id = "Isolated river", Rgb = 4, Type = "land" }
+        };
+        var authored = ProvinceMap.Build(recipe, raster, regions);
+        var water = WaterMap.Classify(new HeightmapResult(recipe, heights));
+        var map = authored.WithSettlementGeography(water, rivers, biomes);
+        Require(authored.Provinces[0].TradeWaterways == null, "Runtime geography must not mutate the authored asset.");
+        var key = CampaignState.MapKey(map, recipe.Seed);
+
+        var seaTribe = CampaignState.Found(map, key, coast, "Coastal tribe", 0);
+        Require(seaTribe.CanBuild(0, SettlementBuilding.LumberCamp)
+            && !seaTribe.CanBuild(0, SettlementBuilding.IronMine) && !seaTribe.CanTradeWith(1),
+            "Forest supplies timber, and overseas trade starts closed.");
+        Require(seaTribe.TryBuild(0, SettlementBuilding.Docks) && seaTribe.TradeCapacity == 2
+            && seaTribe.CanTradeWith(1) && !seaTribe.CanTradeWith(3) && !seaTribe.CanReachIndependentProvince(1),
+            "Docks must connect coasts to the same river system, without opening isolated waterways or integration.");
+
+        var alpine = CampaignState.Found(map, key, mountain, "Mountain tribe", 0);
+        Require(alpine.CanBuild(1, SettlementBuilding.Docks) && alpine.CanBuild(1, SettlementBuilding.IronMine)
+            && alpine.BuildingInfo(1, SettlementBuilding.IronMine).Yield == 2
+            && !alpine.CanBuild(1, SettlementBuilding.LumberCamp),
+            "A river bank in alpine country must support docks and mines but require forest for lumber.");
+        var cold = CampaignState.Found(map, key, tundra, "Tundra tribe", 0);
+        Require(!cold.CanBuild(2, SettlementBuilding.Farm) && !cold.CanBuild(2, SettlementBuilding.Docks),
+            "Tundra blocks farms, and a lake alone must not qualify for docks.");
+
+        var old = cold.ToSave();
+        old.Version = 4;
+        old.Buildings[2] = (int)SettlementBuilding.Farm;
+        var migrated = CampaignState.Restore(map, key, old, 5);
+        Require(migrated.HasBuilding(2, SettlementBuilding.Farm) && migrated.TradeAgreements.Count == 0,
+            "A saved building must survive migration even when its site no longer qualifies for new construction.");
     }
 
     private static void CheckNature()

@@ -52,6 +52,7 @@ namespace GrandStrategy.WorldGeneration
         private Vector2 provinceScroll;
         private bool showProvinceDetails;
         private bool showTrade;
+        private bool showTradeContacts;
         private TradeResource tradeGive = TradeResource.Coin;
         private TradeResource tradeWant = TradeResource.Food;
         private string tradeGiveAmount = "20";
@@ -259,7 +260,7 @@ namespace GrandStrategy.WorldGeneration
             surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
-            showTrade = false;
+            showTrade = showTradeContacts = false;
             settlement = capitalPoint;
             editingName = false;
             GUI.FocusControl(null);
@@ -390,20 +391,23 @@ namespace GrandStrategy.WorldGeneration
             {
                 GUILayout.Label(selected == campaign.Capital
                     ? campaign.TribeName + " | Capital" : campaign.TribeName + " | Integrated province");
+                GUILayout.Label($"Subsistence harvest: +{campaign.SubsistenceFood(selected)} food / {CampaignState.ProductionInterval} days outside winter");
                 DrawConstruction();
                 if (selected == campaign.Capital) DrawCapitalActions();
                 return;
             }
 
             GUILayout.Label("Unclaimed | Independent community");
+            if (campaign.CanTradeWith(selected))
+            {
+                showTrade = GUILayout.Toggle(showTrade, "Trade with this community");
+                if (showTrade) DrawTrade();
+            }
             if (!campaign.CanReachIndependentProvince(selected))
             {
-                GUILayout.Label("Integration requires a neighbouring province you own.");
+                GUILayout.Label("Integration requires a land border with a province you own.");
                 return;
             }
-
-            showTrade = GUILayout.Toggle(showTrade, "Trade with this neighbour");
-            if (showTrade) DrawTrade();
             if (selected == campaign.IntegrationTarget)
             {
                 GUILayout.Label($"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
@@ -437,7 +441,12 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled && quote.Status == null;
             if (GUILayout.Button("Complete trade") && campaign.TryTrade(selected, offer))
                 saveStatus = $"Traded {give} {tradeGive.ToString().ToLowerInvariant()} for {want} {tradeWant.ToString().ToLowerInvariant()}.";
+            var agreementIssue = campaign.AgreementIssue(selected, offer);
+            GUI.enabled = wasEnabled && agreementIssue == null;
+            if (GUILayout.Button("Repeat every 15 days") && campaign.TryStartTradeAgreement(selected, offer))
+                saveStatus = "Agreement signed. First shipment on the next 15-day cycle.";
             GUI.enabled = wasEnabled;
+            if (quote.Status == null && agreementIssue != null) GUILayout.Label(agreementIssue);
         }
 
         private static void DrawTradeLine(string label, string control, ref TradeResource resource, ref string amount)
@@ -495,8 +504,16 @@ namespace GrandStrategy.WorldGeneration
                     var target = surface.Map.Provinces[campaign.IntegrationTarget].Id;
                     GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
-                GUILayout.Label($"Taxes: +{campaign.TaxIncome:N0} coin every {CampaignState.TaxInterval} days");
+                GUILayout.Label("Treasury", hudHeading);
+                GUILayout.Label($"Tax rate: +{campaign.TaxIncome:N0} coin every {CampaignState.TaxInterval} days");
+                GUILayout.Label($"Recorded taxes +{campaign.TaxCollected:N0} | Trade +{campaign.TradeReceipts:N0} / −{campaign.TradeSpending:N0}");
+                DrawTradeAgreements();
                 DrawNearbyCommunities();
+                showTradeContacts = GUILayout.Toggle(showTradeContacts, "Show all trade contacts");
+                if (showTradeContacts)
+                    for (var province = 0; province < surface.Map.Provinces.Length; province++)
+                        if (campaign.CanTradeWith(province) && GUILayout.Button(surface.Map.Provinces[province].Id))
+                            SelectCommunity(province);
             }
 
             GUILayout.BeginHorizontal();
@@ -511,18 +528,45 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.EndArea();
         }
 
+        private void DrawTradeAgreements()
+        {
+            var agreements = campaign.TradeAgreements;
+            GUILayout.Label($"Trade agreements {agreements.Count}/{campaign.TradeCapacity}", hudHeading);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label($"Food reserve: {campaign.FoodReserve} + next upkeep");
+            if (GUILayout.Button("−5", GUILayout.Width(32))) campaign.SetFoodReserve(campaign.FoodReserve - 5);
+            if (GUILayout.Button("+5", GUILayout.Width(32))) campaign.SetFoodReserve(campaign.FoodReserve + 5);
+            GUILayout.EndHorizontal();
+            for (var i = 0; i < agreements.Count; i++)
+            {
+                var agreement = agreements[i];
+                var offer = agreement.Offer;
+                GUILayout.Label($"{surface.Map.Provinces[agreement.Province].Id} · {offer.GiveAmount} {offer.Give} for {offer.WantAmount} {offer.Want}");
+                GUILayout.Label(agreement.LastAttemptDay == 0 ? "Waiting for the next cycle."
+                    : agreement.LastIssue == null ? $"Last shipment on day {agreement.LastAttemptDay}."
+                    : $"Paused on day {agreement.LastAttemptDay}. {agreement.LastIssue}");
+                if (GUILayout.Button("Cancel agreement"))
+                {
+                    campaign.CancelTradeAgreement(agreement.Province);
+                    break;
+                }
+            }
+        }
+
         private void DrawConstruction()
         {
             GUILayout.Label("Buildings", hudHeading);
             DrawBuilding(SettlementBuilding.Farm);
             DrawBuilding(SettlementBuilding.LumberCamp);
             DrawBuilding(SettlementBuilding.IronMine);
+            DrawBuilding(SettlementBuilding.Docks);
         }
 
         private void DrawBuilding(SettlementBuilding building)
         {
-            var info = CampaignState.BuildingInfo(building);
-            var output = $"+{info.Yield} {info.Resource} / {CampaignState.ProductionInterval} days";
+            var info = campaign.BuildingInfo(selected, building);
+            var output = building == SettlementBuilding.Docks ? "Water trade access and +1 agreement slot"
+                : $"+{info.Yield} {info.Resource} / {CampaignState.ProductionInterval} days";
             if (campaign.HasBuilding(selected, building))
             {
                 GUILayout.Label($"{info.Name} | {output}");
@@ -534,7 +578,7 @@ namespace GrandStrategy.WorldGeneration
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)"))
                 campaign.TryBuild(selected, building);
             GUI.enabled = wasEnabled;
-            GUILayout.Label(output);
+            GUILayout.Label(info.SiteIssue ?? output);
         }
 
         private void DrawCapitalActions()
@@ -553,7 +597,15 @@ namespace GrandStrategy.WorldGeneration
                 campaign.TryRecruitWarband();
                 saveStatus = "Warband raised. It uses 1 food per five days.";
             }
+            GUI.enabled = wasEnabled && campaign.CanUpgradeWarband;
+            if (campaign.HasWarband && !campaign.HasIronWarband && GUILayout.Button(
+                $"Equip with iron ({CampaignState.IronWarbandIron} iron, {CampaignState.IronWarbandWood} wood, {CampaignState.IronWarbandCoin} coin)"))
+            {
+                campaign.TryUpgradeWarband();
+                saveStatus = "Iron-equipped warband. Your tribe takes half the losses when expanding by force.";
+            }
             GUI.enabled = wasEnabled;
+            if (campaign.HasIronWarband) GUILayout.Label("Iron-equipped warband");
         }
 
         private void DrawNearbyCommunities()
@@ -565,17 +617,19 @@ namespace GrandStrategy.WorldGeneration
             {
                 if (!campaign.CanReachIndependentProvince(neighbour)) continue;
                 if (listed++ == 0) GUILayout.Label("Nearby independent communities");
-                if (GUILayout.Button(map.Provinces[neighbour].Id))
-                {
-                    selected = neighbour;
-                    selectedCell = clickedCell = -1;
-                    provinceScroll = Vector2.zero;
-                    showProvinceDetails = showTrade = false;
-                    provinceDetails = Describe(map.Provinces[neighbour]);
-                    surface.SetSelection(neighbour);
-                }
+                if (GUILayout.Button(map.Provinces[neighbour].Id)) SelectCommunity(neighbour);
                 if (listed == 3) break;
             }
+        }
+
+        private void SelectCommunity(int province)
+        {
+            selected = province;
+            selectedCell = clickedCell = -1;
+            provinceScroll = Vector2.zero;
+            showProvinceDetails = showTrade = false;
+            provinceDetails = Describe(surface.Map.Provinces[province]);
+            surface.SetSelection(province);
         }
 
         private const float HudMargin = 12f;

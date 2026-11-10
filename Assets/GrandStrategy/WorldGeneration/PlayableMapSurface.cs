@@ -43,14 +43,14 @@ namespace GrandStrategy.WorldGeneration
             var riverMap = world.ReadRivers();
             var terrain = riverMap?.Terrain ?? world.Read();
             ValidatePair(terrain, imported);
-            Map = provinces.Map;
-            provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
             water = WaterMap.Classify(terrain);
             rivers = riverMap?.BuildSurfaceDirections();
             var settings = world.ReadClimateSettings();
             var biomes = world.HasBiomes && settings != null
                 ? BiomeGenerator.Generate(ClimateGenerator.Generate(terrain, water, settings), water, riverMap)
                 : null;
+            Map = provinces.Map.WithSettlementGeography(water, rivers, biomes?.Samples);
+            provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
 
             try
             {
