@@ -36,6 +36,7 @@ Shader "GrandStrategy/Playable Map"
         [NoScaleOffset] _TundraSoilNormal ("Tundra soil normal", 2D) = "bump" {}
         _GroundTileFrequency ("Ground tile frequency", Float) = 3
         [HideInInspector] _InverseReliefHeight ("Inverse maximum relief height", Float) = 1
+        [HideInInspector] _CoastalWaterColour ("Coastal water colour", Vector) = (0.07, 0.18, 0.18, 1)
         _GroundGrid ("Ground grid and inverse aspect", Vector) = (1024, 512, 0.5, 0)
         [NoScaleOffset] _RiverFlow ("River direction and coverage", 2D) = "black" {}
         _BiomeSurface ("Biome IDs, ocean shoals, freshwater and snow", 2D) = "black" {}
@@ -120,6 +121,7 @@ Shader "GrandStrategy/Playable Map"
                 float4 _ProvinceGrid;
                 float4 _CapitalClearing;
                 float4 _GroundGrid;
+                float4 _CoastalWaterColour;
                 float _InverseReliefHeight;
                 float4 _TerrainShadow_TexelSize;
                 float4 _MapSun;
@@ -351,6 +353,16 @@ Shader "GrandStrategy/Playable Map"
                 return water;
             }
 
+            float4 FilterWaterline(TEXTURE2D_PARAM(field, fieldSampler), float2 uv, float2 texel,
+                float lod, float4 centre)
+            {
+                float4 filtered = SAMPLE_TEXTURE2D_LOD(field, fieldSampler, uv + float2(texel.x, 0.0), lod)
+                    + SAMPLE_TEXTURE2D_LOD(field, fieldSampler, uv - float2(texel.x, 0.0), lod)
+                    + SAMPLE_TEXTURE2D_LOD(field, fieldSampler, uv + float2(0.0, texel.y), lod)
+                    + SAMPLE_TEXTURE2D_LOD(field, fieldSampler, uv - float2(0.0, texel.y), lod);
+                return centre * 0.5 + filtered * 0.125;
+            }
+
             float3 ShadeGround(Varyings input, float3 normal, float4 map)
             {
                 float4 biomeSurface = SAMPLE_TEXTURE2D(_BiomeSurface, sampler_BiomeSurface, input.uv);
@@ -433,24 +445,26 @@ Shader "GrandStrategy/Playable Map"
                 float4 waterField = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv, coastLod);
                 float2 nearbyWater = SAMPLE_TEXTURE2D_LOD(_BiomeSurface, sampler_BiomeSurface, input.uv, coastLod).gb;
                 float oceanEdge = smoothstep(0.012, 0.17, nearbyWater.x);
+                float edgeLod = log2(max(pixelFootprint, 1.0));
+                float2 shoreTexel = 0.75 / _GroundGrid.xy;
+                float coast = oceanEdge * (1.0 - smoothstep(0.015, 0.16, nearbyWater.y))
+                    * smoothstep(0.04, 0.26, waterField.a) * (1.0 - smoothstep(0.80, 0.98, waterField.a));
+                float coastalLand = map.a;
+                UNITY_BRANCH
+                if (coast > 0.001)
+                {
+                    float filteredLand = FilterWaterline(TEXTURE2D_ARGS(_MapColours, sampler_MapColours),
+                        input.uv, shoreTexel * 1.6, edgeLod, map).a;
+                    coastalLand = lerp(map.a, smoothstep(0.08, 0.92, filteredLand), coast * 0.92);
+                }
                 float rawFreshwater = biomeSurface.b;
                 float softFreshwater = rawFreshwater;
                 float riverBank = 0.0;
                 UNITY_BRANCH
                 if (nearbyWater.y > 0.002 || rawFreshwater > 0.0)
                 {
-                    float edgeLod = log2(max(pixelFootprint, 1.0));
-                    float2 texel = 0.75 / _GroundGrid.xy;
-                    float4 neighbours;
-                    neighbours.x = SAMPLE_TEXTURE2D_LOD(_BiomeSurface, sampler_BiomeSurface,
-                        input.uv + float2(texel.x, 0.0), edgeLod).b;
-                    neighbours.y = SAMPLE_TEXTURE2D_LOD(_BiomeSurface, sampler_BiomeSurface,
-                        input.uv - float2(texel.x, 0.0), edgeLod).b;
-                    neighbours.z = SAMPLE_TEXTURE2D_LOD(_BiomeSurface, sampler_BiomeSurface,
-                        input.uv + float2(0.0, texel.y), edgeLod).b;
-                    neighbours.w = SAMPLE_TEXTURE2D_LOD(_BiomeSurface, sampler_BiomeSurface,
-                        input.uv - float2(0.0, texel.y), edgeLod).b;
-                    float filtered = rawFreshwater * 0.5 + dot(neighbours, float4(0.125, 0.125, 0.125, 0.125));
+                    float filtered = FilterWaterline(TEXTURE2D_ARGS(_BiomeSurface, sampler_BiomeSurface),
+                        input.uv, shoreTexel, edgeLod, biomeSurface).b;
                     // Round raster corners without erasing streams that are only one cell wide.
                     softFreshwater = lerp(rawFreshwater, smoothstep(0.09, 0.74, filtered), 0.80);
 
@@ -568,10 +582,11 @@ Shader "GrandStrategy/Playable Map"
                 float diffuse = saturate(dot(normalize(normal + relief), sun));
                 land *= 0.55 + 0.66 * diffuse * (1.0 - shade * 0.89);
                 UNITY_BRANCH
-                if (map.a >= 1.0 && softFreshwater <= 0.001) return land;
+                if (coastalLand >= 0.999 && map.a >= 0.999 && softFreshwater <= 0.001) return land;
 
                 float wideWater = 1.0 - waterField.a;
                 float3 water = lerp(map.rgb, waterField.rgb, smoothstep(0.92, 0.999, wideWater));
+                water = lerp(water, _CoastalWaterColour.rgb, coast * smoothstep(0.04, 0.85, map.a));
                 float waterCoverage = max(1.0 - map.a, 0.0001);
                 float shoal = saturate(biomeSurface.g / waterCoverage);
                 float freshwater = rawFreshwater > 0.0001 ? saturate(rawFreshwater / waterCoverage)
@@ -637,18 +652,7 @@ Shader "GrandStrategy/Playable Map"
                 water += waterDelta;
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
 
-                float edgeBlend = 4.0 * map.a * (1.0 - map.a) * oceanEdge * (1.0 - freshwater);
-                float landCoverage = map.a;
-                UNITY_BRANCH
-                if (edgeBlend > 0.001)
-                {
-                    float softLand = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv,
-                        max(1.0, log2(max(pixelFootprint, 1.0)))).a;
-                    landCoverage = lerp(map.a, softLand, edgeBlend * 0.65);
-                    water = lerp(water, land, edgeBlend * 0.14);
-                }
-
-                float waterline = saturate(1.0 - landCoverage + softFreshwater - rawFreshwater);
+                float waterline = saturate(1.0 - coastalLand + softFreshwater - rawFreshwater);
                 float visibleWater = saturate(waterline * (1.0 + channel * 0.30));
                 return lerp(land, water * (1.0 - 0.20 * terrainShade), visibleWater);
             }

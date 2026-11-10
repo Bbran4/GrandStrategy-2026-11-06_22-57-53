@@ -83,6 +83,10 @@ namespace GrandStrategy.WorldGeneration
                     biomeColours[i] = QualitySettings.activeColorSpace == ColorSpace.Linear ? colour.linear : colour;
                 }
                 material.SetVectorArray("_BiomeViewPalette", biomeColours);
+                var shallowSea = MapGroundPatterns.Palette(BiomeKind.ShallowSea);
+                Color coastalWater = new Color32(shallowSea.R, shallowSea.G, shallowSea.B, 255);
+                material.SetVector("_CoastalWaterColour",
+                    QualitySettings.activeColorSpace == ColorSpace.Linear ? coastalWater.linear : coastalWater);
                 material.SetVector("_GroundGrid", new Vector4(Map.Width, Map.Height, 1f / Aspect, 0f));
                 var maximumReliefHeight = world.HeightScale * (1f - terrain.Recipe.SeaLevel);
                 material.SetFloat("_InverseReliefHeight", 1f / Mathf.Max(maximumReliefHeight, .0001f));
