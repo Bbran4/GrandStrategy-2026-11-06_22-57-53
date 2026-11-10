@@ -69,6 +69,14 @@ namespace GrandStrategy.WorldGeneration
                 material.SetTexture("_LandTint", landTint);
                 material.SetTexture("_LandMaterialsLow", landMaterialsLow);
                 material.SetTexture("_LandMaterialsHigh", landMaterialsHigh);
+                var biomeColours = new Vector4[8];
+                for (var i = 0; i < biomeColours.Length; i++)
+                {
+                    var rgb = BiomeMap.PreviewColour((BiomeKind)((int)BiomeKind.Wetland + i));
+                    Color colour = new Color32(rgb.R, rgb.G, rgb.B, 255);
+                    biomeColours[i] = QualitySettings.activeColorSpace == ColorSpace.Linear ? colour.linear : colour;
+                }
+                material.SetVectorArray("_BiomeViewPalette", biomeColours);
                 material.SetVector("_GroundGrid", new Vector4(Map.Width, Map.Height, 1f / Aspect, 0f));
                 var maximumReliefHeight = world.HeightScale * (1f - terrain.Recipe.SeaLevel);
                 material.SetFloat("_InverseReliefHeight", 1f / Mathf.Max(maximumReliefHeight, .0001f));
@@ -258,7 +266,8 @@ namespace GrandStrategy.WorldGeneration
         public void SetView(MapViewMode mode)
         {
             borders.SetView(mode);
-            material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain ? 0f : 1f);
+            material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain || mode == MapViewMode.Biomes ? 0f : 1f);
+            material.SetFloat("_ShowBiomes", mode == MapViewMode.Biomes ? 1f : 0f);
         }
 
         public void SetSelection(int selected)

@@ -44,6 +44,7 @@ Shader "GrandStrategy/Playable Map"
         _MapSun ("Map sun direction", Vector) = (-1, 1, 1, 0)
         _GroundDetail ("Ground detail", Float) = 0.25
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _ShowBiomes ("Show biome colours", Float) = 0
         _ShowPolitics ("Political overlays", Float) = 1
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _ProvinceCorners ("Province corner offsets", 2D) = "black" {}
@@ -121,6 +122,8 @@ Shader "GrandStrategy/Playable Map"
                 float4 _TerrainShadow_TexelSize;
                 float4 _MapSun;
                 float _ShowPolitics;
+                float _ShowBiomes;
+                float4 _BiomeViewPalette[8];
                 float _GroundDetail;
                 float _GroundTileFrequency;
             CBUFFER_END
@@ -375,6 +378,17 @@ Shader "GrandStrategy/Playable Map"
                 low = lerp(rawLow, low / max(total, 0.0001), coverage);
                 high = lerp(rawHigh, high / max(total, 0.0001), coverage);
                 float3 landColour = lerp(map.rgb, palette.rgb / max(palette.a, 0.0001), coverage);
+                UNITY_BRANCH
+                if (_ShowBiomes > 0.5)
+                {
+                    float3 biomeColour = 0.0;
+                    [unroll]
+                    for (int i = 0; i < 4; i++)
+                        biomeColour += low[i] * _BiomeViewPalette[i].rgb + high[i] * _BiomeViewPalette[i + 4].rgb;
+                    float weight = dot(low + high, float4(1.0, 1.0, 1.0, 1.0));
+                    float3 painted = weight > 0.001 ? biomeColour / weight : landColour;
+                    return lerp(map.rgb, painted * lerp(0.72, 1.0, saturate(normal.y)), map.a);
+                }
                 float wetlandWeight = low.x;
                 float sandWeight = low.y;
                 float plainsWeight = low.z;

@@ -8,7 +8,7 @@ namespace GrandStrategy.WorldGeneration
 {
     [RequireComponent(typeof(Camera))]
     [DisallowMultipleComponent]
-    public sealed class PlayableMap : MonoBehaviour
+    public sealed partial class PlayableMap : MonoBehaviour
     {
         [SerializeField] private WorldHeightmap world;
         [SerializeField] private ProvinceMapAsset provinceMap;
@@ -46,11 +46,6 @@ namespace GrandStrategy.WorldGeneration
         private Vector2 detailsScroll;
         private Vector2 campaignScroll;
 
-        private float PanelWidth => Mathf.Max(1f, Mathf.Min(325f, (Screen.width - 36f) * .5f));
-        private Rect Panel => new Rect(12, 12, PanelWidth, Mathf.Min(selected >= 0 ? 412 : 160, Screen.height - 24));
-        private Rect CampaignPanel => new Rect(Screen.width - PanelWidth - 12, 12, PanelWidth,
-            Mathf.Max(1f, Mathf.Min(campaign == null ? 118 : 385, Screen.height - 24)));
-
         private void Start()
         {
             try
@@ -86,8 +81,8 @@ namespace GrandStrategy.WorldGeneration
             if (campaign != null)
             {
                 var hadExpanded = campaign.FirstExpansion != ExpansionApproach.None;
-                if (campaign.Advance(deltaTime * CampaignDaysPerSecond) && !hadExpanded)
-                    surface.SetCapital(settlement, campaign.HasGranary, true);
+                if (campaign.Advance(deltaTime * CampaignDaysPerSecond))
+                    OnProvinceJoined(hadExpanded);
             }
 
             var keyboard = Keyboard.current;
@@ -113,7 +108,8 @@ namespace GrandStrategy.WorldGeneration
             {
                 var position = mouse.position.ReadValue();
                 var guiPosition = new Vector2(position.x, Screen.height - position.y);
-                var overPanel = Panel.Contains(guiPosition) || CampaignPanel.Contains(guiPosition);
+                var overPanel = TopBar.Contains(guiPosition) || Panel.Contains(guiPosition)
+                    || CampaignPanel.Contains(guiPosition) || MapDock.Contains(guiPosition);
                 if (mouse.middleButton.wasPressedThisFrame) dragging = !overPanel;
                 if (!mouse.middleButton.isPressed) dragging = false;
                 if (dragging)
@@ -247,6 +243,7 @@ namespace GrandStrategy.WorldGeneration
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
             surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None);
             campaign = next;
+            ownedMarkers = null;
             settlement = capitalPoint;
             editingName = false;
             GUI.FocusControl(null);
@@ -291,19 +288,17 @@ namespace GrandStrategy.WorldGeneration
             }
             if (surface == null) return;
 
+            PrepareHudStyles();
+            DrawOwnershipMarkers();
             DrawSettlement();
+            DrawTopBar();
+            DrawMapDock();
             DrawCampaign();
             var panel = Panel;
-            GUI.Box(panel, GUIContent.none);
-            GUILayout.BeginArea(new Rect(panel.x + 10, panel.y + 7, panel.width - 20, panel.height - 14));
-            GUILayout.Label("GrandStrategy | Playable Map");
-            GUILayout.Label("WASD or middle drag to pan. Scroll to zoom.");
-            GUILayout.Label("Click a province. Home resets the view.");
-            GUILayout.BeginHorizontal();
-            MapViewButton("Terrain", MapViewMode.Terrain);
-            MapViewButton("Territories", MapViewMode.Territories, surface.HasTerritories);
-            MapViewButton("Provinces", MapViewMode.Provinces);
-            GUILayout.EndHorizontal();
+            DrawPanelFrame(panel);
+            GUILayout.BeginArea(new Rect(panel.x + 9, panel.y + 7, Mathf.Max(1, panel.width - 18), Mathf.Max(1, panel.height - 14)));
+            GUILayout.Label("Province dossier", hudHeading);
+            GUILayout.Label("WASD to pan | Scroll to zoom | Home to reset");
             if (selectedCell >= 0)
             {
                 var territory = SelectedTerritoryId();
@@ -317,18 +312,6 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label(campaign == null ? "Choose a land province to establish a tribe." : "Click a province to inspect it.");
             GUILayout.EndArea();
             editingName = GUI.GetNameOfFocusedControl() == "TribeName";
-        }
-
-        private void MapViewButton(string label, MapViewMode mode, bool available = true)
-        {
-            var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && available && mapView != mode;
-            if (GUILayout.Button(label))
-            {
-                surface.SetView(mode);
-                mapView = mode;
-            }
-            GUI.enabled = wasEnabled;
         }
 
         private void DrawProvince(ProvinceInfo province)
@@ -428,14 +411,12 @@ namespace GrandStrategy.WorldGeneration
         private void DrawCampaign()
         {
             var panel = CampaignPanel;
-            GUI.Box(panel, GUIContent.none);
-            GUILayout.BeginArea(new Rect(panel.x + 10, panel.y + 7, panel.width - 20, panel.height - 14));
+            DrawPanelFrame(panel);
+            GUILayout.BeginArea(new Rect(panel.x + 9, panel.y + 7, Mathf.Max(1, panel.width - 18), Mathf.Max(1, panel.height - 14)));
             campaignScroll = GUILayout.BeginScrollView(campaignScroll);
-            GUILayout.Label(campaign?.TribeName ?? "Campaign");
+            GUILayout.Label(campaign == null ? "Campaign" : "Settlement", hudHeading);
             if (campaign != null)
             {
-                GUILayout.Label($"Day {campaign.Day:N0} | Pop {campaign.Population(campaign.Capital):N0}");
-                GUILayout.Label($"Food {campaign.Food:N0} | Wood {campaign.Wood:N0} | Coin {campaign.Coin:N0}");
                 if (campaign.Day < CampaignState.WinterStart)
                     GUILayout.Label($"First winter in {CampaignState.WinterStart - campaign.Day} days");
                 else if (campaign.Day < CampaignState.WinterEnd)
@@ -447,19 +428,11 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label($"Winter stores needed: {campaign.WinterFoodRemaining} food");
                 if (campaign.FirstExpansion != ExpansionApproach.None)
                     GUILayout.Label($"First expansion: {campaign.FirstExpansion}");
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button(campaign.Paused ? "Resume" : "Pause"))
-                    campaign.Paused = !campaign.Paused;
-                var speedIndex = Array.IndexOf(Speeds, campaign.Speed);
-                if (GUILayout.Button($"Speed {campaign.Speed}×"))
-                    campaign.SetSpeed(Speeds[(speedIndex + 1) % Speeds.Length]);
-                GUILayout.EndHorizontal();
                 if (campaign.Paused && campaign.DaysToNextDecision > 0
                     && GUILayout.Button($"Advance to next milestone ({campaign.DaysToNextDecision} days)"))
                 {
                     var hadExpanded = campaign.FirstExpansion != ExpansionApproach.None;
-                    if (campaign.AdvanceToNextDecision() && !hadExpanded)
-                        surface.SetCapital(settlement, campaign.HasGranary, true);
+                    if (campaign.AdvanceToNextDecision()) OnProvinceJoined(hadExpanded);
                 }
                 if (campaign.IntegrationTarget >= 0)
                 {
@@ -525,7 +498,8 @@ namespace GrandStrategy.WorldGeneration
             if (point.z <= 0 || point.x < 0 || point.x > Screen.width || point.y < 0 || point.y > Screen.height)
                 return;
             var y = Screen.height - point.y;
-            var label = new GUIContent(campaign.TribeName);
+            var label = new GUIContent(mapView == MapViewMode.Realm || mapView == MapViewMode.Ownership
+                ? campaign.TribeName + " | Capital" : campaign.TribeName);
             var width = GUI.skin.box.CalcSize(label).x + 12f;
             GUI.Box(new Rect(point.x - width * .5f, y - 35f, width, 23f), label);
             GUI.Label(new Rect(point.x - 5f, y - 13f, 14f, 18f), "▼");
