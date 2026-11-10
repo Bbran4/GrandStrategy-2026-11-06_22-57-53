@@ -8,6 +8,30 @@ namespace GrandStrategy.WorldGeneration
     [Flags]
     internal enum SettlementBuilding { Farm = 1, LumberCamp = 2, IronMine = 4 }
 
+    internal enum TradeResource { Coin, Food, Wood, Iron }
+
+    internal readonly struct TradeOffer
+    {
+        public readonly TradeResource Give, Want;
+        public readonly int GiveAmount, WantAmount;
+
+        public TradeOffer(TradeResource give, int giveAmount, TradeResource want, int wantAmount)
+        {
+            Give = give;
+            GiveAmount = giveAmount;
+            Want = want;
+            WantAmount = wantAmount;
+        }
+    }
+
+    [Serializable]
+    internal struct NeighbourMarket
+    {
+        public int Coin, Food, Wood, Iron;
+        public int Period;
+        public bool Traded;
+    }
+
     [Serializable]
     internal sealed class CampaignSave
     {
@@ -29,7 +53,9 @@ namespace GrandStrategy.WorldGeneration
         public int[] Buildings;
         public bool Granary;
         public bool Warband;
-        public int TradePartner;
+        public int TradePartner; // Legacy single partner for saves through version 3.
+        public NeighbourMarket[] Markets;
+        public long LastPopulationChange;
         public int WinterShortfall;
         public ExpansionApproach PendingApproach;
         public ExpansionApproach FirstExpansion;
@@ -50,7 +76,11 @@ namespace GrandStrategy.WorldGeneration
         public const int ForceFood = 8;
         public const int TaxInterval = 15;
         public const int ProductionInterval = 5;
-        private const int SaveVersion = 3;
+        public const int FoodInterval = 15;
+        private const int PeoplePerFood = 125;
+        private const double MaxGrowthRate = .02;
+        private const double MaxStarvationRate = .10;
+        private const int SaveVersion = 4;
         private const SettlementBuilding AllBuildings =
             SettlementBuilding.Farm | SettlementBuilding.LumberCamp | SettlementBuilding.IronMine;
         private const int StartingFood = 40;
@@ -96,12 +126,21 @@ namespace GrandStrategy.WorldGeneration
         public long TaxIncome => (OwnedPopulation + 99) / 100;
         public bool HasGranary => data.Granary;
         public bool HasWarband => data.Warband;
-        public int TradePartner => data.TradePartner;
+        public long FoodUpkeep => (OwnedPopulation + PeoplePerFood - 1) / PeoplePerFood;
+        public long LastPopulationChange => data.LastPopulationChange;
         public int WinterShortfall => data.WinterShortfall;
-        public int WinterFoodRemaining => Math.Max(0, WinterEnd / ProductionInterval
-            - Math.Max(Day, WinterStart) / ProductionInterval) * WinterFoodPerPeriod;
-        private int WinterFoodPerPeriod => Math.Max(0, WinterConsumption - FarmFood);
-        private int WinterConsumption => (HasGranary ? 8 : 14) + (HasWarband ? 1 : 0);
+        public long WinterFoodRemaining
+        {
+            get
+            {
+                var from = Math.Max(Day, WinterStart);
+                if (from >= WinterEnd) return 0;
+                var meals = WinterEnd / FoodInterval - from / FoodInterval;
+                var production = WinterEnd / ProductionInterval - from / ProductionInterval;
+                return Math.Max(0, meals * FoodUpkeep - (long)production * WinterFoodOutput);
+            }
+        }
+        private int WinterFoodOutput => FarmFood - (HasGranary ? 0 : 2) - (HasWarband ? 1 : 0);
         private int FarmFood => BuildingCount(SettlementBuilding.Farm) * BuildingInfo(SettlementBuilding.Farm).Yield;
         public ExpansionApproach FirstExpansion => data.FirstExpansion;
         public ExpansionApproach PendingApproach => data.PendingApproach;
@@ -135,6 +174,7 @@ namespace GrandStrategy.WorldGeneration
                 Coin = StartingCoin,
                 Owned = owned,
                 Buildings = new int[owned.Length],
+                Markets = new NeighbourMarket[owned.Length],
                 Pop = pop,
                 IntegrationTarget = -1,
                 TradePartner = -1,
@@ -149,7 +189,7 @@ namespace GrandStrategy.WorldGeneration
                 throw new ArgumentException("The save version or authored map does not match.");
             var capital = ProvinceAt(map, save.CapitalCell);
             if (!IsLand(map, capital) || !IsValidName(save.TribeName) || save.Colour < 0 || save.Colour >= colourCount
-                || save.Day < 1 || !IsValidSpeed(save.Speed) || save.Coin < 0 || save.Coin > (save.Version < SaveVersion ? StartingCoin : ResourceLimit)
+                || save.Day < 1 || !IsValidSpeed(save.Speed) || save.Coin < 0 || save.Coin > (save.Version < 3 ? StartingCoin : ResourceLimit)
                 || save.Owned?.Length != map.Provinces.Length || save.Pop?.Length != map.Provinces.Length
                 || !save.Owned[capital])
                 throw new ArgumentException("The save contains invalid campaign data.");
@@ -158,13 +198,25 @@ namespace GrandStrategy.WorldGeneration
                 if (save.Pop[i] < 0 || (!IsLand(map, i) && (save.Pop[i] != 0 || save.Owned[i])))
                     throw new ArgumentException("The save contains invalid province population or ownership.");
 
-            if (save.Version == SaveVersion)
+            if (save.Version >= 3)
             {
                 if (save.Iron < 0 || save.Iron > ResourceLimit || save.Buildings?.Length != map.Provinces.Length)
                     throw new ArgumentException("The save contains invalid building or iron data.");
                 for (var i = 0; i < save.Buildings.Length; i++)
                     if ((save.Buildings[i] & ~(int)AllBuildings) != 0 || (save.Buildings[i] != 0 && !save.Owned[i]))
                         throw new ArgumentException("The save contains invalid province buildings.");
+            }
+
+            if (save.Version >= 4)
+            {
+                if (save.Markets?.Length != map.Provinces.Length)
+                    throw new ArgumentException("The save contains invalid neighbour markets.");
+                foreach (var market in save.Markets)
+                    if (market.Period < 0 || market.Period > save.Day / FoodInterval + 1
+                        || (market.Traded && market.Period == 0)
+                        || !ValidStock(market.Coin) || !ValidStock(market.Food)
+                        || !ValidStock(market.Wood) || !ValidStock(market.Iron))
+                        throw new ArgumentException("The save contains invalid neighbour stock.");
             }
 
             var state = new CampaignState(map, save);
@@ -185,17 +237,29 @@ namespace GrandStrategy.WorldGeneration
                 save.PendingApproach = pending;
             }
             else if (save.Food < 0 || save.Food > ResourceLimit || save.Wood < 0 || save.Wood > ResourceLimit
-                || save.WinterShortfall < 0 || save.WinterShortfall > 105
-                || (save.TradePartner != -1 && !IsLand(map, save.TradePartner))
-                || (pending == ExpansionApproach.Trade && save.TradePartner != target)
+                || save.WinterShortfall < 0
+                || (save.Version < 4 && save.TradePartner != -1 && !IsLand(map, save.TradePartner))
+                || (pending == ExpansionApproach.Trade && (save.Version >= 4
+                    ? !state.HasTradedWith(target) : save.TradePartner != target))
                 || (pending == ExpansionApproach.Force && !save.Warband)
                 || !Enum.IsDefined(typeof(ExpansionApproach), save.FirstExpansion))
                 throw new ArgumentException("The save contains invalid settlement data.");
 
-            if (save.Version < SaveVersion)
+            if (save.Version < 3)
             {
                 save.Buildings = new int[map.Provinces.Length];
                 save.Iron = 0;
+            }
+            if (save.Version < 4)
+            {
+                save.Markets = new NeighbourMarket[map.Provinces.Length];
+                if (save.TradePartner >= 0)
+                {
+                    var market = state.MarketAt(save.TradePartner);
+                    market.Traded = true;
+                    save.Markets[save.TradePartner] = market;
+                }
+                save.TradePartner = -1;
                 save.Version = SaveVersion;
             }
             return state;
@@ -292,19 +356,132 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
-        public int TradeCost => HasTradeAccess(map.Provinces[Capital]) ? 20 : 30;
+        public bool HasTradedWith(int province) => province >= 0 && province < data.Markets.Length
+            && data.Markets[province].Traded;
 
-        public bool CanTradeWith(int province)
-            => TradePartner == -1 && Coin >= TradeCost && CanReachIndependentProvince(province);
-
-        public bool TryTradeForFood(int province)
+        public (int Willingness, string Status, int Stock) EvaluateTrade(int province, TradeOffer offer)
         {
-            if (!CanTradeWith(province)) return false;
-            data.Coin -= TradeCost;
-            data.TradePartner = province;
-            AddFood(36);
+            if (!CanReachIndependentProvince(province)) return (0, "Choose an independent neighbour.", 0);
+            if ((uint)offer.Give > (uint)TradeResource.Iron || (uint)offer.Want > (uint)TradeResource.Iron
+                || offer.Give == offer.Want || !ValidStock(offer.GiveAmount) || !ValidStock(offer.WantAmount)
+                || offer.GiveAmount == 0 || offer.WantAmount == 0)
+                return (0, "Choose different goods and enter positive amounts.", 0);
+
+            var market = MarketAt(province);
+            var stock = MarketBalance(market, offer.Want);
+            var info = map.Provinces[province];
+            var offered = offer.GiveAmount * TradeValue(info, offer.Give) * 100;
+            var requested = offer.WantAmount * TradeValue(info, offer.Want)
+                * (HasTradeAccess(info) ? 110 : 120);
+            var willingness = Math.Min(100, offered * 100 / requested);
+
+            if (offer.WantAmount > stock) return (0, "This neighbour cannot supply that amount.", stock);
+            if (offer.GiveAmount > ResourceLimit - MarketBalance(market, offer.Give))
+                return (0, "This neighbour has no room for that offer.", stock);
+            if (offer.GiveAmount > ResourceBalance(offer.Give))
+                return (willingness, "You cannot afford this offer.", stock);
+            if (offer.WantAmount > ResourceLimit - ResourceBalance(offer.Want))
+                return (willingness, "You have no room for those goods.", stock);
+            return (willingness, willingness == 100 ? null : "Offer more or request less.", stock);
+        }
+
+        public bool TryTrade(int province, TradeOffer offer)
+        {
+            var evaluation = EvaluateTrade(province, offer);
+            if (evaluation.Status != null) return false;
+            var market = MarketAt(province);
+            SetMarketBalance(ref market, offer.Give, MarketBalance(market, offer.Give) + offer.GiveAmount);
+            SetMarketBalance(ref market, offer.Want, MarketBalance(market, offer.Want) - offer.WantAmount);
+            market.Traded = true;
+            data.Markets[province] = market;
+            AdjustResource(offer.Give, -offer.GiveAmount);
+            AdjustResource(offer.Want, offer.WantAmount);
             return true;
         }
+
+        private NeighbourMarket MarketAt(int province)
+        {
+            var market = data.Markets[province];
+            var period = Day / FoodInterval + 1;
+            if (market.Period == period) return market;
+            var info = map.Provinces[province];
+            var coin = HasTradeAccess(info) ? 36 : 24;
+            var food = 8 + 8 * Fertility(info);
+            var wood = HasTimber(info) ? 28 : 12;
+            var iron = IsDefensible(info) ? 16 : 6;
+            var elapsed = period - market.Period;
+            return new NeighbourMarket
+            {
+                Period = period,
+                Traded = market.Traded,
+                Coin = Replenish(market.Coin, coin, elapsed),
+                Food = Replenish(market.Food, food, elapsed),
+                Wood = Replenish(market.Wood, wood, elapsed),
+                Iron = Replenish(market.Iron, iron, elapsed)
+            };
+
+            int Replenish(int stock, int target, int periods)
+            {
+                if (market.Period == 0) return target;
+                var change = Math.Max(1, target / 4) * periods;
+                return stock + Math.Max(-change, Math.Min(change, target - stock));
+            }
+        }
+
+        private static bool HasTimber(ProvinceInfo info)
+            => Count(info, BiomeKind.TemperateForest) + Count(info, BiomeKind.TropicalForest)
+                + Count(info, BiomeKind.BorealForest) > info.PixelCount / 4;
+
+        private static int TradeValue(ProvinceInfo info, TradeResource resource) => resource switch
+        {
+            TradeResource.Coin => 2,
+            TradeResource.Food => 5 - Fertility(info),
+            TradeResource.Wood => HasTimber(info) ? 2 : 4,
+            TradeResource.Iron => IsDefensible(info) ? 4 : 6,
+            _ => throw new ArgumentOutOfRangeException(nameof(resource))
+        };
+
+        private static int MarketBalance(NeighbourMarket market, TradeResource resource) => resource switch
+        {
+            TradeResource.Coin => market.Coin,
+            TradeResource.Food => market.Food,
+            TradeResource.Wood => market.Wood,
+            TradeResource.Iron => market.Iron,
+            _ => throw new ArgumentOutOfRangeException(nameof(resource))
+        };
+
+        private static void SetMarketBalance(ref NeighbourMarket market, TradeResource resource, int amount)
+        {
+            switch (resource)
+            {
+                case TradeResource.Coin: market.Coin = amount; break;
+                case TradeResource.Food: market.Food = amount; break;
+                case TradeResource.Wood: market.Wood = amount; break;
+                case TradeResource.Iron: market.Iron = amount; break;
+            }
+        }
+
+        private int ResourceBalance(TradeResource resource) => resource switch
+        {
+            TradeResource.Coin => Coin,
+            TradeResource.Food => Food,
+            TradeResource.Wood => Wood,
+            TradeResource.Iron => Iron,
+            _ => throw new ArgumentOutOfRangeException(nameof(resource))
+        };
+
+        private void AdjustResource(TradeResource resource, int change)
+        {
+            switch (resource)
+            {
+                case TradeResource.Coin: data.Coin += change; break;
+                case TradeResource.Food: data.Food += change; break;
+                case TradeResource.Wood: data.Wood += change; break;
+                case TradeResource.Iron: data.Iron += change; break;
+            }
+        }
+
+        private static bool ValidStock(int amount) => amount >= 0 && amount <= ResourceLimit;
 
         public bool CanStartIntegration(int province, ExpansionApproach approach)
         {
@@ -312,7 +489,7 @@ namespace GrandStrategy.WorldGeneration
             return approach switch
             {
                 ExpansionApproach.Diplomacy => Coin >= IntegrationCost,
-                ExpansionApproach.Trade => TradePartner == province && Coin >= PactCost,
+                ExpansionApproach.Trade => HasTradedWith(province) && Coin >= PactCost,
                 ExpansionApproach.Force => HasWarband && Food >= ForceFood,
                 _ => false
             };
@@ -368,20 +545,12 @@ namespace GrandStrategy.WorldGeneration
             var expanded = false;
             var harvest = Fertility(map.Provinces[Capital]) - (HasWarband ? 1 : 0);
 
-            // Winter consumption and population losses affect taxes on the same day.
-            while (Day < destination && Day < WinterEnd)
-            {
-                var previousDay = Day;
-                data.Day++;
-                expanded |= AdvanceIntegration(1);
-                ApplyEconomy(previousDay, harvest);
-            }
-
-            // Batch stable production after thaw, splitting at any ownership change.
+            // Settle production and population upkeep in calendar order, including during fast-forward.
             while (Day < destination)
             {
                 var previousDay = Day;
-                var span = destination - Day;
+                var interval = Day >= WinterStart && Day < WinterEnd ? ProductionInterval : FoodInterval;
+                var span = Math.Min(destination - Day, interval - Day % interval);
                 if (IntegrationTarget >= 0 && IntegrationDaysLeft <= span)
                     span = Math.Max(1, IntegrationDaysLeft - 1);
                 data.Day += span;
@@ -399,23 +568,45 @@ namespace GrandStrategy.WorldGeneration
             var taxes = Day / TaxInterval - previousDay / TaxInterval;
             if (periods > 0)
             {
-                var farmFood = FarmFood;
-                if (Day > WinterStart && Day <= WinterEnd)
-                {
-                    var winterUse = WinterConsumption;
-                    ConsumeWinterFood(Math.Max(0, winterUse - farmFood));
-                    AddFood(Math.Max(0, farmFood - winterUse));
-                }
-                else
-                    AddFood((long)periods * (farmFood + (Day == WinterStart ? 0 : harvest)));
+                var output = Day > WinterStart && Day <= WinterEnd ? WinterFoodOutput : FarmFood + harvest;
+                if (Day == WinterStart) AddFood((long)(periods - 1) * output + FarmFood);
+                else AddFood((long)periods * output);
 
                 var lumber = BuildingCount(SettlementBuilding.LumberCamp) * BuildingInfo(SettlementBuilding.LumberCamp).Yield;
                 var iron = BuildingCount(SettlementBuilding.IronMine) * BuildingInfo(SettlementBuilding.IronMine).Yield;
                 data.Wood = (int)Math.Min(ResourceLimit, Wood + (long)periods * lumber + taxes);
                 data.Iron = (int)Math.Min(ResourceLimit, Iron + (long)periods * iron);
             }
+            if (Day / FoodInterval > previousDay / FoodInterval)
+                FeedPopulation();
             if (taxes > 0)
                 data.Coin = (int)Math.Min(ResourceLimit, Coin + taxes * Math.Min(ResourceLimit, TaxIncome));
+        }
+
+        private void FeedPopulation()
+        {
+            var upkeep = FoodUpkeep;
+            data.LastPopulationChange = 0;
+            if (upkeep == 0) return;
+
+            var balance = Food - upkeep;
+            AddFood(-upkeep);
+            if (balance == 0) return;
+
+            var starving = balance < 0;
+            if (starving && Day > WinterStart && Day <= WinterEnd)
+                data.WinterShortfall = (int)Math.Min(int.MaxValue, data.WinterShortfall - balance);
+            var rate = (starving ? MaxStarvationRate : MaxGrowthRate)
+                * Math.Min(1d, Math.Abs((double)balance) / upkeep);
+            for (var province = 0; province < data.Pop.Length; province++)
+            {
+                var population = data.Pop[province];
+                if (!Owns(province) || population == 0) continue;
+                var change = (int)Math.Ceiling(population * rate);
+                change = starving ? -change : Math.Min(change, int.MaxValue - population);
+                data.Pop[province] += change;
+                data.LastPopulationChange += change;
+            }
         }
 
         private bool AdvanceIntegration(int days)
@@ -436,14 +627,6 @@ namespace GrandStrategy.WorldGeneration
             data.IntegrationTarget = -1;
             data.PendingApproach = ExpansionApproach.None;
             return true;
-        }
-
-        private void ConsumeWinterFood(int amount)
-        {
-            var missing = Math.Max(0, amount - Food);
-            AddFood(-amount);
-            data.WinterShortfall += missing;
-            if (missing > 0) LosePopulation(Capital, missing * 2);
         }
 
         private void AddFood(long amount) => data.Food = (int)Math.Min(ResourceLimit, Math.Max(0, Food + amount));

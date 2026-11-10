@@ -468,46 +468,87 @@ internal static class Program
         var granary = CampaignState.Found(map, key, 0, "Granary", 0);
         var initialWood = granary.Wood;
         Require(granary.TryBuildGranary() && !granary.TryBuildGranary() && !granary.TryRecruitWarband()
-            && granary.Wood == initialWood - CampaignState.GranaryWood && granary.WinterFoodRemaining == 48,
+            && granary.Wood == initialWood - CampaignState.GranaryWood && granary.WinterFoodRemaining == 2,
             "Early wood must buy only one major investment and the granary must reduce the winter forecast.");
         granary.Paused = false;
         granary.Advance(500);
         Require(granary.Day == CampaignState.WinterStart && granary.Paused && granary.WinterShortfall == 0
-            && granary.WinterFoodRemaining == 48, "Winter must pause the clock before drawing down reserves.");
+            && granary.WinterFoodRemaining == 2, "Winter must pause the clock before drawing down reserves.");
         var winterSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(granary.ToSave(), json), json);
         granary = CampaignState.Restore(map, key, winterSave, 5);
-        Require(granary.HasGranary && granary.Paused && granary.WinterFoodRemaining == 48,
+        Require(granary.HasGranary && granary.Paused && granary.WinterFoodRemaining == 2,
             "The granary and winter forecast must survive save and load.");
         granary.Paused = false;
         granary.Advance(500);
         Require(granary.Day == CampaignState.WinterEnd && granary.Paused && granary.WinterShortfall == 0
             && granary.WinterFoodRemaining == 0, "A prepared village must reach thaw without hunger.");
 
-        var hungry = CampaignState.Found(map, key, 0, "Hungry", 0);
-        var population = hungry.Population(hungry.Capital);
+        var hungerSave = CampaignState.Found(map, key, 0, "Hungry", 0).ToSave();
+        hungerSave.Day = 104;
+        hungerSave.Pop[0] = 250;
+        hungerSave.Food = 0;
+        var hungry = CampaignState.Restore(map, key, hungerSave, 5);
+        Require(hungry.FoodUpkeep == 2, "250 population must consume two food per cycle.");
         hungry.Paused = false;
-        hungry.Advance(500);
-        hungry.Paused = false;
-        hungry.Advance(500);
-        Require(hungry.WinterShortfall > 0 && hungry.Population(hungry.Capital) < population,
-            "An unprepared village must suffer a real population cost.");
+        hungry.Advance(1);
+        Require(hungry.WinterShortfall == 2 && hungry.Population(0) == 225 && hungry.LastPopulationChange == -25,
+            "A fully unfed population must lose ten percent.");
+        hungerSave.Food = 2;
+        hungerSave.Granary = true;
+        hungry.Advance(15);
+        Require(hungry.Population(0) == 225 && hungry.LastPopulationChange == 0 && hungry.Food == 0,
+            "Population losses must stop once upkeep is fully covered.");
+
+        var partialSave = CampaignState.Found(map, key, 0, "Short rations", 0).ToSave();
+        partialSave.Day = 104;
+        partialSave.Pop[0] = 250;
+        partialSave.Food = 1;
+        partialSave.Granary = true;
+        var partial = CampaignState.Restore(map, key, partialSave, 5);
+        partial.Paused = false;
+        partial.Advance(1);
+        Require(partial.Population(0) == 237 && partial.WinterShortfall == 1,
+            "A half ration should cause half the full starvation rate, rounded up.");
 
         var trader = CampaignState.Found(map, key, 0, "Trader", 0);
         var startingFood = trader.Food;
-        Require(!trader.TryTradeForFood(2) && trader.TryTradeForFood(1) && !trader.TryTradeForFood(1)
-            && trader.Food == startingFood + 36 && trader.TradePartner == 1
-            && trader.TryStartIntegration(1, ExpansionApproach.Trade), "Trade must deliver food once and open a pact.");
+        var buyFood = new TradeOffer(TradeResource.Coin, 30, TradeResource.Food, 10);
+        var lowOffer = new TradeOffer(TradeResource.Coin, 1, TradeResource.Food, 10);
+        var buyIron = new TradeOffer(TradeResource.Wood, 10, TradeResource.Iron, 2);
+        var sellIron = new TradeOffer(TradeResource.Iron, 2, TradeResource.Wood, 1);
+        var initialStock = trader.EvaluateTrade(1, buyFood).Stock;
+        Require(!trader.TryTrade(2, buyFood) && !trader.TryTrade(1, lowOffer)
+            && trader.EvaluateTrade(1, lowOffer).Willingness < 100 && trader.Coin == CampaignState.StartingCoin,
+            "Inaccessible and unfavorable trades must leave both sides unchanged.");
+        Require(trader.TryTrade(1, buyFood) && trader.EvaluateTrade(1, buyFood).Stock == initialStock - 10
+            && trader.Food == startingFood + 10 && trader.Coin == CampaignState.StartingCoin - 30,
+            "Buying food must exchange both stock balances.");
+        Require(trader.TryTrade(1, buyIron) && trader.Iron == 2 && trader.Wood == initialWood - 10
+            && trader.TryTrade(1, sellIron) && trader.Iron == 0 && trader.Wood == initialWood - 9,
+            "The same neighbour must accept repeat barter between non-coin resources.");
+        var tradeSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(trader.ToSave(), json), json);
+        trader = CampaignState.Restore(map, key, tradeSave, 5);
+        Require(trader.EvaluateTrade(1, buyFood).Stock == initialStock - 10 && trader.HasTradedWith(1),
+            "Market stock and trade history must persist.");
+        trader.Paused = false;
+        trader.Advance(14);
+        trader.Paused = true;
+        Require(trader.EvaluateTrade(1, buyFood).Stock > initialStock - 10
+            && trader.TryStartIntegration(1, ExpansionApproach.Trade),
+            "Markets replenish over time and a completed exchange opens a pact.");
+
         Require(trader.DaysToNextDecision == 20 && trader.AdvanceToNextDecision()
-            && trader.Paused && trader.Day == 21 && trader.Owns(1) && trader.FirstExpansion == ExpansionApproach.Trade,
+            && trader.Paused && trader.Day == 35 && trader.Owns(1) && trader.FirstExpansion == ExpansionApproach.Trade,
             "Advance must stop at the trade pact and record the route before winter.");
 
         var warrior = CampaignState.Found(map, key, 0, "Warrior", 0);
         Require(!warrior.TryStartIntegration(1, ExpansionApproach.Force) && warrior.TryRecruitWarband()
             && !warrior.TryBuildGranary() && warrior.TryStartIntegration(1, ExpansionApproach.Force),
             "Force must require a paid warband and compete with the granary.");
+        var warriorPopulation = warrior.Population(warrior.Capital);
         warrior.Paused = false;
         Require(warrior.Advance(10) && warrior.Owns(1) && warrior.FirstExpansion == ExpansionApproach.Force
-            && warrior.Food > startingFood && warrior.Population(warrior.Capital) < population,
+            && warrior.Food > startingFood && warrior.Population(warrior.Capital) < warriorPopulation,
             "Force must secure a province and supplies with casualties.");
 
         var economy = CampaignState.Found(map, key, 0, "Economy", 0);
@@ -520,11 +561,14 @@ internal static class Program
             && economy.TryBuild(0, SettlementBuilding.IronMine) && !economy.TryBuild(0, SettlementBuilding.Farm)
             && economy.Coin == 20 && economy.Wood == 0, "Each building must charge exactly once per province.");
 
-        var firstTax = economy.TaxIncome;
+        var firstUpkeep = economy.FoodUpkeep;
+        var population = economy.Population(0);
         economy.Paused = false;
         economy.Advance(14);
+        var firstTax = economy.TaxIncome;
         Require(economy.Day == 15 && economy.Coin == 20 + firstTax
-            && economy.Food == startingFood + 3 * (CampaignState.Fertility(map.Provinces[0]) + 3)
+            && economy.Population(0) > population && economy.Population(1) == population
+            && economy.Food == startingFood + 3 * (CampaignState.Fertility(map.Provinces[0]) + 3) - firstUpkeep
             && economy.Wood == 7 && economy.Iron == 3, "Taxes and construction output must follow the calendar.");
 
         var economySave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(economy.ToSave(), json), json);
@@ -547,7 +591,7 @@ internal static class Program
         for (var day = 0; day < 45; day++) stepped.Advance(1);
         Require(batched.Owns(1) && batched.Coin == CampaignState.StartingCoin - CampaignState.IntegrationCost
             + firstTax + 2 * batched.TaxIncome && batched.Coin == stepped.Coin && batched.Food == stepped.Food
-            && batched.Wood == stepped.Wood, "Fast-forward must apply the new tax base from the day a province joins.");
+            && batched.OwnedPopulation == stepped.OwnedPopulation && batched.Wood == stepped.Wood, "Fast-forward must apply the new tax base from the day a province joins.");
 
         batched.Advance(450);
         Require(batched.Coin > CampaignState.StartingCoin, "Taxes must grow the treasury beyond the starting balance.");
@@ -562,12 +606,24 @@ internal static class Program
         Require(upgraded.Iron == 0 && !upgraded.HasBuilding(0, SettlementBuilding.Farm)
             && upgraded.TryBuild(0, SettlementBuilding.Farm), "Version 2 saves must gain empty construction slots.");
 
+        var oldTrade = CampaignState.Found(map, key, 0, "Old trader", 0).ToSave();
+        oldTrade.Version = 3;
+        oldTrade.Coin = 130;
+        oldTrade.TradePartner = 1;
+        oldTrade.Markets = null;
+        oldTrade.IntegrationTarget = 1;
+        oldTrade.IntegrationDaysLeft = 5;
+        oldTrade.PendingApproach = ExpansionApproach.Trade;
+        var oldTrader = CampaignState.Restore(map, key, oldTrade, 5);
+        Require(oldTrader.Coin == 130 && oldTrader.HasTradedWith(1)
+            && oldTrader.IntegrationDaysLeft == 5, "Version 3 saves must retain treasury and trade pacts.");
+
         var legacy = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(campaign.ToSave(), json), json);
         legacy.Version = 1;
         legacy.Food = legacy.Wood = 0;
         legacy.PendingApproach = ExpansionApproach.None;
         var migrated = CampaignState.Restore(map, key, legacy, 5);
-        Require(migrated.Food == startingFood && migrated.Wood == initialWood && migrated.TradePartner == -1
+        Require(migrated.Food == startingFood && migrated.Wood == initialWood && !migrated.HasTradedWith(1)
             && migrated.PendingApproach == ExpansionApproach.Diplomacy && migrated.IntegrationTarget == 1,
             "Legacy campaigns must keep progress and get initial village supplies.");
     }

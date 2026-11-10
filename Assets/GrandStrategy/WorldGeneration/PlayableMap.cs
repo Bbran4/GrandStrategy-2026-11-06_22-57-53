@@ -51,6 +51,11 @@ namespace GrandStrategy.WorldGeneration
         private string provinceDetails;
         private Vector2 provinceScroll;
         private bool showProvinceDetails;
+        private bool showTrade;
+        private TradeResource tradeGive = TradeResource.Coin;
+        private TradeResource tradeWant = TradeResource.Food;
+        private string tradeGiveAmount = "20";
+        private string tradeWantAmount = "10";
         private Vector2 campaignScroll;
 
         private void Start()
@@ -189,7 +194,7 @@ namespace GrandStrategy.WorldGeneration
             if (selected != previous)
             {
                 provinceScroll = Vector2.zero;
-                showProvinceDetails = false;
+                showProvinceDetails = showTrade = false;
                 provinceDetails = selected < 0 ? null : Describe(surface.Map.Provinces[selected]);
             }
             surface.SetSelection(selected);
@@ -218,7 +223,7 @@ namespace GrandStrategy.WorldGeneration
             if (string.Equals(province.Type, "land", StringComparison.OrdinalIgnoreCase))
             {
                 text.AppendLine($"Food yield: +{CampaignState.Fertility(province)} per 5 days before winter");
-                text.AppendLine(CampaignState.HasTradeAccess(province) ? "River or coastal trade: cheaper food deal" : "Inland trade: standard price");
+                text.AppendLine(CampaignState.HasTradeAccess(province) ? "River or coastal trade: lower trade markup" : "Inland trade: standard markup");
                 text.AppendLine(CampaignState.IsDefensible(province) ? "Defensible terrain: heavier losses for attackers" : "Open terrain: lighter losses for attackers");
             }
             if (!string.IsNullOrEmpty(province.Terrain)) text.AppendLine("OpenGS terrain: " + province.Terrain);
@@ -254,6 +259,7 @@ namespace GrandStrategy.WorldGeneration
             surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
+            showTrade = false;
             settlement = capitalPoint;
             editingName = false;
             GUI.FocusControl(null);
@@ -303,7 +309,8 @@ namespace GrandStrategy.WorldGeneration
             DrawMapDock();
             DrawCampaign();
             DrawProvincePanel();
-            editingName = GUI.GetNameOfFocusedControl() == "TribeName";
+            var focused = GUI.GetNameOfFocusedControl();
+            editingName = focused == "TribeName" || focused == "TradeGive" || focused == "TradeWant";
         }
 
         private void DrawProvincePanel()
@@ -389,30 +396,59 @@ namespace GrandStrategy.WorldGeneration
             }
 
             GUILayout.Label("Unclaimed | Independent community");
-            if (selected == campaign.IntegrationTarget)
-            {
-                GUILayout.Label($"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
-                return;
-            }
             if (!campaign.CanReachIndependentProvince(selected))
             {
                 GUILayout.Label("Integration requires a neighbouring province you own.");
                 return;
             }
 
-            var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanTradeWith(selected);
-            if (GUILayout.Button($"Trade for 36 food ({campaign.TradeCost} coin)"))
+            showTrade = GUILayout.Toggle(showTrade, "Trade with this neighbour");
+            if (showTrade) DrawTrade();
+            if (selected == campaign.IntegrationTarget)
             {
-                campaign.TryTradeForFood(selected);
-                saveStatus = "Food delivered. This neighbour is open to a pact.";
+                GUILayout.Label($"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
+                return;
             }
-            GUI.enabled = wasEnabled;
             DrawExpansionButton(ExpansionApproach.Diplomacy, $"Negotiate ({CampaignState.IntegrationCost} coin)");
-            if (campaign.TradePartner == selected)
+            if (campaign.HasTradedWith(selected))
                 DrawExpansionButton(ExpansionApproach.Trade, $"Sign trade pact ({CampaignState.PactCost} coin)");
             if (campaign.HasWarband)
                 DrawExpansionButton(ExpansionApproach.Force, $"Use force ({CampaignState.ForceFood} food, casualties)");
+        }
+
+        private void DrawTrade()
+        {
+            DrawTradeLine("Offer", "TradeGive", ref tradeGive, ref tradeGiveAmount);
+            DrawTradeLine("Request", "TradeWant", ref tradeWant, ref tradeWantAmount);
+            int.TryParse(tradeGiveAmount, out var give);
+            int.TryParse(tradeWantAmount, out var want);
+            var offer = new TradeOffer(tradeGive, give, tradeWant, want);
+            var quote = campaign.EvaluateTrade(selected, offer);
+
+            var meter = GUILayoutUtility.GetRect(0f, 18f, GUILayout.ExpandWidth(true));
+            PaintHudRect(meter, HudButtonFill);
+            PaintHudRect(new Rect(meter.x, meter.y, meter.width * quote.Willingness / 100f, meter.height),
+                quote.Willingness == 100 ? new Color(.22f, .36f, .23f) : HudWine);
+            GUI.Label(meter, $"Willingness {quote.Willingness}%", hudLabel);
+            GUILayout.Label($"Available: {quote.Stock:N0} {tradeWant.ToString().ToLowerInvariant()}");
+            GUILayout.Label(quote.Status ?? "This neighbour accepts the exchange.");
+
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && quote.Status == null;
+            if (GUILayout.Button("Complete trade") && campaign.TryTrade(selected, offer))
+                saveStatus = $"Traded {give} {tradeGive.ToString().ToLowerInvariant()} for {want} {tradeWant.ToString().ToLowerInvariant()}.";
+            GUI.enabled = wasEnabled;
+        }
+
+        private static void DrawTradeLine(string label, string control, ref TradeResource resource, ref string amount)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, GUILayout.Width(58));
+            GUI.SetNextControlName(control);
+            amount = GUILayout.TextField(amount, 3, GUILayout.Width(48));
+            if (GUILayout.Button(resource.ToString() + " ›"))
+                resource = (TradeResource)(((int)resource + 1) % ((int)TradeResource.Iron + 1));
+            GUILayout.EndHorizontal();
         }
 
         private void DrawExpansionButton(ExpansionApproach approach, string label)
@@ -442,7 +478,10 @@ namespace GrandStrategy.WorldGeneration
                         : $"First winter survived | {campaign.WinterShortfall} food missed");
                 var winterStores = campaign.WinterFoodRemaining;
                 if (winterStores > 0)
-                    GUILayout.Label($"Winter stores needed: {winterStores} food");
+                    GUILayout.Label($"Estimated winter reserves: {winterStores:N0} food");
+                GUILayout.Label($"Food upkeep: {campaign.FoodUpkeep:N0} every {CampaignState.FoodInterval} days");
+                if (campaign.LastPopulationChange != 0)
+                    GUILayout.Label($"Last food tick: {campaign.LastPopulationChange:+#,0;-#,0} population");
                 if (campaign.FirstExpansion != ExpansionApproach.None)
                     GUILayout.Label($"First expansion: {campaign.FirstExpansion}");
                 if (campaign.Paused && campaign.DaysToNextDecision > 0
@@ -506,7 +545,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 campaign.TryBuildGranary();
                 surface.SetCapital(settlement, true, campaign.FirstExpansion != ExpansionApproach.None);
-                saveStatus = "Granary built. Winter food use drops from 14 to 8 per five days.";
+                saveStatus = "Granary built. Stored food is protected from winter spoilage.";
             }
             GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
             if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({CampaignState.WarbandWood} wood, {CampaignState.WarbandCoin} coin)"))
@@ -531,7 +570,7 @@ namespace GrandStrategy.WorldGeneration
                     selected = neighbour;
                     selectedCell = clickedCell = -1;
                     provinceScroll = Vector2.zero;
-                    showProvinceDetails = false;
+                    showProvinceDetails = showTrade = false;
                     provinceDetails = Describe(map.Provinces[neighbour]);
                     surface.SetSelection(neighbour);
                 }
