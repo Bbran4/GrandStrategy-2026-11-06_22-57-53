@@ -4,20 +4,17 @@ Shader "GrandStrategy/Map Border"
     {
         _BorderColour ("Border colour", Color) = (0.06, 0.08, 0.09, 1)
         _WidthPixels ("Width in pixels", Float) = 1.6
-        [NoScaleOffset] _BiomeSurface ("Biome surface", 2D) = "black" {}
-        [NoScaleOffset] _RiverFlow ("River coverage", 2D) = "black" {}
-        _MapAspect ("Map aspect", Float) = 1
     }
 
     SubShader
     {
-        Tags { "RenderPipeline" = "UniversalPipeline" "RenderType" = "Transparent" "Queue" = "Transparent" }
+        Tags { "RenderPipeline" = "UniversalPipeline" "RenderType" = "Transparent" "Queue" = "Overlay" }
         Pass
         {
             Tags { "LightMode" = "SRPDefaultUnlit" }
             Cull Off
             ZWrite Off
-            Offset -1, -1
+            ZTest Always
             Blend SrcAlpha OneMinusSrcAlpha
 
             HLSLPROGRAM
@@ -27,14 +24,10 @@ Shader "GrandStrategy/Map Border"
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-            TEXTURE2D(_BiomeSurface);
-            SAMPLER(sampler_BiomeSurface);
-            TEXTURE2D(_RiverFlow);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BorderColour;
                 float _WidthPixels;
-                float _MapAspect;
             CBUFFER_END
 
             struct Attributes
@@ -48,7 +41,6 @@ Shader "GrandStrategy/Map Border"
             {
                 float4 positionCS : SV_POSITION;
                 float3 segment : TEXCOORD0;
-                float2 mapUV : TEXCOORD1;
             };
 
             Varyings Vert(Attributes input)
@@ -69,18 +61,11 @@ Shader "GrandStrategy/Map Border"
                 position.xy += (cap * tangent + across * normal) / halfScreen * position.w;
                 output.positionCS = position;
                 output.segment = float3(input.corner.x * len + cap, across, len);
-                float2 centre = lerp(input.startOS.xz, input.endOS.xz, input.corner.x);
-                output.mapUV = centre / float2(_MapAspect, 1.0) + 0.5;
                 return output;
             }
 
             half4 Frag(Varyings input) : SV_Target
             {
-                // The freshwater field contains both lakes and rivers. Subtract the river
-                // coverage so only lakes clip the already classified political strokes.
-                float freshwater = SAMPLE_TEXTURE2D_LOD(_BiomeSurface, sampler_BiomeSurface, input.mapUV, 1).b;
-                float river = SAMPLE_TEXTURE2D_LOD(_RiverFlow, sampler_BiomeSurface, input.mapUV, 1).b;
-                clip(0.015 - (freshwater - river));
                 float outside = max(0.0, max(-input.segment.x, input.segment.x - input.segment.z));
                 float distanceFromLine = length(float2(outside, input.segment.y));
                 float radius = _WidthPixels * 0.5;

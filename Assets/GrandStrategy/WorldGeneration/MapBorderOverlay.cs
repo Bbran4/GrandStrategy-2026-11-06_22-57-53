@@ -17,21 +17,26 @@ namespace GrandStrategy.WorldGeneration
         private readonly Layer territories;
         private readonly Func<int, bool> isDryLand;
         private readonly Func<int, bool> isRiver;
-        private readonly Func<int, bool> isOcean;
+        private readonly Func<int, bool> isLake;
 
         public bool HasTerritories => territoryRaster != null;
 
         public MapBorderOverlay(GameObject surface, MapTerrainGeometry geometry, ProvinceMap map, ProvinceShape provinceShape,
-            Func<int, bool> isDryLand, Func<int, bool> isRiver, Func<int, bool> isOcean,
-            Func<int, bool> isNavigableRiverCell, Texture2D biomeSurface, Texture2D riverFlow)
+            Func<int, bool> isDryLand, Func<int, bool> isRiver, Func<int, bool> isLake,
+            Func<int, bool> isNavigableRiverCell)
         {
             this.map = map;
             this.geometry = geometry;
             this.isDryLand = isDryLand;
             this.isRiver = isRiver;
-            this.isOcean = isOcean;
-            var provinceRaster = MapBorderPaths.FillRiverGaps(map.Width, map.ProvinceAt, isRiver, CanSeedProvince,
+            this.isLake = isLake;
+            var provinceRaster = MapBorderPaths.FillWaterGaps(map.Width, map.ProvinceAt, isRiver, CanSeedProvince,
                 isNavigableRiverCell);
+            provinceRaster = MapBorderPaths.OutlineLakes(map.Width, provinceRaster, isLake, cell =>
+            {
+                var province = map.ProvinceAt[cell];
+                return province >= 0 && string.Equals(map.Provinces[province].Type, "lake", StringComparison.OrdinalIgnoreCase);
+            });
             this.provinceShape = ReferenceEquals(provinceRaster, map.ProvinceAt) ? provinceShape
                 : new ProvinceShape(map.Width, map.Height, provinceRaster);
             territoryRaster = CreateTerritoryRaster(isNavigableRiverCell);
@@ -42,11 +47,10 @@ namespace GrandStrategy.WorldGeneration
                 if (shader == null || !shader.isSupported)
                     throw new InvalidOperationException("The map border shader requires Universal Render Pipeline.");
 
-                var aspect = (float)map.Width / map.Height;
                 provinces = new Layer(surface.transform, shader, "Province borders", 1.25f, 0,
-                    new Color32(40, 45, 40, 235), biomeSurface, riverFlow, aspect);
+                    new Color32(40, 45, 40, 235));
                 territories = new Layer(surface.transform, shader, "Territory borders", 2.15f, 1,
-                    new Color32(45, 50, 48, 238), biomeSurface, riverFlow, aspect);
+                    new Color32(45, 50, 48, 238));
                 provinces.Mesh = CreateMesh(provinceRaster, "Province outlines", true);
                 SetView(MapViewMode.Provinces);
             }
@@ -73,20 +77,16 @@ namespace GrandStrategy.WorldGeneration
             private readonly MeshRenderer renderer;
             private readonly Material material;
 
-            public Layer(Transform parent, Shader shader, string name, float width, int order, Color colour,
-                Texture2D biomeSurface, Texture2D riverFlow, float aspect)
+            public Layer(Transform parent, Shader shader, string name, float width, int order, Color colour)
             {
                 var gameObject = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer))
                     { hideFlags = HideFlags.DontSave };
                 gameObject.transform.SetParent(parent, false);
                 filter = gameObject.GetComponent<MeshFilter>();
                 renderer = gameObject.GetComponent<MeshRenderer>();
-                material = new Material(shader) { hideFlags = HideFlags.DontSave, renderQueue = 3000 + order };
+                material = new Material(shader) { hideFlags = HideFlags.DontSave, renderQueue = 4000 + order };
                 material.SetFloat("_WidthPixels", width);
                 material.SetColor("_BorderColour", colour);
-                material.SetTexture("_BiomeSurface", biomeSurface);
-                material.SetTexture("_RiverFlow", riverFlow);
-                material.SetFloat("_MapAspect", aspect);
                 renderer.sharedMaterial = material;
                 renderer.enabled = false;
             }
@@ -118,10 +118,10 @@ namespace GrandStrategy.WorldGeneration
                 for (var i = 1; i < count; i++)
                 {
                     var current = SmoothedCorner(path, count, i, closed, useProvinceShape);
-                    if (Includes(path[i - 1], path[i])) FollowTerrain(previous, current);
+                    FollowTerrain(previous, current);
                     previous = current;
                 }
-                if (closed && Includes(path[count - 1], path[0])) FollowTerrain(previous, first);
+                if (closed) FollowTerrain(previous, first);
             });
 
             var mesh = new Mesh { name = label, hideFlags = HideFlags.DontSave, indexFormat = IndexFormat.UInt32 };
@@ -142,24 +142,6 @@ namespace GrandStrategy.WorldGeneration
                 UnityEngine.Object.Destroy(mesh);
                 throw;
             }
-
-            bool Includes(int a, int b)
-            {
-                var start = Math.Min(a, b);
-                var stride = map.Width + 1;
-                var x = start % stride;
-                var y = start / stride;
-                var first = Math.Abs(a - b) == 1 ? Cell(x, y - 1) : Cell(x - 1, y);
-                var second = Cell(x, y);
-                return CanDraw(first) && CanDraw(second);
-
-                bool CanDraw(int cell)
-                    => cell >= 0 && (isOcean(cell)
-                        || (raster[cell] >= 0 && (isRiver(cell) || IsLandProvinceCell(cell))));
-            }
-
-            int Cell(int x, int y) => x >= 0 && x < map.Width && y >= 0 && y < map.Height
-                ? y * map.Width + x : -1;
 
             void FollowTerrain(Vector2 a, Vector2 b)
             {
@@ -212,9 +194,6 @@ namespace GrandStrategy.WorldGeneration
         private bool CanSeedProvince(int cell)
             => (isDryLand(cell) || isRiver(cell)) && CampaignState.IsLand(map, map.ProvinceAt[cell]);
 
-        private bool IsLandProvinceCell(int cell)
-            => cell >= 0 && isDryLand(cell) && CampaignState.IsLand(map, map.ProvinceAt[cell]);
-
         private Vector2 SmoothedCorner(IReadOnlyList<int> path, int count, int i, bool closed, bool useProvinceShape)
         {
             var point = useProvinceShape
@@ -240,9 +219,10 @@ namespace GrandStrategy.WorldGeneration
                 if (ReferenceEquals(raster, imported)) raster = (int[])imported.Clone();
                 raster[cell] = firstRiverId + map.ProvinceAt[cell];
             }
-            return MapBorderPaths.FillRiverGaps(map.Width, raster, isRiver,
+            raster = MapBorderPaths.FillWaterGaps(map.Width, raster, isRiver,
                 cell => CanSeedProvince(cell) && (!map.HasTerritoryPreview || HasTerritoryType(cell, "land")),
                 isNavigableRiverCell);
+            return MapBorderPaths.OutlineLakes(map.Width, raster, isLake, cell => HasTerritoryType(cell, "lake"));
 
             bool HasTerritoryType(int cell, string type)
             {

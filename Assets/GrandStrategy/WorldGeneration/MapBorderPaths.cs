@@ -7,17 +7,17 @@ namespace GrandStrategy.WorldGeneration
     {
         private const int Directions = 15;
 
-        // Fill only river cells with missing political IDs, starting from the nearest land edge.
+        // Fill eligible water cells with missing display IDs, starting from the nearest seed.
         // The imported raster stays authoritative for picking, navigation, and campaign ownership.
-        internal static int[] FillRiverGaps(int width, int[] source, Func<int, bool> isRiver,
-            Func<int, bool> canSeed, Func<int, bool> preserveRiverRegion = null)
+        internal static int[] FillWaterGaps(int width, int[] source, Func<int, bool> isWater,
+            Func<int, bool> canSeed, Func<int, bool> preserveRegion = null)
         {
             int[] result = null;
             var queue = new Queue<int>();
             for (var cell = 0; cell < source.Length; cell++)
             {
-                if (!isRiver(cell) || (source[cell] >= 0
-                    && (canSeed(cell) || preserveRiverRegion?.Invoke(cell) == true))) continue;
+                if (!isWater(cell) || (source[cell] >= 0
+                    && (canSeed(cell) || preserveRegion?.Invoke(cell) == true))) continue;
                 result ??= (int[])source.Clone();
                 result[cell] = -1;
                 var x = cell % width;
@@ -44,12 +44,23 @@ namespace GrandStrategy.WorldGeneration
 
                 void Spread(int other)
                 {
-                    if (other < 0 || other >= source.Length || result[other] >= 0 || !isRiver(other)) return;
+                    if (other < 0 || other >= source.Length || result[other] >= 0 || !isWater(other)) return;
                     result[other] = result[cell];
                     queue.Enqueue(other);
                 }
             }
             return result ?? source;
+        }
+
+        internal static int[] OutlineLakes(int width, int[] source, Func<int, bool> isLake,
+            Func<int, bool> hasAuthoredLakeId)
+        {
+            var raster = FillWaterGaps(width, source, isLake, cell => isLake(cell) && hasAuthoredLakeId(cell));
+            if (ReferenceEquals(raster, source)) return source;
+            // Only the display raster uses this ID. Disconnected lakes already have separate outlines.
+            for (var cell = 0; cell < raster.Length; cell++)
+                if (raster[cell] < 0 && isLake(cell)) raster[cell] = int.MaxValue;
+            return raster;
         }
 
         // Paths use corners on a (width + 1) by (height + 1) grid. The callback consumes each path
