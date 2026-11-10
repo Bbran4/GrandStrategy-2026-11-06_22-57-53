@@ -15,6 +15,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly ProvinceShape provinceShape;
         private Texture2D biomeSurface;
         private Texture2D riverFlow;
+        private bool[] navigableRiverProvinces;
         private Texture2D groundPatterns;
         private Texture2D landTint;
         private Texture2D landMaterialsLow;
@@ -196,6 +197,7 @@ namespace GrandStrategy.WorldGeneration
         private void FillRiverFlow()
         {
             var pixels = riverFlow.GetRawTextureData<Color32>();
+            navigableRiverProvinces = new bool[Map.Provinces.Length];
             var directions = new Color32[9];
             directions[0] = new Color32(128, 128, 0, 0);
             for (var i = 1; i < directions.Length; i++)
@@ -205,7 +207,22 @@ namespace GrandStrategy.WorldGeneration
                     (byte)(128 + Mathf.RoundToInt(Mathf.Sin(angle) * 127f)), 255, 0);
             }
             for (var cell = 0; cell < rivers.Length; cell++)
-                pixels[cell] = directions[IsRiver(cell) ? rivers[cell] : 0];
+            {
+                var direction = IsRiver(cell) ? rivers[cell] : 0;
+                var pixel = directions[direction];
+                if (direction != 0)
+                {
+                    var province = Map.ProvinceAt[cell];
+                    // OpenGS authors naval access as ocean provinces on the physical river footprint.
+                    if (province >= 0 && province < Map.Provinces.Length
+                        && string.Equals(Map.Provinces[province].Type, "ocean", StringComparison.OrdinalIgnoreCase))
+                    {
+                        pixel.a = 255;
+                        navigableRiverProvinces[province] = true;
+                    }
+                }
+                pixels[cell] = pixel;
+            }
             riverFlow.Apply(true, true);
         }
 
@@ -253,6 +270,10 @@ namespace GrandStrategy.WorldGeneration
 
         private bool IsRiver(int cell) => rivers != null && rivers[cell] != 0 && water[cell] == WaterKind.Land;
 
+        public bool IsNavigableRiverProvince(int province)
+            => navigableRiverProvinces != null && province >= 0 && province < navigableRiverProvinces.Length
+                && navigableRiverProvinces[province];
+
         public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && !IsRiver(cell);
 
         public Vector3 PointAtCell(int cell)
@@ -292,6 +313,7 @@ namespace GrandStrategy.WorldGeneration
             borders.SetView(mode);
             material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain || mode == MapViewMode.Biomes ? 0f : 1f);
             material.SetFloat("_ShowBiomes", mode == MapViewMode.Biomes ? 1f : 0f);
+            material.SetFloat("_ShowRiverRoutes", mode == MapViewMode.Provinces || mode == MapViewMode.Territories ? 1f : 0f);
         }
 
         public void SetSelection(int selected)

@@ -205,6 +205,8 @@ namespace GrandStrategy.WorldGeneration
         {
             var text = new StringBuilder();
             text.AppendLine("Type: " + (province.Type ?? "Unknown"));
+            if (surface.IsNavigableRiverProvince(selected))
+                text.AppendLine("Navigable river province (ship access)");
             text.AppendLine("Dominant biome: " + DominantBiome(province));
             if (string.Equals(province.Type, "land", StringComparison.OrdinalIgnoreCase))
             {
@@ -648,8 +650,8 @@ namespace GrandStrategy.WorldGeneration
                 MapViewMode.Ownership => campaign == null ? "No provinces held" : "Gold labels mark provinces held",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
                     : "Click a province to inspect its biome",
-                MapViewMode.Territories => "Imported territory boundaries",
-                MapViewMode.Provinces => "Land province boundaries",
+                MapViewMode.Territories => "Territories | Gold dashes: river access",
+                MapViewMode.Provinces => "Provinces | Gold dashes: river access",
                 _ => "Terrain and settlement"
             };
             GUI.Label(new Rect(dock.x + 6, dock.y + 78, dock.width - 12, 21), status, hudLabel);

@@ -46,6 +46,7 @@ Shader "GrandStrategy/Playable Map"
         _GroundDetail ("Ground detail", Float) = 0.25
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
         [HideInInspector] _ShowBiomes ("Show biome colours", Float) = 0
+        [HideInInspector] _ShowRiverRoutes ("Show navigable river provinces", Float) = 1
         _ShowPolitics ("Political overlays", Float) = 1
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _ProvinceCorners ("Province corner offsets", 2D) = "black" {}
@@ -124,6 +125,7 @@ Shader "GrandStrategy/Playable Map"
                 float4 _TerrainShadow_TexelSize;
                 float4 _MapSun;
                 float _ShowPolitics;
+                float _ShowRiverRoutes;
                 float _ShowBiomes;
                 float4 _BiomeViewPalette[8];
                 float _GroundDetail;
@@ -431,6 +433,14 @@ Shader "GrandStrategy/Playable Map"
                 float pixelFootprint = max(length(screenX), length(screenY));
                 float coastLod = log2(max(pixelFootprint, max(1.0, _GroundGrid.y * 0.011)));
                 float4 waterField = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv, coastLod);
+                float nearbyShoal = SAMPLE_TEXTURE2D_LOD(_BiomeSurface, sampler_BiomeSurface, input.uv, coastLod).g;
+                float oceanEdge = smoothstep(0.012, 0.17, nearbyShoal);
+                float coastElevation = saturate(position.y * _InverseReliefHeight);
+                float beach = oceanEdge * (1.0 - smoothstep(0.018, 0.075, coastElevation))
+                    * (1.0 - smoothstep(0.035, 0.23, 1.0 - normal.y))
+                    * (1.0 - smoothstep(0.10, 0.66, high.z));
+                beach *= lerp(0.72, 1.0, patches.r);
+                land = lerp(land, float3(0.45, 0.35, 0.23), beach * (1.0 - snow) * 0.80);
                 GroundCoordinates tile;
                 tile.uv = ground * _GroundTileFrequency;
                 tile.dx = groundDx * _GroundTileFrequency;
@@ -463,10 +473,10 @@ Shader "GrandStrategy/Playable Map"
                         broad, patches, plainsMix, forestMix);
 
                     float rockCover = exposed * 0.84;
-                    float baseWeight = (1.0 - snow) * (1.0 - rockCover);
+                    float baseWeight = (1.0 - snow) * (1.0 - beach) * (1.0 - rockCover);
                     low *= baseWeight;
                     high *= baseWeight;
-                    float rockWeight = high.w * paint.alpine.x + rockCover * (1.0 - snow);
+                    float rockWeight = high.w * paint.alpine.x + rockCover * (1.0 - snow) * (1.0 - beach);
                     float sparseWeight = low.x * paint.wetland.y + low.z * paint.plains.z + high.z * paint.tundra.z;
                     float mudWeight = low.x * paint.wetland.x + low.w * paint.temperate.z
                         + high.x * paint.tropical.z + high.y * paint.boreal.z;
@@ -486,6 +496,7 @@ Shader "GrandStrategy/Playable Map"
                     GROUND_LAYER(_TundraColour, _TundraNormal, tile, 41.0, stoneWeight, landDetail);
                     GROUND_LAYER(_TundraSoilColour, _TundraSoilNormal, tile, 36.0, soilWeight, landDetail);
                     GROUND_LAYER(_FreshwaterColour, _FreshwaterNormal, tile, 26.0, low.x * paint.wetland.z, landDetail);
+                    GROUND_LAYER(_ShallowsColour, _ShallowsNormal, tile, 32.0, beach * (1.0 - snow), landDetail);
                     // Steep banks need vertical texture projection. Keep the established top projection inland.
                     float cliff = smoothstep(0.16, 0.46, 1.0 - normal.y)
                         * (1.0 - smoothstep(0.55, 0.97, waterField.a));
@@ -513,7 +524,7 @@ Shader "GrandStrategy/Playable Map"
                 float clearing = _CapitalClearing.z > 0.0
                     ? smoothstep(_CapitalClearing.z * 0.7, _CapitalClearing.z, distance(ground, _CapitalClearing.xy))
                     : 1.0;
-                float cover = smoothstep(0.04, 0.66, canopy.r) * map.a * clearing;
+                float cover = smoothstep(0.04, 0.66, canopy.r) * map.a * clearing * (1.0 - beach);
                 float3 forest = lerp(float3(0.055, 0.077, 0.038), float3(0.18, 0.22, 0.102), canopy.g);
                 forest = lerp(forest, float3(0.27, 0.34, 0.30), snow * 0.75);
                 // Let the textured floor show through the canopy colour at closer zooms.
@@ -540,8 +551,8 @@ Shader "GrandStrategy/Playable Map"
                 float waterCoverage = max(1.0 - map.a, 0.0001);
                 float shoal = saturate(biomeSurface.g / waterCoverage);
                 float freshwater = saturate(biomeSurface.b / waterCoverage);
-                float3 flow = SAMPLE_TEXTURE2D_GRAD(_RiverFlow, sampler_BiomeSurface, input.uv,
-                    screenX / _GroundGrid.xy, screenY / _GroundGrid.xy).rgb;
+                float4 flow = SAMPLE_TEXTURE2D_GRAD(_RiverFlow, sampler_BiomeSurface, input.uv,
+                    screenX / _GroundGrid.xy, screenY / _GroundGrid.xy);
                 float channel = min(freshwater, flow.b / waterCoverage);
                 float lake = freshwater - channel;
                 float3 channelTint = float3(0.094, 0.143, 0.137);
@@ -598,8 +609,30 @@ Shader "GrandStrategy/Playable Map"
                 }
                 water += waterDelta;
                 water = lerp(water, float3(0.54, 0.66, 0.69), ice);
-                // Give narrow channels enough coverage to stay legible between raster samples.
-                float visibleWater = saturate((1.0 - map.a) * (1.0 + channel * 0.30));
+
+                float edgeBlend = 4.0 * map.a * (1.0 - map.a) * oceanEdge * (1.0 - freshwater);
+                float landCoverage = map.a;
+                UNITY_BRANCH
+                if (edgeBlend > 0.001)
+                {
+                    float softLand = SAMPLE_TEXTURE2D_LOD(_MapColours, sampler_MapColours, input.uv,
+                        max(1.0, log2(max(pixelFootprint, 1.0)))).a;
+                    landCoverage = lerp(map.a, softLand, edgeBlend * 0.65);
+                    water = lerp(water, land, edgeBlend * 0.14);
+                }
+
+                float riverAccess = min(channel, flow.a / waterCoverage) * _ShowRiverRoutes;
+                UNITY_BRANCH
+                if (riverAccess > 0.001)
+                {
+                    // A warm dash inside the channel denotes an authored river province.
+                    float2 velocity = (flow.rg * 255.0 - 128.0) / max(127.0 * flow.b, 1.0);
+                    float phase = frac(dot(ground, velocity) * 155.0);
+                    float dash = smoothstep(0.07, 0.22, phase) * (1.0 - smoothstep(0.55, 0.72, phase));
+                    float detail = 1.0 - smoothstep(0.10, 0.43, max(length(groundDx), length(groundDy)) * 155.0);
+                    water = lerp(water, float3(0.54, 0.38, 0.16), riverAccess * lerp(0.16, dash * 0.36, detail));
+                }
+                float visibleWater = saturate((1.0 - landCoverage) * (1.0 + channel * 0.30));
                 return lerp(land, water * (1.0 - 0.20 * terrainShade), visibleWater);
             }
 
