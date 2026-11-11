@@ -996,6 +996,34 @@ internal static class Program
             new[] { Cell(8, 6), Cell(5, 6), Cell(8, 6), Cell(0, 6) }, 2, .012f),
             "An authored channel cannot cross itself.");
 
+        var reverse = RiverGenerator.RebuildAuthored(terrain, null,
+            new[] { Cell(0, 6), Cell(8, 6) }, 2, .012f);
+        Require(reverse.Directions.SequenceEqual(previous.Directions),
+            "Drawing upstream from the ocean should keep flow directed toward the ocean.");
+
+        var lakeHeights = (float[])heights.Clone();
+        for (var x = 10; x <= 12; x++) lakeHeights[Cell(x, 6)] = sea - .02f;
+        var lakeWorld = new HeightmapResult(recipe, lakeHeights);
+        var lakeOutlet = RiverGenerator.RebuildAuthored(lakeWorld, null,
+            new[] { Cell(12, 6), Cell(0, 6) }, 2, .012f);
+        var reverseLakeOutlet = RiverGenerator.RebuildAuthored(lakeWorld, null,
+            new[] { Cell(0, 6), Cell(12, 6) }, 2, .012f);
+        Require(lakeOutlet.Directions.SequenceEqual(reverseLakeOutlet.Directions)
+            && lakeOutlet.Directions[Cell(10, 6)] == 0
+            && lakeOutlet.DownstreamIndex(Cell(9, 6)) == Cell(8, 6)
+            && lakeOutlet.DownstreamIndex(Cell(1, 6)) == Cell(0, 6),
+            "A lake outlet should start on the bank and flow toward the ocean in either drawing order.");
+        var lakeInlet = RiverGenerator.RebuildAuthored(lakeWorld, null,
+            new[] { Cell(5, 6), Cell(12, 6) }, 2, .012f);
+        Require(lakeInlet.DownstreamIndex(Cell(9, 6)) == Cell(10, 6),
+            "A route ending inside a lake should stop at the first water cell.");
+        Reject(() => RiverGenerator.RebuildAuthored(lakeWorld, null,
+            new[] { Cell(15, 6), Cell(0, 6) }, 2, .012f),
+            "A route through an intermediate lake should be split at the lake.");
+        Reject(() => RiverGenerator.RebuildAuthored(lakeWorld, null,
+            new[] { Cell(10, 6), Cell(12, 6) }, 2, .012f),
+            "A route entirely in water has no land to carve.");
+
         var edited = (float[])heights.Clone();
         edited[Cell(1, 12)] = sea - .02f;
         edited[Cell(0, 18)] = sea + .02f;

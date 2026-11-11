@@ -352,12 +352,39 @@ namespace GrandStrategy.WorldGeneration
 
             if (path.Count > 0)
             {
-                if (path.Count < 2 || elevations[path[path.Count - 1]] >= sea)
-                    throw new ArgumentException("End the river at an ocean or lake cell.");
-                for (var i = 0; i < path.Count - 1; i++)
+                var startsInWater = elevations[path[0]] < sea;
+                var endsInWater = elevations[path[path.Count - 1]] < sea;
+                if (!startsInWater && !endsInWater)
+                    throw new ArgumentException("Place at least one endpoint in an ocean or lake.");
+
+                // Allow drawing upstream from a mouth. Between a lake and ocean, flow toward the ocean.
+                if (startsInWater && !endsInWater)
+                    path.Reverse();
+                else if (startsInWater && endsInWater)
+                {
+                    var water = WaterMap.Classify(world);
+                    if (water[path[0]] == WaterKind.Ocean && water[path[path.Count - 1]] == WaterKind.Lake)
+                        path.Reverse();
+                }
+
+                // Retain the water cell beside the last bank as the outlet. The source lake itself
+                // stays lake water, and the channel starts on its first adjacent land sample.
+                var firstLand = 0;
+                while (firstLand < path.Count && elevations[path[firstLand]] < sea) firstLand++;
+                if (firstLand == path.Count)
+                    throw new ArgumentException("Draw the river across land between its endpoints.");
+                var lastLand = path.Count - 1;
+                while (elevations[path[lastLand]] < sea) lastLand--;
+                for (var i = firstLand; i <= lastLand; i++)
                 {
                     var cell = path[i];
-                    if (elevations[cell] < sea) throw new ArgumentException("The river must stay on land until its outlet.");
+                    if (elevations[cell] < sea)
+                        throw new ArgumentException("The route crosses water between its endpoints. End this river there and draw a separate outlet from that lake.");
+                }
+
+                for (var i = firstLand; i <= lastLand; i++)
+                {
+                    var cell = path[i];
                     var next = path[i + 1];
                     var old = Neighbor(cell, directions[cell], width, height);
                     if (old >= 0 && old != next) abandoned.Add(old);

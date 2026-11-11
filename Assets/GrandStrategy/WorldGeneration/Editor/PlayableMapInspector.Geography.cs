@@ -39,7 +39,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 geographyProvinces = provinces;
             }
 
-            EditorGUILayout.HelpBox("Draw a route from an inland source to an ocean or lake. Review it, then apply to carve the channel and update the river network.", MessageType.Info);
+            EditorGUILayout.HelpBox("Draw between inland land and an ocean or lake in either order, or connect a lake to the ocean. Leave land between the water endpoints, then review and apply the cut.", MessageType.Info);
             EditorGUI.BeginChangeCheck();
             authoredRiverWidth = EditorGUILayout.IntSlider("River Width (samples)", authoredRiverWidth, 1, 24);
             authoredRiverDepth = EditorGUILayout.Slider("River Depth", authoredRiverDepth,
