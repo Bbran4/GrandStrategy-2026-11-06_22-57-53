@@ -10,9 +10,15 @@ namespace GrandStrategy.WorldGeneration
     [DisallowMultipleComponent]
     public sealed class PlayableMap : MonoBehaviour
     {
+        // Native brush sizes are in scene units. Runtime height and paint use normalized map coordinates.
+        public const float TerrainAuthoringScale = 1000f;
+
         [SerializeField] private WorldHeightmap world;
         [SerializeField] private ProvinceMapAsset provinceMap;
         [SerializeField] private MapTreeCatalog treeCatalog;
+        [SerializeField, HideInInspector] private Terrain authoringTerrain;
+        [SerializeField, HideInInspector] private WorldHeightmap authoringWorld;
+        private bool hidAuthoringTerrain;
 
         private static readonly string[] ColourNames = { "Blue", "Red", "Green", "Violet", "Ochre" };
         private static readonly Color32[] TribeColours =
@@ -67,7 +73,11 @@ namespace GrandStrategy.WorldGeneration
                     throw new InvalidOperationException("Assign a World asset and its matching Province Map asset.");
                 mapCamera = GetComponent<Camera>();
                 // The map is anchored at the scene origin, independently of the camera.
-                surface = new PlayableMapSurface(world, provinceMap, treeCatalog);
+                if (authoringTerrain != null && (authoringWorld != world || authoringTerrain.terrainData == null
+                    || transform.IsChildOf(authoringTerrain.transform)))
+                    throw new InvalidOperationException("Recreate the scene Terrain for the assigned World asset.");
+                surface = new PlayableMapSurface(world, provinceMap, treeCatalog,
+                    authoringTerrain == null ? null : authoringTerrain.terrainData);
                 mapKey = CampaignState.MapKey(surface.Map, world.Seed);
                 savePath = CampaignSaveFile.PathFor(mapKey);
                 hasSave = File.Exists(savePath);
@@ -77,6 +87,11 @@ namespace GrandStrategy.WorldGeneration
                 mapCamera.nearClipPlane = .01f;
                 mapCamera.farClipPlane = 2f * (surface.Aspect + 4f);
                 UpdateCamera(0f);
+                if (authoringTerrain != null && authoringTerrain.gameObject.activeSelf)
+                {
+                    authoringTerrain.gameObject.SetActive(false);
+                    hidAuthoringTerrain = true;
+                }
             }
             catch (Exception error)
             {
@@ -85,7 +100,12 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        private void OnDestroy() => surface?.Dispose();
+        private void OnDestroy()
+        {
+            surface?.Dispose();
+            if (hidAuthoringTerrain && authoringTerrain != null)
+                authoringTerrain.gameObject.SetActive(true);
+        }
 
         private void Update()
         {
