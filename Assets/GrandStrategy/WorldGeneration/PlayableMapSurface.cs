@@ -1,3 +1,5 @@
+// Builds and owns the runtime map mesh, collider, material textures, borders and scenery. It also maps
+// clicks and placements back to the province raster.
 using System;
 using UnityEngine;
 
@@ -37,6 +39,8 @@ namespace GrandStrategy.WorldGeneration
         public float Aspect => (float)Map.Width / Map.Height;
         public Collider Collider { get; private set; }
 
+        // Validate the world and province pair first, then build rendering and geography from the same
+        // underlying world samples.
         public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog,
             TerrainData authored = null, int authoredMeshDetail = 1024)
         {
@@ -132,6 +136,8 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Bind the editor Terrain's first control texture and its three paint layers. The base channel
+        // leaves the generated material visible.
         private void BindAuthoredPaint(Material target, TerrainData authored, float heightScale)
         {
             var size = new Vector3(Aspect, heightScale, 1f) * PlayableMap.TerrainAuthoringScale;
@@ -158,6 +164,8 @@ namespace GrandStrategy.WorldGeneration
             if (hasPaint) target.EnableKeyword("_AUTHORED_TERRAIN");
         }
 
+        // Check that the province export describes the same terrain as the World asset, allowing for RAW16
+        // rounding.
         private static void ValidatePair(HeightmapResult world, HeightmapResult imported)
         {
             var a = world.Recipe;
@@ -177,6 +185,7 @@ namespace GrandStrategy.WorldGeneration
             };
         }
 
+        // Pack the colour, province IDs, biome and water data used by the shader into separate textures.
         private void FillTextures(BiomeMap biomes, HeightmapResult terrain)
         {
             var raster = Map.ProvinceAt;
@@ -232,6 +241,7 @@ namespace GrandStrategy.WorldGeneration
             biomeSurface.Apply(true, true);
         }
 
+        // Encode river directions and the river footprint for the animated water shading.
         private void FillRiverFlow()
         {
             var pixels = riverFlow.GetRawTextureData<Color32>();
@@ -257,6 +267,7 @@ namespace GrandStrategy.WorldGeneration
             riverFlow.Apply(true, true);
         }
 
+        // Upload corner offsets so the shader follows the same smoothed cells as CPU picking.
         private void CreateProvinceCornerTexture()
         {
             var width = Map.Width + 1;
@@ -315,6 +326,7 @@ namespace GrandStrategy.WorldGeneration
 
         public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && !IsRiver(cell);
 
+        // Convert a raster cell to map coordinates and find its height on the playable surface.
         public Vector3 PointAtCell(int cell)
         {
             var x = ((cell % Map.Width + .5f) / Map.Width - .5f) * Aspect;
@@ -325,6 +337,7 @@ namespace GrandStrategy.WorldGeneration
             return hit.point;
         }
 
+        // Update render detail and scenery for the current camera scale.
         public void SetZoom(float zoom)
         {
             // Retain broad albedo variation in the overview. Mipmaps remove fine texture detail.
@@ -356,6 +369,7 @@ namespace GrandStrategy.WorldGeneration
             material.SetFloat("_ShowBiomes", mode == MapViewMode.Biomes ? 1f : 0f);
         }
 
+        // Build a compact lookup indexed by province ID so the shader can colour owned land.
         public void SetOwnership(CampaignState campaign, Color colour)
         {
             if (ownership == null)
@@ -402,6 +416,7 @@ namespace GrandStrategy.WorldGeneration
             return new Color32((byte)(id & 255), (byte)((id >> 8) & 255), (byte)((id >> 16) & 255), 255);
         }
 
+        // Release runtime-created meshes, materials and textures when the scene closes or setup fails.
         public void Dispose()
         {
             settlement?.Dispose();

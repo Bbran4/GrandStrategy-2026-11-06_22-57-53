@@ -1,3 +1,5 @@
+// Runs the campaign independently of Unity rendering and input. The HUD queries this state and calls its
+// Try methods to spend resources or change the map.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -192,6 +194,8 @@ namespace GrandStrategy.WorldGeneration
         public int Population(int province) => data.Pop[province];
         public CampaignSave ToSave() => data;
 
+        // Seed the capital and initial resources, while also creating population entries for independent
+        // land provinces.
         public static CampaignState Found(ProvinceMap map, string mapKey, int capitalCell, string name, int colour)
         {
             var capital = ProvinceAt(map, capitalCell);
@@ -226,6 +230,8 @@ namespace GrandStrategy.WorldGeneration
             });
         }
 
+        // Validate the saved arrays and references against the current map before restoring or upgrading
+        // the save format.
         public static CampaignState Restore(ProvinceMap map, string mapKey, CampaignSave save, int colourCount)
         {
             if (save == null || (save.Version < 1 || save.Version > SaveVersion) || save.MapKey != mapKey)
@@ -331,6 +337,7 @@ namespace GrandStrategy.WorldGeneration
             return false;
         }
 
+        // Turn a province's biome mix into a small production rating shared by farming and local trade.
         public static int Fertility(ProvinceInfo province)
         {
             var fertile = Count(province, BiomeKind.Grassland) + Count(province, BiomeKind.TemperateForest)
@@ -364,6 +371,7 @@ namespace GrandStrategy.WorldGeneration
             => province.BiomeCounts != null && (int)biome < province.BiomeCounts.Length
                 ? province.BiomeCounts[(int)biome] : 0;
 
+        // Keep costs, output and terrain restrictions in one place so the HUD and build validation agree.
         public (string Name, int Coin, int Wood, int Yield, string Resource, string SiteIssue) BuildingInfo(
             int province, SettlementBuilding building)
         {
@@ -439,6 +447,8 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        // Direct neighbours qualify over land. Docks extend access to independent provinces sharing a
+        // waterway.
         public bool CanTradeWith(int province)
         {
             if (CanReachIndependentProvince(province)) return true;
@@ -479,6 +489,8 @@ namespace GrandStrategy.WorldGeneration
         public void CancelTradeAgreement(int province)
             => data.Agreements.RemoveAll(agreement => agreement.Province == province);
 
+        // Recheck each recurring offer at delivery time and record any issue for the HUD. Food exports must
+        // leave enough for the reserve and next upkeep.
         private void ProcessTradeAgreements()
         {
             for (var i = 0; i < data.Agreements.Count; i++)
@@ -512,6 +524,7 @@ namespace GrandStrategy.WorldGeneration
         public bool HasTradedWith(int province) => province >= 0 && province < data.Markets.Length
             && data.Markets[province].Traded;
 
+        // Quote the deal without transferring goods. Willingness and available stock are separate checks.
         public (int Willingness, string Status, int Stock) EvaluateTrade(int province, TradeOffer offer)
         {
             if (!CanTradeWith(province)) return (0, "Choose an independent community within trade reach.", 0);
@@ -543,6 +556,7 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        // Update both inventories after validation and record coin flows separately from tax income.
         private void ExecuteTrade(int province, TradeOffer offer)
         {
             var market = MarketAt(province);
@@ -556,6 +570,8 @@ namespace GrandStrategy.WorldGeneration
             if (offer.Give == TradeResource.Coin) RecordCoin(ref data.TradeSpending, offer.GiveAmount);
         }
 
+        // Compute the province's replenished market for the current period. Looking at a quote alone does
+        // not commit that snapshot.
         private NeighbourMarket MarketAt(int province)
         {
             var market = data.Markets[province];
@@ -662,6 +678,8 @@ namespace GrandStrategy.WorldGeneration
             };
         }
 
+        // Pay the chosen expansion cost up front and schedule the ownership change for a later simulation
+        // day.
         public bool TryStartIntegration(int province, ExpansionApproach approach = ExpansionApproach.Diplomacy)
         {
             if (!CanStartIntegration(province, approach)) return false;
@@ -690,6 +708,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Fast-forward to the next scheduled milestone, then return control to the player with time paused.
         public bool AdvanceToNextDecision()
         {
             var days = DaysToNextDecision;
@@ -701,6 +720,7 @@ namespace GrandStrategy.WorldGeneration
         }
 
         // Returns true when a new province joins the tribe.
+        // Carry fractional days between calls so frame rate does not determine the campaign clock.
         public bool Advance(double seconds)
         {
             if (Paused || seconds <= 0d || double.IsNaN(seconds) || double.IsInfinity(seconds)) return false;
@@ -728,6 +748,8 @@ namespace GrandStrategy.WorldGeneration
             return expanded;
         }
 
+        // Apply production, deliveries, upkeep and taxes in that order. Taxes use the population remaining
+        // after food upkeep.
         private void ApplyEconomy(int previousDay)
         {
             var periods = Day / ProductionInterval - previousDay / ProductionInterval;
@@ -756,6 +778,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Scale growth or losses by how much food is left or missing after feeding the owned population.
         private void FeedPopulation()
         {
             var upkeep = FoodUpkeep;
@@ -782,6 +805,8 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Resolve the chosen approach, transfer the province and end any trade agreement with the former
+        // independent market.
         private bool AdvanceIntegration(int days)
         {
             if (IntegrationTarget == -1) return false;
@@ -822,6 +847,8 @@ namespace GrandStrategy.WorldGeneration
         private static bool IsValidSpeed(int speed) => speed == 1 || speed == 2 || speed == 4;
 
         // Include ordered province identities and the raster so reindexing or redrawing invalidates a save.
+        // Include the seed, dimensions, province identities and raster so saves bind to the same campaign
+        // geography.
         public static string MapKey(ProvinceMap map, int seed)
         {
             ulong hash = 14695981039346656037UL;

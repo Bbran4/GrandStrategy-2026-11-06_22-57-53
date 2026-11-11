@@ -1,3 +1,4 @@
+// Converts height samples and river cuts to and from the RAW16 format used in the map pipeline.
 using System;
 using System.IO;
 
@@ -5,6 +6,8 @@ namespace GrandStrategy.WorldGeneration
 {
     public static class HeightmapEncoding
     {
+        // Convert normalized floats to 16-bit samples, preserving more height detail than an 8-bit preview
+        // image.
         /// <summary>Unsigned 16-bit little-endian samples, rows south to north, columns west to east.</summary>
         public static void WriteRaw16(HeightmapResult result, Stream destination)
         {
@@ -15,6 +18,7 @@ namespace GrandStrategy.WorldGeneration
                     writer.Write((ushort)Math.Round(HeightmapGenerator.Clamp(value) * 65535, MidpointRounding.AwayFromZero));
         }
 
+        // Read the expected number of samples and reject a file whose size does not match the world grid.
         public static HeightmapResult ReadRaw16(HeightmapRecipe recipe, Stream source)
         {
             if (recipe == null) throw new ArgumentNullException(nameof(recipe));
@@ -31,6 +35,7 @@ namespace GrandStrategy.WorldGeneration
             return new HeightmapResult(recipe.Copy(), elevations);
         }
 
+        // Export river cut heights separately from the main terrain.
         /// <summary>Little-endian float32 cut elevations in the same sample order as RAW16.</summary>
         public static void WriteRiverCuts(RiverMap rivers, Stream destination)
         {

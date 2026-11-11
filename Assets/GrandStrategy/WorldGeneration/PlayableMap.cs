@@ -1,3 +1,5 @@
+// Controls the playable scene. It links input, camera and HUD to CampaignState for rules and
+// PlayableMapSurface for rendering and picking.
 using System;
 using System.IO;
 using System.Text;
@@ -66,6 +68,8 @@ namespace GrandStrategy.WorldGeneration
         private string tradeWantAmount = "10";
         private Vector2 campaignScroll;
 
+        // Build the playable surface, derive the campaign save path and hand off from the editor Terrain
+        // preview to the runtime renderer.
         private void Start()
         {
             try
@@ -108,6 +112,8 @@ namespace GrandStrategy.WorldGeneration
                 authoringTerrain.gameObject.SetActive(true);
         }
 
+        // Advance the simulation using unscaled frame time and route keyboard and mouse input to the camera
+        // or map.
         private void Update()
         {
             if (surface == null || failure != null) return;
@@ -172,6 +178,8 @@ namespace GrandStrategy.WorldGeneration
 
         private static int Axis(bool negative, bool positive) => (positive ? 1 : 0) - (negative ? 1 : 0);
 
+        // Ease the camera toward the requested zoom, tilt it as the player zooms in and constrain the view
+        // to the map.
         private void UpdateCamera(float deltaTime)
         {
             zoom = Mathf.Lerp(zoom, targetZoom, 1f - Mathf.Exp(-ZoomResponse * deltaTime));
@@ -200,6 +208,8 @@ namespace GrandStrategy.WorldGeneration
             mapCamera.transform.SetPositionAndRotation(focus + rotation * Vector3.back * distance, rotation);
         }
 
+        // Raycast the rendered surface and resolve the clicked position to the corresponding smoothed
+        // province cell.
         private void Pick(Vector2 position)
         {
             var previous = selected;
@@ -235,6 +245,7 @@ namespace GrandStrategy.WorldGeneration
             return selected >= 0 ? map.Provinces[selected].TerritoryId : null;
         }
 
+        // Assemble the selected province's geography and economy information for the HUD.
         private string Describe(ProvinceInfo province)
         {
             var text = new StringBuilder();
@@ -273,6 +284,7 @@ namespace GrandStrategy.WorldGeneration
             return best < 0 ? "Unavailable" : ((BiomeKind)best).ToString();
         }
 
+        // Update the visible capital and ownership overlay after founding a tribe or loading a save.
         private void ApplyCampaign(CampaignState next)
         {
             if (!surface.IsDryLand(next.CapitalCell))
@@ -315,6 +327,8 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Draw the HUD and panels using Unity's immediate-mode GUI. Button handlers pass decisions to the
+        // campaign.
         private void OnGUI()
         {
             if (failure != null)
@@ -403,6 +417,8 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled;
         }
 
+        // Show construction for owned land, or trade and integration actions for reachable independent
+        // provinces.
         private void DrawProvinceCampaign()
         {
             if (!CampaignState.IsLand(surface.Map, selected)) return;
@@ -441,6 +457,8 @@ namespace GrandStrategy.WorldGeneration
                 DrawExpansionButton(ExpansionApproach.Force, $"Use force ({CampaignState.ForceFood} food, casualties)");
         }
 
+        // Build an offer from the player's inputs and display its quote before asking the campaign to
+        // execute or schedule it.
         private void DrawTrade()
         {
             DrawTradeLine("Offer", "TradeGive", ref tradeGive, ref tradeGiveAmount);
@@ -490,6 +508,7 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled;
         }
 
+        // Show seasonal milestones, food and tax information, trade contacts and save controls.
         private void DrawCampaign()
         {
             var panel = CampaignPanel;
@@ -549,6 +568,7 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.EndArea();
         }
 
+        // Show each agreement's latest outcome and provide reserve and cancellation controls.
         private void DrawTradeAgreements()
         {
             var agreements = campaign.TradeAgreements;
@@ -779,6 +799,7 @@ namespace GrandStrategy.WorldGeneration
             GUI.Label(new Rect(x, y + 15, width, 22), value.HasValue ? value.Value.ToString("N0") : "—", hudValue);
         }
 
+        // Switch map views through the surface while keeping the same camera and campaign.
         private void DrawMapDock()
         {
             var dock = MapDock;

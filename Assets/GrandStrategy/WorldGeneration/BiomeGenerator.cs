@@ -1,3 +1,5 @@
+// Turns climate, water and elevation samples into biome IDs used by the editor, OpenGS exports and the
+// playable map.
 using System;
 
 namespace GrandStrategy.WorldGeneration
@@ -22,6 +24,8 @@ namespace GrandStrategy.WorldGeneration
             Samples = samples;
         }
 
+        // Use the OpenGS terrain palette. Navigable channels can use the water colour without changing the
+        // underlying biome.
         public Rgb24 OpenGsTerrainColour(int index, bool navigableRiver = false)
         {
             var biome = this[index];
@@ -66,6 +70,8 @@ namespace GrandStrategy.WorldGeneration
 
     public static class BiomeGenerator
     {
+        // Resolve water and channels before classifying dry land by temperature, moisture, local relief and
+        // proximity to water.
         public static BiomeMap Generate(ClimateMap climate, WaterMap water, RiverMap rivers = null,
             Func<float, string, bool> progress = null)
         {
@@ -140,6 +146,7 @@ namespace GrandStrategy.WorldGeneration
         internal static float Relief(HeightmapResult terrain, int index) =>
             Math.Max(0f, terrain.Elevations[index] - terrain.Recipe.SeaLevel) / (1f - terrain.Recipe.SeaLevel);
 
+        // Order matters: mountain and wetland checks run before the broader climate bands.
         private static BiomeKind LandBiome(float temperature, float moisture, float relief, bool nearWater)
         {
             if (relief >= .62f && temperature < 8f) return BiomeKind.Alpine;

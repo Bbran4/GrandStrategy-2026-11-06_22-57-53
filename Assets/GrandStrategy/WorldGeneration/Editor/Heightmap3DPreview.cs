@@ -1,3 +1,4 @@
+// Owns the World Generator's temporary 3D preview, including its mesh, orbit camera and point picking.
 using System;
 using UnityEditor;
 using UnityEngine;
@@ -15,6 +16,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private float yaw = -20, pitch = 48, zoom = 1;
         private bool useUnlit;
 
+        // Replace the preview geometry when its source world or height scale changes.
         public void SetWorld(HeightmapResult next, Texture2D texture, float heightScale, bool exactColours)
         {
             try
@@ -55,6 +57,7 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         public void ResetView() { yaw = -20; pitch = 48; zoom = 1; }
 
+        // Consume camera gestures only over the preview rectangle so the surrounding editor remains usable.
         public bool HandleInput(Rect rect)
         {
             var e = Event.current;
@@ -94,6 +97,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             GUI.DrawTexture(rect, image, ScaleMode.StretchToFill, false);
         }
 
+        // Translate a click in the preview into a hit on the generated terrain.
         public bool TryPick(Rect rect, Vector2 mouse, out Vector2 uv)
         {
             uv = default;

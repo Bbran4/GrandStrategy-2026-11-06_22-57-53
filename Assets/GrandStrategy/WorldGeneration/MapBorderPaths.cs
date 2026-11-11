@@ -1,3 +1,5 @@
+// Works with the raster edges and paths used to draw map borders. These helpers do not depend on Unity
+// rendering.
 using System;
 using System.Collections.Generic;
 
@@ -9,6 +11,8 @@ namespace GrandStrategy.WorldGeneration
 
         // Fill eligible water cells with missing display IDs, starting from the nearest seed.
         // The imported raster stays authoritative for picking, navigation, and campaign ownership.
+        // Extend nearby IDs into selected water gaps for drawing borders, without changing the province
+        // ownership raster.
         internal static int[] FillWaterGaps(int width, int[] source, Func<int, bool> isWater,
             Func<int, bool> canSeed, Func<int, bool> preserveRegion = null)
         {
@@ -52,6 +56,7 @@ namespace GrandStrategy.WorldGeneration
             return result ?? source;
         }
 
+        // Handle lake edges separately from open coast and river gaps.
         internal static int[] OutlineLakes(int width, int[] source, Func<int, bool> isLake,
             Func<int, bool> hasAuthoredLakeId)
         {
@@ -65,6 +70,7 @@ namespace GrandStrategy.WorldGeneration
 
         // Paths use corners on a (width + 1) by (height + 1) grid. The callback consumes each path
         // before the buffer is reused. Closed paths repeat the first corner at the end.
+        // Connect raster edges into ordered paths and report whether each path closes into a loop.
         public static void Trace(int width, int height, int[] raster, Action<IReadOnlyList<int>, bool> draw)
         {
             var stride = width + 1;

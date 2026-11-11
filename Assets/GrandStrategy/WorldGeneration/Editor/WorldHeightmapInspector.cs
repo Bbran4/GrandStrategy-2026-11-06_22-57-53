@@ -1,3 +1,4 @@
+// Shows the saved World asset's key settings and opens it in the World Generator for inspection.
 using UnityEditor;
 
 namespace GrandStrategy.WorldGeneration.Editor

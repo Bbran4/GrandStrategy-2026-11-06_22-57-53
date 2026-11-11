@@ -1,3 +1,4 @@
+// Samples the playable mesh for placement, slopes and terrain shadows.
 using System;
 using UnityEngine;
 
@@ -23,6 +24,7 @@ namespace GrandStrategy.WorldGeneration
             SunDirection = new Vector3(-dx, Mathf.Sqrt(dx * dx + dz * dz) * .76f, dz).normalized;
         }
 
+        // Bake relief shadows into a texture shared by the surface and scenery.
         public Texture2D CreateSunShadow()
         {
             var texture = new Texture2D(Columns, Rows, TextureFormat.RGBA32, true, true)
@@ -58,6 +60,8 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Find the triangle at a map coordinate and interpolate its height and slope so placed objects sit
+        // on the rendered surface.
         public Vector3 Sample(Vector2 uv, out float slope)
         {
             var sx = uv.x * (Columns - 1);

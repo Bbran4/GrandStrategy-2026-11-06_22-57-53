@@ -1,3 +1,4 @@
+// Bakes soft colour and material-weight fields for the terrain shader from the discrete land samples.
 using Unity.Collections;
 using UnityEngine;
 
@@ -12,6 +13,7 @@ namespace GrandStrategy.WorldGeneration
             new Color32(0, 0, 255, 0), new Color32(0, 0, 0, 255)
         };
 
+        // Pack eight land materials into two RGBA textures so the shader can blend across biome boundaries.
         public static void Bake(int width, int height, NativeArray<Color32> colours, NativeArray<Color32> surface,
             out Texture2D paletteTexture, out Texture2D lowMaterialTexture, out Texture2D highMaterialTexture)
         {
@@ -98,6 +100,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Filter one axis at a time as part of the separable blur used to soften material transitions.
         private static void Box(Color32[] source, Color32[] target, int lines, int length,
             int lineStride, int pixelStride, int radius)
         {

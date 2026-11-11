@@ -1,3 +1,4 @@
+// Draws anti-aliased map borders at a consistent screen-space width as the camera zooms.
 Shader "GrandStrategy/Map Border"
 {
     Properties
@@ -43,6 +44,8 @@ Shader "GrandStrategy/Map Border"
                 float3 segment : TEXCOORD0;
             };
 
+            // Project each segment's endpoints and expand its geometry in pixels, including extra space for
+            // soft edges.
             Varyings Vert(Attributes input)
             {
                 Varyings output;
@@ -64,6 +67,7 @@ Shader "GrandStrategy/Map Border"
                 return output;
             }
 
+            // Fade coverage near the line edges and the rounded ends of each segment.
             half4 Frag(Varyings input) : SV_Target
             {
                 float outside = max(0.0, max(-input.segment.x, input.segment.x - input.segment.z));

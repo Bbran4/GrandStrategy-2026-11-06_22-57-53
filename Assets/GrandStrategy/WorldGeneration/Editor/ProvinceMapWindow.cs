@@ -1,3 +1,4 @@
+// Provides the editor workflow for importing, inspecting and saving province maps.
 using System;
 using System.IO;
 using UnityEditor;
@@ -63,6 +64,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Collect the world and OpenGS sources needed to build a province map aligned to the terrain.
         private void DrawImport()
         {
             EditorGUILayout.LabelField("IMPORT PROVINCES", EditorStyles.boldLabel);
@@ -217,6 +219,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Turn a preview click into a province or territory selection for the details panel.
         private void SelectAt(Vector2 uv)
         {
             var x = Mathf.Clamp((int)(uv.x * map.Width), 0, map.Width - 1);
@@ -293,6 +296,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch { DestroyImmediate(next); throw; }
         }
 
+        // Save the map and its source terrain together so Play Mode can validate alignment.
         private void SaveMap()
         {
             var path = EditorUtility.SaveFilePanelInProject("Save province map", "ProvinceMap", "asset", "Choose a new asset path.");

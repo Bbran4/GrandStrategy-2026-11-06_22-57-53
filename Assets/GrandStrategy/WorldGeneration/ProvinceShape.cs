@@ -1,3 +1,4 @@
+// Smooths province corners while keeping the raster IDs available for picking and shader overlays.
 using System;
 using System.Collections.Generic;
 
@@ -17,6 +18,8 @@ namespace GrandStrategy.WorldGeneration
         public int Stride => width + 1;
         public int CornerCount => corners.Length;
 
+        // Trace borders and store compact corner offsets shared by the visible geometry and selection
+        // logic.
         public ProvinceShape(int width, int height, int[] raster)
         {
             this.width = width;
@@ -56,6 +59,8 @@ namespace GrandStrategy.WorldGeneration
             return (corners[i] | corners[i + 1] | corners[i + Stride] | corners[i + Stride + 1]) != 0;
         }
 
+        // Resolve a point to its province raster cell after applying the same corner smoothing seen on
+        // screen.
         public int CellAt(float x, float y)
         {
             var cellX = Math.Clamp((int)x, 0, width - 1);

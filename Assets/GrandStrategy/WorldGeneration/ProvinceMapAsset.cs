@@ -1,3 +1,4 @@
+// Persists the imported province data and its source elevations together as a Unity asset.
 using System;
 using UnityEngine;
 
@@ -26,6 +27,7 @@ namespace GrandStrategy.WorldGeneration
             heightScale = scale;
         }
 
+        // Rebuild the source heightmap for previewing or checking alignment against the World asset.
         public HeightmapResult ReadTerrain()
         {
             if (recipe == null || map == null || elevations == null)

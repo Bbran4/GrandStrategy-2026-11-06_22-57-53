@@ -1,3 +1,5 @@
+// Connects tree species to replaceable mesh parts and materials, with sizing information for scenery
+// placement.
 using System;
 using UnityEngine;
 
@@ -92,6 +94,7 @@ namespace GrandStrategy.WorldGeneration
                 ? new Color32(179, 176, 151, 255) : new Color32(102, 85, 61, 255);
         }
 
+        // Estimate the model's footprint for placing trees on suitable ground.
         private static float RadiusOf(Part part)
         {
             if (part == null) return 0f;

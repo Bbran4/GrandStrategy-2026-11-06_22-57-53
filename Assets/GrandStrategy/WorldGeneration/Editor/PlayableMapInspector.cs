@@ -1,3 +1,5 @@
+// Adds Unity Terrain authoring to the Playable Map Inspector. It creates editable scene terrain, stamps
+// mountain ranges and prepares the paint layers read in Play Mode.
 using System;
 using System.IO;
 using UnityEditor;
@@ -123,6 +125,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Arm a one-click Scene view tool while keeping stamp dimensions and angle in the Inspector.
         private void DrawMountainStamp(Terrain terrain, WorldHeightmap world)
         {
             EditorGUILayout.Space();
@@ -157,6 +160,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             SceneView.RepaintAll();
         }
 
+        // Raycast against the editable Terrain, draw the footprint on its surface and apply the stamp on a
+        // left click.
         private void DrawStampInScene(SceneView scene)
         {
             var input = Event.current;
@@ -212,6 +217,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Change only the heightmap rectangle touched by the rotated stamp. The profile tapers at the edge
+        // and fades out near sea level.
         private void ApplyMountainStamp(Vector3 centre, Vector2 axis)
         {
             var data = stampTerrain.terrainData;
@@ -257,6 +264,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             EditorUtility.SetDirty(data);
         }
 
+        // Save the TerrainData and layers as assets, then link the new scene object to the playable map.
         private void CreateTerrain(WorldHeightmap world, Terrain previous, SerializedProperty terrain, SerializedProperty source)
         {
             var map = (PlayableMap)target;
@@ -313,6 +321,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Layer order matches the runtime shader. The base leaves procedural ground showing, followed by
+        // rock, snow and sparse grass.
         private static void AddLayers(TerrainData data, Material ground)
         {
             var layers = new[]
@@ -338,6 +348,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Measure slope in scene units and allocate the four paint weights from slope, altitude and local
+        // variation.
         private static float[,,] BuildPaint(TerrainData data, float seaLevel, float snowLine)
         {
             var resolution = data.alphamapResolution;
@@ -385,6 +397,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(start, end, value));
         }
 
+        // Convert the rectangular source grid to Unity Terrain's square height sample grid without changing
+        // the map's physical aspect ratio.
         private static float[,] Resample(HeightmapResult source, int resolution)
         {
             var width = source.Recipe.Width;

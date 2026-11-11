@@ -1,3 +1,5 @@
+// Routes drainage, selects river channels and carves them into the elevation field. River direction data
+// also drives flow rendering and navigation.
 using System;
 
 namespace GrandStrategy.WorldGeneration
@@ -36,6 +38,8 @@ namespace GrandStrategy.WorldGeneration
 
         public byte[] BuildSurfaceMask() => RasterizeSurface(Base.Recipe, Directions, Widths, IsBaseLand);
 
+        // Expand the centreline direction codes across the river footprint so the renderer can animate
+        // flow.
         internal byte[] BuildSurfaceDirections()
         {
             var recipe = Base.Recipe;
@@ -51,6 +55,7 @@ namespace GrandStrategy.WorldGeneration
             return surface;
         }
 
+        // Create a widened river mask from the centreline and channel widths.
         public static byte[] RasterizeSurface(HeightmapRecipe recipe, byte[] directions, byte[] widths, Func<int, bool> isLand)
         {
             recipe.Validate();
@@ -103,6 +108,7 @@ namespace GrandStrategy.WorldGeneration
 
         internal static float ApplyCut(float original, float cut) => cut == 0f ? original : cut;
 
+        // Combine the original heights and stored cuts into the carved terrain used by other layers.
         internal static RiverMap Compose(HeightmapResult world, float[] cuts, byte[] directions,
             float catchmentPercent, float carveDepth, byte[] widths = null,
             float widthScale = RiverGenerator.DefaultWidthScale)
@@ -161,6 +167,8 @@ namespace GrandStrategy.WorldGeneration
         private static readonly int[] DeltaX = { 0, 1, 1, 0, -1, -1, -1, 0, 1 };
         private static readonly int[] DeltaY = { 0, 0, 1, 1, 1, 0, -1, -1, -1 };
 
+        // Build a downstream graph, accumulate catchment area and carve the channels that pass the river
+        // threshold.
         public static RiverMap Generate(HeightmapResult world, float catchmentPercent = DefaultCatchmentPercent,
             float carveDepth = DefaultCarveDepth, Func<float, string, bool> progress = null,
             float widthScale = DefaultWidthScale)
@@ -311,6 +319,7 @@ namespace GrandStrategy.WorldGeneration
             tails[priority] = cell;
         }
 
+        // Lower terrain near a selected channel while blending the cut toward its banks.
         private static void CutChannel(int cell, int width, int height, float sea, double radius,
             float depth, float[] source, float[] cuts)
         {

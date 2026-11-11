@@ -1,3 +1,4 @@
+// Builds and owns the meshes for province and territory outlines on the playable surface.
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -61,6 +62,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Show the appropriate outlines for the selected map mode.
         public void SetView(MapViewMode mode)
         {
             var showTerritories = HasTerritories && (mode == MapViewMode.Provinces
@@ -104,6 +106,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Convert traced border paths into segments that the border shader expands on screen.
         private Mesh CreateMesh(int[] raster, string label, bool useProvinceShape = false)
         {
             var starts = new List<Vector3>();
@@ -144,6 +147,8 @@ namespace GrandStrategy.WorldGeneration
                 throw;
             }
 
+            // Split segments at mesh crossings so the line follows the same terrain triangles as the
+            // ground.
             void FollowTerrain(Vector2 a, Vector2 b)
             {
                 // Split at mesh cell sides and their diagonals so no chord cuts through a slope.

@@ -1,9 +1,12 @@
+// Provides procedural ground variation and the base palette used when building the playable map textures.
 using UnityEngine;
 
 namespace GrandStrategy.WorldGeneration
 {
     internal static class MapGroundPatterns
     {
+        // Upload a small repeating texture of deterministic patterns for use by the ground and water
+        // shader.
         public static Texture2D Create()
         {
             const int size = 192;
@@ -43,6 +46,7 @@ namespace GrandStrategy.WorldGeneration
             return new Color32(Byte(vegetation), Byte(stone), Byte(sand), Byte(mud));
         }
 
+        // Look up the base map colour for a biome before lighting and detailed materials are applied.
         public static Rgb24 Palette(BiomeKind kind)
         {
             switch (kind)

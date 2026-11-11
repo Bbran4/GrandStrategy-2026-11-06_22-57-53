@@ -1,3 +1,4 @@
+// Builds the visible capital settlement and updates its appearance as the campaign develops.
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -37,6 +38,7 @@ namespace GrandStrategy.WorldGeneration
             settlement.GetComponent<MeshRenderer>().sharedMaterial = material;
         }
 
+        // Place or refresh the capital model on the sampled terrain surface.
         public void Show(Vector3 capital, bool granary, bool expanded)
         {
             var vertices = new List<Vector3>();
@@ -78,6 +80,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(mesh);
             mesh = next;
 
+            // Check the site and add a small building to the settlement mesh.
             void AddHut(Vector2 offset)
             {
                 if (TryAnchor(offset, out var anchor)) House(anchor, .00078f, timber, thatch);

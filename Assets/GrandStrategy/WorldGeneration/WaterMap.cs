@@ -1,3 +1,4 @@
+// Classifies the heightmap into dry land, enclosed lakes and ocean connected to the map edge.
 using System;
 
 namespace GrandStrategy.WorldGeneration
@@ -17,6 +18,8 @@ namespace GrandStrategy.WorldGeneration
         private WaterMap(HeightmapResult source, WaterKind[] cells, int oceanCount, int lakeCount)
         { Source = source; this.cells = cells; OceanCount = oceanCount; LakeCount = lakeCount; }
 
+        // Mark submerged samples, then flood outward from the perimeter to distinguish ocean from enclosed
+        // water.
         public static WaterMap Classify(HeightmapResult world)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
