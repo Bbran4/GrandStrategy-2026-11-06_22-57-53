@@ -7,7 +7,6 @@ namespace GrandStrategy.WorldGeneration
 {
     internal sealed class PlayableMapSurface : IDisposable
     {
-        private const float Raw16Tolerance = 1f / 65535f;
 
         private Mesh mesh;
         private Material material;
@@ -44,10 +43,9 @@ namespace GrandStrategy.WorldGeneration
         public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog,
             TerrainData authored = null, int authoredMeshDetail = 1024)
         {
-            var imported = provinces.ReadTerrain();
             var riverMap = world.ReadRivers();
             var terrain = riverMap?.Terrain ?? world.Read();
-            ValidatePair(terrain, imported);
+            provinces.ValidateTerrain(terrain);
             water = WaterMap.Classify(terrain);
             rivers = riverMap?.BuildSurfaceDirections();
             var settings = world.ReadClimateSettings();
@@ -162,19 +160,6 @@ namespace GrandStrategy.WorldGeneration
                     offset.x / tile.x, offset.y / tile.y));
             }
             if (hasPaint) target.EnableKeyword("_AUTHORED_TERRAIN");
-        }
-
-        // Check that the province export describes the same terrain as the World asset, allowing for RAW16
-        // rounding.
-        private static void ValidatePair(HeightmapResult world, HeightmapResult imported)
-        {
-            var a = world.Recipe;
-            var b = imported.Recipe;
-            if (a.Width != b.Width || a.Height != b.Height || a.Seed != b.Seed || a.SeaLevel != b.SeaLevel)
-                throw new InvalidOperationException("Use the World asset that produced the OpenGS export for this Province Map.");
-            for (var i = 0; i < world.Elevations.Length; i++)
-                if (Mathf.Abs(world.Elevations[i] - imported.Elevations[i]) > Raw16Tolerance)
-                    throw new InvalidOperationException("The World asset's final terrain differs from the Province Map's source export.");
         }
 
         private Texture2D CreateTexture(string label, bool linear, FilterMode filter, bool mipmaps)

@@ -27,6 +27,20 @@ namespace GrandStrategy.WorldGeneration
             heightScale = scale;
         }
 
+        // Check that the province export describes the same terrain, allowing for RAW16 rounding.
+        public void ValidateTerrain(HeightmapResult world)
+        {
+            var imported = ReadTerrain();
+            var a = world.Recipe;
+            var b = imported.Recipe;
+            if (a.Width != b.Width || a.Height != b.Height || a.Seed != b.Seed || a.SeaLevel != b.SeaLevel)
+                throw new InvalidOperationException("Use the World asset that produced the OpenGS export for this Province Map.");
+            const float raw16Tolerance = 1f / 65535f;
+            for (var i = 0; i < world.Elevations.Length; i++)
+                if (Mathf.Abs(world.Elevations[i] - imported.Elevations[i]) > raw16Tolerance)
+                    throw new InvalidOperationException("The World asset's final terrain differs from the Province Map's source export.");
+        }
+
         // Rebuild the source heightmap for previewing or checking alignment against the World asset.
         public HeightmapResult ReadTerrain()
         {

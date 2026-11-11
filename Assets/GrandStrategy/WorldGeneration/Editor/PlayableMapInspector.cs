@@ -17,6 +17,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private const string ScenePreviewName = "Terrain Scene Preview";
         private const string SeaMaterialName = "Scene Preview Sea";
         private const string RiverPreviewName = "River Channels";
+        private const string ProvincePreviewName = "Province Outline Preview";
         private static readonly GUIContent[] MeshDetailLabels =
         {
             new GUIContent("512 (comparison)"), new GUIContent("1024 (standard)"), new GUIContent("2048 (fine)")
@@ -41,6 +42,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             DrawDefaultInspector();
             serializedObject.Update();
             var world = serializedObject.FindProperty("world").objectReferenceValue as WorldHeightmap;
+            var provinceMap = serializedObject.FindProperty("provinceMap").objectReferenceValue as ProvinceMapAsset;
             var terrain = serializedObject.FindProperty("authoringTerrain");
             var source = serializedObject.FindProperty("authoringWorld");
             var meshDetail = serializedObject.FindProperty("authoredMeshDetail");
@@ -84,7 +86,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                     || assigned.terrainData == null || EditorApplication.isPlayingOrWillChangePlaymode))
                 {
                     DrawScenePreview(assigned, world);
-                    DrawReferenceViews(assigned, world.SeaLevel);
+                    DrawProvincePreview(assigned, world, provinceMap);
+                    DrawReferenceViews(assigned, world == null ? 0f : world.SeaLevel);
                     DrawMountainStamp(assigned, world);
                 }
 
@@ -385,6 +388,132 @@ namespace GrandStrategy.WorldGeneration.Editor
             // SceneView.size uses the shorter viewport axis. CameraFrame returns the vertical half-size.
             view.LookAt(point, frame.Rotation, frame.HalfHeight * scale * Mathf.Min(1f, aspect), true, true);
             view.Repaint();
+        }
+
+        private static void DrawProvincePreview(Terrain terrain, WorldHeightmap world, ProvinceMapAsset provinces)
+        {
+            if (world == null || provinces == null || terrain.terrainData == null) return;
+            var preview = terrain.transform.Find(ProvincePreviewName);
+            var enabled = preview != null && preview.gameObject.activeSelf;
+            var show = EditorGUILayout.Toggle(new GUIContent("Province Outlines",
+                "Trace imported province edges touching land while you sculpt."), enabled);
+            var refresh = enabled && show && GUILayout.Button("Refresh Province Outlines");
+            if (show == enabled && !refresh) return;
+
+            try
+            {
+                if (show)
+                {
+                    provinces.ValidateTerrain(world.Read());
+                    RebuildProvincePreview(terrain, provinces.Map, preview);
+                }
+                if (preview != null && show != enabled)
+                {
+                    Undo.RecordObject(preview.gameObject, "Toggle Province Outlines");
+                    preview.gameObject.SetActive(show);
+                }
+                EditorSceneManager.MarkSceneDirty(terrain.gameObject.scene);
+                AssetDatabase.SaveAssets();
+                SceneView.RepaintAll();
+            }
+            catch (Exception exception)
+            {
+                EditorUtility.DisplayDialog("Could not update Province Outlines", exception.Message, "OK");
+            }
+        }
+
+        // Follow the imported raster on the editable Terrain. Subdivide each edge to avoid crossing
+        // through terrain samples when the editing heightmap is finer than the province grid.
+        private static void RebuildProvincePreview(Terrain terrain, ProvinceMap map, Transform preview)
+        {
+            var data = terrain.terrainData;
+            var path = AssetDatabase.GetAssetPath(data);
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (string.IsNullOrEmpty(path) || shader == null)
+                throw new InvalidOperationException("Province Outlines need saved TerrainData and the URP Unlit shader.");
+
+            var width = map.Width;
+            var height = map.Height;
+            var samples = data.heightmapResolution - 1;
+            var across = Mathf.CeilToInt((float)samples / width);
+            var along = Mathf.CeilToInt((float)samples / height);
+            var vertices = new List<Vector3>();
+            var indices = new List<int>();
+            var land = Array.ConvertAll(map.Provinces, province =>
+                string.Equals(province.Type, "land", StringComparison.OrdinalIgnoreCase));
+
+            for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
+                {
+                    var index = y * width + x;
+                    var id = map.ProvinceAt[index];
+                    if (x + 1 < width && DrawEdge(id, map.ProvinceAt[index + 1]))
+                        AddEdge(x + 1, y, x + 1, y + 1, along);
+                    if (y + 1 < height && DrawEdge(id, map.ProvinceAt[index + width]))
+                        AddEdge(x, y + 1, x + 1, y + 1, across);
+                }
+
+            if (preview == null)
+            {
+                Material material = null;
+                foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
+                    if (asset is Material candidate && candidate.name == ProvincePreviewName)
+                    {
+                        material = candidate;
+                        break;
+                    }
+                if (material == null)
+                {
+                    material = new Material(shader) { name = ProvincePreviewName };
+                    material.SetColor("_BaseColor", new Color(.99f, .72f, .20f));
+                    AssetDatabase.AddObjectToAsset(material, data);
+                }
+
+                var child = new GameObject(ProvincePreviewName, typeof(MeshFilter), typeof(MeshRenderer)) { tag = "EditorOnly" };
+                preview = child.transform;
+                preview.SetParent(terrain.transform, false);
+                var renderer = child.GetComponent<MeshRenderer>();
+                renderer.sharedMaterial = material;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+                Undo.RegisterCreatedObjectUndo(child, "Add Province Outlines");
+            }
+
+            var filter = preview.GetComponent<MeshFilter>();
+            var mesh = filter.sharedMesh;
+            if (mesh == null)
+            {
+                mesh = new Mesh { name = ProvincePreviewName };
+                AssetDatabase.AddObjectToAsset(mesh, data);
+                Undo.RecordObject(filter, "Assign Province Outlines");
+                filter.sharedMesh = mesh;
+            }
+            else
+                Undo.RegisterCompleteObjectUndo(mesh, "Refresh Province Outlines");
+
+            mesh.Clear();
+            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            mesh.SetVertices(vertices);
+            mesh.SetIndices(indices, MeshTopology.Lines, 0);
+            EditorUtility.SetDirty(mesh);
+
+            bool DrawEdge(int a, int b) => a != b && ((a >= 0 && land[a]) || (b >= 0 && land[b]));
+
+            void AddEdge(int x0, int y0, int x1, int y1, int divisions)
+            {
+                var size = data.size;
+                var first = vertices.Count;
+                for (var i = 0; i <= divisions; i++)
+                {
+                    var t = (float)i / divisions;
+                    var u = Mathf.Lerp(x0, x1, t) / width;
+                    var v = Mathf.Lerp(y0, y1, t) / height;
+                    vertices.Add(new Vector3(u * size.x, data.GetInterpolatedHeight(u, v) + .65f, v * size.z));
+                    if (i == 0) continue;
+                    indices.Add(first + i - 1);
+                    indices.Add(first + i);
+                }
+            }
         }
 
         private static void DrawScenePreview(Terrain terrain, WorldHeightmap world)
