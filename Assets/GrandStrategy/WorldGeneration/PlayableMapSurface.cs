@@ -110,6 +110,10 @@ namespace GrandStrategy.WorldGeneration
                     { hideFlags = HideFlags.DontSave };
                 surface.GetComponent<MeshFilter>().sharedMesh = mesh;
                 var collider = surface.GetComponent<MeshCollider>();
+                // PhysX warns that Fast Midphase can miss hits on triangle meshes above this limit.
+                const int fastMidphaseTriangleLimit = 2_097_152;
+                if (mesh.GetIndexCount(0) / 3u > fastMidphaseTriangleLimit)
+                    collider.cookingOptions &= ~MeshColliderCookingOptions.UseFastMidphase;
                 collider.sharedMesh = mesh;
                 Collider = collider;
                 geometry = new MapTerrainGeometry(mesh);
