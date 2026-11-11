@@ -1,3 +1,5 @@
+// Scatters vegetation and rocks over the playable surface and builds the canopy field used to shade the
+// ground.
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -16,6 +18,8 @@ namespace GrandStrategy.WorldGeneration
         private float visibility;
         public Texture2D Canopy { get; private set; }
 
+        // Build the landscape from terrain, biome and climate queries while sharing the map's coordinate
+        // system.
         public MapNature(GameObject parent, MapTerrainGeometry geometry, PlayableMapSurface surface,
             int seed, MapTreeCatalog treeCatalog, Func<int, BiomeKind> biomeAt, Func<int, float> snowAt,
             Func<int, float> temperatureAt, Func<int, float> moistureAt)
@@ -69,6 +73,7 @@ namespace GrandStrategy.WorldGeneration
                 throw;
             }
 
+            // Choose and place a candidate prop, subject to its terrain and placement rules.
             void AddSite(int x, int z, int width, ChunkBuilder builder, Color32[] canopy, int canopyWidth, int canopyHeight)
             {
                 var u = (x + .12f + .76f * MapNatureRules.Random01(seed ^ 113, x, z)) / width;
@@ -114,6 +119,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        // Record vegetation coverage in a texture so forest colour and shade remain visible at map scale.
         private static void StampCanopy(Color32[] pixels, int width, int height, Vector2 uv, float aspect,
             float crownRadius, float treeHeight, Vector3 sun, float variant)
         {
@@ -168,6 +174,7 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        // Update nature visibility as the player moves between map scales.
         public void SetZoom(float zoom)
         {
             var next = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(.12f, .38f, zoom));
@@ -183,6 +190,7 @@ namespace GrandStrategy.WorldGeneration
             material.SetVector("_MapSun", new Vector4(direction.x, direction.y, direction.z, 1f / aspect));
         }
 
+        // Update the settlement clearing so scenery and the capital can share the same ground.
         public void SetCapital(Vector3 point)
             => material.SetVector("_Capital", new Vector4(point.x, point.z, CapitalRadius, 0f));
 

@@ -1,3 +1,4 @@
+// Builds the World Generator's 2D preview texture for elevation, water, rivers, climate or biomes.
 using UnityEngine;
 
 namespace GrandStrategy.WorldGeneration.Editor
@@ -9,6 +10,8 @@ namespace GrandStrategy.WorldGeneration.Editor
         public static bool IsClimateMode(HeightmapPreviewMode mode) =>
             mode == HeightmapPreviewMode.Temperature || mode == HeightmapPreviewMode.Moisture;
 
+        // Paint a preview from the currently available layers. These display colours are separate from
+        // exported game data.
         public static Texture2D Create(HeightmapResult result, HeightmapPreviewMode mode, WaterMap water = null, RiverMap rivers = null, RiverNavigation navigation = null,
             ClimateMap climate = null, bool dataColors = false, BiomeMap biomes = null)
         {
@@ -94,6 +97,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch { Object.DestroyImmediate(texture); throw; }
         }
 
+        // Convert a climate sample to its editor display colour.
         private static Color32 ClimateColour(HeightmapPreviewMode mode, byte value)
         {
             var t = value / 255f;

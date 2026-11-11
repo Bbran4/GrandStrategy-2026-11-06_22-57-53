@@ -1,3 +1,4 @@
+// Runs the standalone world-generation and campaign checks without opening Unity.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -21,6 +22,8 @@ internal static class Program
     private static HeightmapRecipe Small(int seed = 271828)
     { var recipe = HeightmapRecipe.OldWorld(); recipe.Width = 128; recipe.Height = 64; recipe.Seed = seed; return recipe; }
 
+    // Generate deterministic fixtures and run focused checks for terrain, exports, geography and the
+    // opening campaign.
     private static void Main(string[] args)
     {
         var recipe = Small();
@@ -416,6 +419,7 @@ internal static class Program
         Reject(() => recipe.Rebuild(), "A biome recipe without climate was accepted.");
     }
 
+    // Exercise the campaign through founding, development, expansion and save restoration.
     private static void CheckCampaign()
     {
         var recipe = Small();
@@ -670,6 +674,7 @@ internal static class Program
             "Legacy campaigns must keep progress and get initial village supplies.");
     }
 
+    // Check that terrain and water connections affect construction and trade eligibility.
     private static void CheckSettlementGeography()
     {
         var recipe = Small();
@@ -769,6 +774,7 @@ internal static class Program
             "Grove density must be deterministic and continuous.");
     }
 
+    // Verify that smoothing preserves the relationships between cell selection and province borders.
     private static void CheckProvinceShape()
     {
         var riverCrossing = new[] { 0, 0, 1, 1, 8, 8, 8, 8, 0, 0, 1, 1, 9, 9, 9, 9 };

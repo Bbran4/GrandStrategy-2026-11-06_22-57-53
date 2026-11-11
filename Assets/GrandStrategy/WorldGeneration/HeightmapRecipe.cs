@@ -1,3 +1,4 @@
+// Defines the ordered generation steps and constraints needed to reproduce a world from its seed.
 using System;
 using System.Collections.Generic;
 
@@ -38,6 +39,7 @@ namespace GrandStrategy.WorldGeneration
         public float EdgeFalloff = 0.06f;
         public List<HeightmapStep> Steps = new List<HeightmapStep>();
 
+        // Provide the starting set of terrain operations shown in the World Generator.
         public static HeightmapRecipe OldWorld()
         {
             // Original raster recipe inspired by the ordered operations in Azgaar's editor.
@@ -80,6 +82,7 @@ namespace GrandStrategy.WorldGeneration
             return copy;
         }
 
+        // Check dimensions and step settings before allocating raster buffers or running the generator.
         public void Validate()
         {
             if (Version != CurrentVersion) throw new ArgumentException("Unsupported heightmap recipe version.");

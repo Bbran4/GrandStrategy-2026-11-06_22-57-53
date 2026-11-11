@@ -1,3 +1,5 @@
+// Builds the subset of river cells that ships can reach from the sea and the corresponding raster footprint
+// for export.
 using System;
 using System.Collections.Generic;
 
@@ -24,6 +26,7 @@ namespace GrandStrategy.WorldGeneration
 
         public byte[] CopyCells() => (byte[])cells.Clone();
 
+        // Work upstream from ocean mouths and keep only channels below the allowed elevation ceiling.
         public static RiverNavigation Build(RiverMap rivers, WaterMap water, float maximumRise)
         {
             if (rivers == null) throw new ArgumentNullException(nameof(rivers));

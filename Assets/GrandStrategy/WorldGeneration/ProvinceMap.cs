@@ -1,3 +1,5 @@
+// Stores the province and territory rasters alongside metadata used for selection, borders, construction
+// and trade.
 using System;
 using System.Collections.Generic;
 
@@ -52,6 +54,8 @@ namespace GrandStrategy.WorldGeneration
         public bool HasRiverFootprint;
         public bool HasCoastData;
 
+        // Resolve imported colours to compact province indices and collect each province's neighbours and
+        // biome counts.
         public static ProvinceMap Build(HeightmapRecipe recipe, int[] rgb, ProvinceInfo[] provinces,
             TerritoryInfo[] territories = null, byte[] biomes = null, byte[] rivers = null,
             WaterKind[] water = null, byte[] riverWidths = null, int[] territoryAt = null)
@@ -132,6 +136,8 @@ namespace GrandStrategy.WorldGeneration
         }
 
         // Build gameplay geography from the same world layers that the playable map renders.
+        // Enrich a copy of the map with playable biome and connected-waterway data so the imported asset
+        // remains unchanged.
         internal ProvinceMap WithSettlementGeography(WaterMap water, byte[] rivers, byte[] biomes)
         {
             var result = (ProvinceMap)MemberwiseClone();
@@ -210,6 +216,7 @@ namespace GrandStrategy.WorldGeneration
         }
 
         // The importer hands over the PNG buffer for conversion in place.
+        // Resolve territory image colours to the indices used by the selection and border code.
         public static int[] IndexTerritoryColors(int[] rgb, TerritoryInfo[] territories, int width)
         {
             var byColor = new Dictionary<int, int>();
@@ -231,6 +238,8 @@ namespace GrandStrategy.WorldGeneration
             throw new ArgumentException($"Unknown {layer} RGB #{color:X6} at ({cell % width}, {cell / width}) from the south.");
         }
 
+        // Record adjacency at a raster edge and collect the coast and river information needed by later
+        // rules.
         private static void Connect(int a, int b, int aCell, int bCell, WaterKind[] water,
             byte[] riverSurface, ProvinceInfo[] records, HashSet<int>[] neighbours)
         {

@@ -1,3 +1,5 @@
+// Coordinates world authoring in the Unity Editor, from recipe editing through generation, preview, saving
+// and export.
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -79,6 +81,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Expose world dimensions and recipe steps before generating a new elevation field.
         private void DrawSettings()
         {
             EditorGUI.BeginChangeCheck();
@@ -175,6 +178,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Build the climate and biome preview layers for the current terrain.
         private void GenerateClimate()
         {
             try
@@ -362,6 +366,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             finally { EditorUtility.ClearProgressBar(); Repaint(); }
         }
 
+        // Build river routes and carved elevations from the current world before updating the previews.
         private void GenerateRivers()
         {
             try
@@ -392,6 +397,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch (Exception ex) { ShowError(ex); }
         }
 
+        // Choose which generated layer the editor is displaying.
         private void SetPreview(HeightmapResult terrain, RiverMap network, HeightmapPreviewMode mode,
             ClimateMap climateOverride = null, ClimateSettings settingsOverride = null)
         {
@@ -424,6 +430,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             wantsMouseMove = true;
         }
 
+        // Write a Unity asset that can be assigned to the playable scene.
         private void SaveWorld()
         {
             var path = EditorUtility.SaveFilePanelInProject("Save world heightmap", $"OldWorld-{result.Recipe.Seed}", "asset", "Save the terrain, river data, generation recipe, and height scale.");
@@ -468,6 +475,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             catch (Exception ex) { ShowError(ex); }
         }
 
+        // Export generation settings so the world can be reproduced without relying on the Unity asset.
         private void SaveRecipe()
         {
             var path = EditorUtility.SaveFilePanel("Save world recipe", "", "OldWorld-recipe", "json");
@@ -591,6 +599,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             public int NavalChannelCells;
         }
 
+        // Write the raster layers consumed by OpenGS and the corresponding files needed to import provinces
+        // back into Unity.
         private void Export()
         {
             var parent = EditorUtility.OpenFolderPanel("Choose export parent folder", "", "");

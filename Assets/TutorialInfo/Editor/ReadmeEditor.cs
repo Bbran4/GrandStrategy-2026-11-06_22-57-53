@@ -3,6 +3,8 @@ using UnityEditor;
 using System.IO;
 using Unity.Scripting.LifecycleManagement;
 using UnityEngine.UIElements;
+// Displays the Unity project welcome asset and provides the editor action for removing the template
+// tutorial.
 
 [CustomEditor(typeof(Readme))]
 sealed partial class ReadmeEditor : Editor
@@ -14,6 +16,7 @@ sealed partial class ReadmeEditor : Editor
     static void OnCodeLoaded()
         => EditorApplication.delayCall += SelectReadmeAutomatically;
 
+    // Open the welcome asset once per editor session.
     static void SelectReadmeAutomatically()
     {
         if (!SessionState.GetBool(k_ShowedReadmeSessionStateName, false))
@@ -37,6 +40,7 @@ sealed partial class ReadmeEditor : Editor
         return readmeObject;
     }
 
+    // Remove the template's tutorial content after the user confirms.
     static void RemoveTutorial()
     {
         if (EditorUtility.DisplayDialog("Remove Readme Assets",

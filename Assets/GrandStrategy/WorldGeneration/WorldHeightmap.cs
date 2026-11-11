@@ -1,3 +1,5 @@
+// Stores the generated world in Unity, including recipe, base elevations, river edits and optional climate
+// settings.
 using System;
 using UnityEngine;
 
@@ -35,6 +37,7 @@ namespace GrandStrategy.WorldGeneration
         // Assets saved before height scale was introduced have no serialized value.
         public float HeightScale => heightScale == 0f ? DefaultHeightScale : heightScale;
 
+        // Save the base elevations and river data separately so the carved terrain can be reconstructed.
         public void Initialize(HeightmapResult result, float heightScale = DefaultHeightScale, RiverMap rivers = null, ClimateMap climate = null,
             BiomeMap biomes = null)
         {
@@ -71,6 +74,8 @@ namespace GrandStrategy.WorldGeneration
 
         public HeightmapResult Read() => ReadRivers()?.Terrain ?? ReadSamples(elevations);
 
+        // Rebuild the river map from stored cuts and flow directions, recovering cuts for older assets if
+        // necessary.
         public RiverMap ReadRivers()
         {
             if (!HasRivers) return null;
@@ -83,6 +88,7 @@ namespace GrandStrategy.WorldGeneration
             return RiverMap.Compose(world, cuts, directions, riverCatchmentPercent, riverCarveDepth, widths, widthScale);
         }
 
+        // Read older world assets that stored carved elevations instead of the separate cut raster.
         private float[] RecoverLegacyCuts(HeightmapResult world)
         {
             if (carvedElevations == null || carvedElevations.Length != world.Elevations.Length)

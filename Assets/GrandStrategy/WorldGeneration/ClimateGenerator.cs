@@ -1,3 +1,5 @@
+// Computes temperature and moisture fields from elevation, water and climate settings before biome
+// assignment.
 using System;
 
 namespace GrandStrategy.WorldGeneration
@@ -45,12 +47,15 @@ namespace GrandStrategy.WorldGeneration
             Moisture = moisture;
         }
 
+        // Decode the compact stored temperature for consumers that work in degrees Celsius.
         public float TemperatureCelsius(int index) =>
             MinimumTemperature + Temperature[index] / 255f * (MaximumTemperature - MinimumTemperature);
     }
 
     public static class ClimateGenerator
     {
+        // Use a common source raster for climate and water so coastal and altitude calculations refer to
+        // the same samples.
         public static ClimateMap Generate(HeightmapResult terrain, WaterMap water, ClimateSettings settings,
             Func<float, string, bool> progress = null)
         {

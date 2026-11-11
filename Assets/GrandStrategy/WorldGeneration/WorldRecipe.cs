@@ -1,3 +1,5 @@
+// Stores the settings needed to rebuild a world and its optional river, navigation, climate and biome
+// layers.
 using System;
 
 namespace GrandStrategy.WorldGeneration
@@ -27,6 +29,7 @@ namespace GrandStrategy.WorldGeneration
 
         public bool IsLegacy => Version == 0 || Version == 1;
 
+        // Check that the requested layers have the dependencies required to rebuild them.
         public void Validate()
         {
             if (Format != FormatId || Recipe == null || (!IsLegacy && Version != CurrentVersion))
@@ -44,6 +47,7 @@ namespace GrandStrategy.WorldGeneration
                 throw new ArgumentException("Invalid naval rise limit in the recipe.");
         }
 
+        // Run the required generation stages in order and pass the resulting layers to preview or export.
         public RebuiltWorld Rebuild(Func<float, string, bool> progress = null)
         {
             Validate();

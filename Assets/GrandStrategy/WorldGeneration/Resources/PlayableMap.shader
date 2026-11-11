@@ -1,3 +1,4 @@
+// Composites the playable map from terrain textures, authored paint, water and political overlays.
 Shader "GrandStrategy/Playable Map"
 {
     Properties
@@ -224,6 +225,7 @@ Shader "GrandStrategy/Playable Map"
                 return SAMPLE_TEXTURE2D_LOD(_ProvinceIndices, sampler_ProvinceIndices, (cell + 0.5) / _ProvinceGrid.xy, 0);
             }
 
+            // Resolve the province using the same displaced corners that the CPU uses for map picking.
             float3 ProvinceAt(float2 uv)
             {
                 float2 samplePosition = saturate(uv) * _ProvinceGrid.xy;
@@ -286,6 +288,8 @@ Shader "GrandStrategy/Playable Map"
                     TEXTURE2D_ARGS(normalMap, sampler_GroundPatterns), coords, frequency, weight, result)
 
             #if defined(_AUTHORED_TERRAIN)
+            // Project painted rock onto the sides of steep faces and convert the sampled normals to the
+            // ground's lighting basis.
             void AccumulatePaintedCliff(float3 position, float3 dx, float3 dy, float3 normal, float weight,
                 inout GroundSample result)
             {
@@ -458,6 +462,7 @@ Shader "GrandStrategy/Playable Map"
                 return paint;
             }
 
+            // Shade ocean detail from the water colour, wave patterns and coastal inputs.
             float3 ShadeOcean(float3 water, float3 position, float2 groundDx, float2 groundDy,
                 float3 sun, float shoal, float landCoverage, float2 surfaceNoise)
             {
@@ -509,6 +514,8 @@ Shader "GrandStrategy/Playable Map"
                 return centre * 0.5 + filtered * 0.125;
             }
 
+            // Blend biome materials, authored paint, canopy and shadows, then composite water over the
+            // terrain.
             float3 ShadeGround(Varyings input, float3 normal, float4 map)
             {
                 float4 biomeSurface = SAMPLE_TEXTURE2D(_BiomeSurface, sampler_BiomeSurface, input.uv);
@@ -829,6 +836,8 @@ Shader "GrandStrategy/Playable Map"
                 return lerp(land, water * (1.0 - 0.20 * terrainShade), visibleWater);
             }
 
+            // Shade the surface first, then apply province ownership and selection highlights where
+            // political coverage allows.
             half4 Frag(Varyings input) : SV_Target
             {
                 float4 map = SAMPLE_TEXTURE2D(_MapColours, sampler_MapColours, input.uv);

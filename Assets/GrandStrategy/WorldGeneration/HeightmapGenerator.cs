@@ -1,3 +1,4 @@
+// Builds a deterministic elevation field from an ordered recipe of landforms, noise and erosion passes.
 using System;
 
 namespace GrandStrategy.WorldGeneration
@@ -148,6 +149,8 @@ namespace GrandStrategy.WorldGeneration
             return new HeightmapResult(recipe, values);
         }
 
+        // Use a scratch buffer so a smoothing or erosion pass does not depend on the order cells are
+        // visited.
         private static void Relax(float[] values, float[] scratch, int width, int height, float strength,
             bool erosion, Func<float, string, bool> progress, float fraction, string label)
         {
@@ -184,6 +187,7 @@ namespace GrandStrategy.WorldGeneration
 
         internal static float Clamp(float x) => Math.Max(0, Math.Min(1, x));
         private static float Lerp(float a, float b, float t) => a + (b - a) * t;
+        // Displace feature sampling coordinates with noise to break up regular coast and ridge shapes.
         private static float Warp(float x, float y, int seed) => .65f * Noise(x * 4, y * 4, seed)
             + .25f * Noise(x * 13, y * 13, seed) + .1f * Noise(x * 37, y * 37, seed);
         private static float Noise(float x, float y, int seed)

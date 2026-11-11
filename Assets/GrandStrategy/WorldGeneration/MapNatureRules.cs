@@ -1,3 +1,4 @@
+// Holds deterministic placement and climate rules for nature props, snow and lake ice.
 using System;
 
 namespace GrandStrategy.WorldGeneration
@@ -11,6 +12,7 @@ namespace GrandStrategy.WorldGeneration
         public static bool IsForest(BiomeKind kind)
             => kind == BiomeKind.TemperateForest || kind == BiomeKind.TropicalForest || kind == BiomeKind.BorealForest;
 
+        // Combine elevation and temperature so high ground and very cold lowlands can both receive snow.
         public static float Snow(float elevation, float seaLevel, float? celsius)
         {
             var altitude = (elevation - seaLevel) / (1f - seaLevel);
@@ -23,6 +25,7 @@ namespace GrandStrategy.WorldGeneration
         public static float LakeIce(float? celsius) => celsius.HasValue
             ? 1f - Ramp(celsius.Value, -13f, -4f) : 0f;
 
+        // Select a type of scenery from biome, slope, snow and the supplied random and grove samples.
         public static NatureKind Pick(BiomeKind biome, bool dry, float slope, float snow, float roll, float grove)
         {
             if (!dry) return NatureKind.None;
@@ -39,6 +42,7 @@ namespace GrandStrategy.WorldGeneration
             return slope > .28f && roll > .98f ? NatureKind.Rock : NatureKind.None;
         }
 
+        // Pick a tree species suited to the local biome and placement conditions.
         public static TreeSpecies ChooseTree(BiomeKind biome, float temperature, float moisture, float roll)
         {
             if (biome == BiomeKind.BorealForest || temperature < 6f)
@@ -73,6 +77,8 @@ namespace GrandStrategy.WorldGeneration
             static float Mix(float a, float b, float t) => a + (b - a) * t;
         }
 
+        // Hash coordinates and a seed to produce repeatable variation without sharing a random number
+        // generator.
         public static float Random01(int seed, int x, int y)
         {
             unchecked

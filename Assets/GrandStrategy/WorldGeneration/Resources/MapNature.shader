@@ -1,3 +1,4 @@
+// Shades the vegetation and rocks placed by MapNature using map-scale lighting.
 Shader "GrandStrategy/Map Nature"
 {
     Properties
@@ -47,6 +48,7 @@ Shader "GrandStrategy/Map Nature"
                 float clearance : TEXCOORD1;
             };
 
+            // Scale props toward their anchors as the camera zooms out, and light them with terrain shadows.
             Varyings Vert(Attributes input)
             {
                 Varyings output;
@@ -69,6 +71,7 @@ Shader "GrandStrategy/Map Nature"
                 return output;
             }
 
+            // Hide scenery inside the capital clearing, then output the colour lit by the vertex stage.
             half4 Frag(Varyings input) : SV_Target
             {
                 clip(input.clearance);

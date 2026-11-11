@@ -1,3 +1,4 @@
+// Runs quick Unity Editor checks for the import and export paths that depend on Unity APIs.
 using System;
 using System.IO;
 using UnityEditor;
@@ -108,6 +109,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        // Exercise PNG decoding with known colours and row positions to catch changes that would break map
+        // IDs.
         private static void CheckOpenGsPng(string output)
         {
             var recipe = HeightmapRecipe.OldWorld(); recipe.Width = 32; recipe.Height = 32;
@@ -130,6 +133,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             finally { UnityEngine.Object.DestroyImmediate(texture); }
         }
 
+        // Serialize and rebuild a recipe to verify that saved settings reproduce the intended world layers.
         private static void CheckRecipeRoundTrip(HeightmapRecipe terrain, RiverMap rivers, ClimateMap climate, BiomeMap biomes)
         {
             var file = new WorldRecipe

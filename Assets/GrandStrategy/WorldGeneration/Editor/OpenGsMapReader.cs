@@ -1,3 +1,5 @@
+// Imports OpenGS province and territory files and checks that their IDs, colours and pixel coordinates
+// agree.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -28,6 +30,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             public string Widths;
         }
 
+        // Assemble the definitions and raster layers into the ProvinceMap used by the editor and runtime.
         public static ProvinceMap Read(string worldManifest, string provinceImage, string provinceDefinitions,
             string territoryImage, string territoryDefinitions, string territoryHistory,
             out HeightmapResult terrain, out float heightScale)
@@ -110,6 +113,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             return territories;
         }
 
+        // Parse text definition rows before converting individual fields to game types.
         private static IEnumerable<Dictionary<string, string>> ReadRows(string path)
         {
             var contents = ReadText(path);
@@ -226,6 +230,7 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         private static int PackRgb(Rgb24 colour) => colour.R << 16 | colour.G << 8 | colour.B;
 
+        // Decode map images as data so exact RGB province identifiers survive import.
         private static int[] ReadPng(string path, int width, int height)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new InvalidDataException("Select the required PNG images.");

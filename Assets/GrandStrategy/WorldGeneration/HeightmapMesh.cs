@@ -1,3 +1,5 @@
+// Triangulates world heights for the editor preview and playable map, with optional sculpted heights from
+// Unity Terrain.
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -18,6 +20,8 @@ namespace GrandStrategy.WorldGeneration
             return new Vector2Int(columns, rows);
         }
 
+        // Sample the generated and authored heights in the same UV space. Water and its immediate banks
+        // keep their generated heights.
         public static Mesh Create(HeightmapResult world, float heightScale, int longestSide = 256,
             TerrainData authored = null, WaterMap water = null, byte[] rivers = null)
         {
