@@ -18,6 +18,29 @@ namespace GrandStrategy.WorldGeneration
         private WaterMap(HeightmapResult source, WaterKind[] cells, int oceanCount, int lakeCount)
         { Source = source; this.cells = cells; OceanCount = oceanCount; LakeCount = lakeCount; }
 
+        // Sculpted heights can replace generated heights only when all four interpolation corners
+        // and their immediate cardinal neighbours are dry land.
+        public bool AllowsSculpt(int x, int y, byte[] rivers)
+        {
+            var width = Source.Recipe.Width;
+            var height = Source.Recipe.Height;
+            if ((uint)x >= (uint)width || (uint)y >= (uint)height) return false;
+
+            var nextX = Math.Min(x + 1, width - 1);
+            var nextY = Math.Min(y + 1, height - 1);
+            return Interior(x, y) && Interior(nextX, y) && Interior(x, nextY) && Interior(nextX, nextY);
+
+            bool Interior(int cx, int cy) => Dry(cx, cy)
+                && (cx == 0 || Dry(cx - 1, cy)) && (cx == width - 1 || Dry(cx + 1, cy))
+                && (cy == 0 || Dry(cx, cy - 1)) && (cy == height - 1 || Dry(cx, cy + 1));
+
+            bool Dry(int cx, int cy)
+            {
+                var index = cy * width + cx;
+                return cells[index] == WaterKind.Land && (rivers == null || rivers[index] == 0);
+            }
+        }
+
         // Mark submerged samples, then flood outward from the perimeter to distinguish ocean from enclosed
         // water.
         public static WaterMap Classify(HeightmapResult world)

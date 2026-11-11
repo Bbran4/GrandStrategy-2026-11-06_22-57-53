@@ -978,6 +978,16 @@ internal static class Program
         Require(ReferenceEquals(water.Source, world) && heights[33] == .1f, "Classification must retain source identity without changing elevations.");
         heights[10 * 32] = .1f;
         for (var x = 1; x <= 10; x++) heights[10 * 32 + x] = .1f;
+        var riverMask = new byte[heights.Length];
+        riverMask[20 * 32 + 20] = 1;
+        Require(!water.AllowsSculpt(3, 5, null), "Keep the generated ocean bank when sculpting.");
+        Require(!water.AllowsSculpt(10, 8, null), "Protect lake banks beside any interpolation corner.");
+        Require(!water.AllowsSculpt(20, 20, riverMask) && !water.AllowsSculpt(18, 20, riverMask),
+            "Protect river channels and their banks when sculpting.");
+        Require(water.AllowsSculpt(16, 20, riverMask) && water.AllowsSculpt(31, 31, riverMask),
+            "Allow dry interior and dry map-edge samples.");
+        Require(!water.AllowsSculpt(-1, 0, riverMask) && !water.AllowsSculpt(32, 31, riverMask),
+            "Reject sculpt samples outside the authored world.");
         var connected = WaterMap.Classify(world);
         Require(connected[10 * 32 + 11] == WaterKind.Ocean, "A cardinal channel must connect an inland basin to ocean.");
         Require(water[10 * 32 + 11] == WaterKind.Lake, "An existing classification must remain a completed snapshot.");

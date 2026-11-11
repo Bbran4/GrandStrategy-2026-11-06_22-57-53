@@ -168,7 +168,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             stampAngle = EditorGUILayout.Slider("Rotation", stampAngle, 0f, 180f);
             if (stampTerrain != null)
             {
-                EditorGUILayout.HelpBox("Click an inland slope in the Scene view. Escape cancels.", MessageType.Info);
+                EditorGUILayout.HelpBox("Click an inland slope in the Scene view. Red marks protected water or banks. Escape cancels.", MessageType.Info);
                 if (GUILayout.Button("Cancel Stamp")) StopStamp();
                 SceneView.RepaintAll();
             }
@@ -236,15 +236,31 @@ namespace GrandStrategy.WorldGeneration.Editor
                     points[i] = new Vector3(x, y + 1f, z);
                 }
                 var colour = stampShape == StampShape.Valley ? new Color(.40f, .83f, 1f) : new Color(.95f, .7f, .28f);
+                var editable = new List<Vector3>();
+                var protectedEdges = new List<Vector3>();
+                for (var i = 1; i < points.Length; i++)
+                {
+                    var middle = (points[i - 1] + points[i]) * .5f - origin;
+                    var lines = CanStampAt(middle, data.size) ? editable : protectedEdges;
+                    lines.Add(points[i - 1]);
+                    lines.Add(points[i]);
+                }
+                var warning = new Color(1f, .27f, .22f);
                 using (new Handles.DrawingScope(colour))
-                    Handles.DrawAAPolyLine(3f, points);
+                    Handles.DrawLines(editable.ToArray());
+                using (new Handles.DrawingScope(warning))
+                    Handles.DrawLines(protectedEdges.ToArray());
+                using (new Handles.DrawingScope(CanStampAt(hit.point - origin, data.size) ? colour : warning))
+                    Handles.DotHandleCap(0, hit.point + Vector3.up,
+                        Quaternion.identity, HandleUtility.GetHandleSize(hit.point) * .045f, EventType.Repaint);
             }
             if (input.type != EventType.MouseDown || input.button != 0 || input.alt) return;
 
             input.Use();
             try
             {
-                ApplyTerrainStamp(hit.point - stampTerrain.transform.position, axis);
+                if (!ApplyTerrainStamp(hit.point - stampTerrain.transform.position, axis))
+                    scene.ShowNotification(new GUIContent("The stamp made no height changes. Try moving farther inland."));
             }
             finally
             {
@@ -253,9 +269,19 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
+        private bool CanStampAt(Vector3 local, Vector3 size)
+        {
+            var u = local.x / size.x;
+            var v = local.z / size.z;
+            if (u < 0f || u > 1f || v < 0f || v > 1f) return false;
+            var recipe = stampWater.Source.Recipe;
+            return stampWater.AllowsSculpt(Mathf.FloorToInt(u * (recipe.Width - 1)),
+                Mathf.FloorToInt(v * (recipe.Height - 1)), stampRivers);
+        }
+
         // Change only the heightmap rectangle touched by the rotated stamp. The profile tapers at the edge
         // and fades out near sea level.
-        private void ApplyTerrainStamp(Vector3 centre, Vector2 axis)
+        private bool ApplyTerrainStamp(Vector3 centre, Vector2 axis)
         {
             var data = stampTerrain.terrainData;
             var step = data.heightmapScale;
@@ -284,10 +310,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     var v = (float)y / last * (recipe.Height - 1);
                     var sourceX = Mathf.FloorToInt(u);
                     var sourceY = Mathf.FloorToInt(v);
-                    var nextX = Mathf.Min(sourceX + 1, recipe.Width - 1);
-                    var nextY = Mathf.Min(sourceY + 1, recipe.Height - 1);
-                    if (!IsDryInterior(sourceX, sourceY) || !IsDryInterior(nextX, sourceY)
-                        || !IsDryInterior(sourceX, nextY) || !IsDryInterior(nextX, nextY)) continue;
+                    if (!stampWater.AllowsSculpt(sourceX, sourceY, stampRivers)) continue;
                     var altitude = source.Elevations[Mathf.RoundToInt(v) * recipe.Width + Mathf.RoundToInt(u)];
                     var inland = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(recipe.SeaLevel + .015f, recipe.SeaLevel + .07f, altitude));
                     if (inland <= 0f) continue;
@@ -315,7 +338,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     changed |= height != old;
                 }
 
-            if (!changed) return;
+            if (!changed) return false;
             var undoName = cut ? "Stamp Valley" : "Stamp Mountain Range";
             Undo.SetCurrentGroupName(undoName);
             Undo.RegisterCompleteObjectUndo(data, undoName);
@@ -327,16 +350,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 (right + 1) * step.x, (top + 1) * step.z);
             RefitTerrainOverlays(stampTerrain, undoName, affected);
 
-            // Match the runtime mesh's protected shore and riverbank samples.
-            bool IsDryInterior(int x, int y) => IsLand(x, y)
-                && (x == 0 || IsLand(x - 1, y)) && (x == recipe.Width - 1 || IsLand(x + 1, y))
-                && (y == 0 || IsLand(x, y - 1)) && (y == recipe.Height - 1 || IsLand(x, y + 1));
-
-            bool IsLand(int x, int y)
-            {
-                var cell = y * recipe.Width + x;
-                return stampWater[cell] == WaterKind.Land && (stampRivers == null || stampRivers[cell] == 0);
-            }
+            return true;
         }
 
         private static bool HasTerrainOverlays(Terrain terrain)

@@ -51,7 +51,7 @@ namespace GrandStrategy.WorldGeneration
                     var lower = Mathf.Lerp(world.Elevations[y0 * width + x0], world.Elevations[y0 * width + x1], sampleX - x0);
                     var upper = Mathf.Lerp(world.Elevations[y1 * width + x0], world.Elevations[y1 * width + x1], sampleX - x0);
                     var elevation = Mathf.Lerp(lower, upper, sampleY - y0);
-                    if (edited != null && IsDry(x0, y0) && IsDry(x1, y0) && IsDry(x0, y1) && IsDry(x1, y1))
+                    if (edited != null && water.AllowsSculpt(x0, y0, rivers))
                     {
                         var px = u * (authoredResolution - 1);
                         var py = v * (authoredResolution - 1);
@@ -68,16 +68,6 @@ namespace GrandStrategy.WorldGeneration
                         Mathf.Max(0, elevation - world.Recipe.SeaLevel) * heightScale, v - .5f);
                     uvs[y * columns + x] = new Vector2(u, v);
                 }
-            bool IsDry(int x, int y) => IsLand(x, y)
-                && (x == 0 || IsLand(x - 1, y)) && (x == width - 1 || IsLand(x + 1, y))
-                && (y == 0 || IsLand(x, y - 1)) && (y == height - 1 || IsLand(x, y + 1));
-
-            bool IsLand(int x, int y)
-            {
-                var cell = y * width + x;
-                return water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0);
-            }
-
             var t = 0;
             for (var y = 0; y < rows - 1; y++)
                 for (var x = 0; x < columns - 1; x++)
