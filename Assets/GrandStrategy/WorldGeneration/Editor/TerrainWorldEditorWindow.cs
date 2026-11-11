@@ -7,7 +7,7 @@ namespace GrandStrategy.WorldGeneration.Editor
 {
     public sealed class TerrainWorldEditorWindow : EditorWindow
     {
-        private static readonly string[] Tabs = { "Sculpt", "Paint", "Stamps", "Preview", "Publish" };
+        private static readonly string[] Tabs = { "Sculpt", "Paint", "Stamps", "Preview", "Publish", "Geography" };
         [SerializeField] private PlayableMap map;
         [SerializeField] private int tab;
         private Vector2 scroll;

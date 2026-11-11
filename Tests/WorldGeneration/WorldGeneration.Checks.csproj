@@ -12,6 +12,7 @@
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/HeightmapEncoding.cs" Link="HeightmapEncoding.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/WaterMap.cs" Link="WaterMap.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/RiverGenerator.cs" Link="RiverGenerator.cs" />
+    <Compile Include="../../Assets/GrandStrategy/WorldGeneration/GeographyAuthoring.cs" Link="GeographyAuthoring.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/RiverNavigation.cs" Link="RiverNavigation.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/ClimateGenerator.cs" Link="ClimateGenerator.cs" />
     <Compile Include="../../Assets/GrandStrategy/WorldGeneration/BiomeGenerator.cs" Link="BiomeGenerator.cs" />

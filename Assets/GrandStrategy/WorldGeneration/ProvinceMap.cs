@@ -59,6 +59,15 @@ namespace GrandStrategy.WorldGeneration
         public static ProvinceMap Build(HeightmapRecipe recipe, int[] rgb, ProvinceInfo[] provinces,
             TerritoryInfo[] territories = null, byte[] biomes = null, byte[] rivers = null,
             WaterKind[] water = null, byte[] riverWidths = null, int[] territoryAt = null)
+            => BuildCore(recipe, rgb, provinces, territories, biomes, rivers, water, riverWidths, territoryAt, false);
+
+        internal static ProvinceMap RebuildIndexed(HeightmapRecipe recipe, int[] indices, ProvinceInfo[] provinces,
+            TerritoryInfo[] territories, byte[] biomes, byte[] rivers, WaterKind[] water, byte[] riverWidths, int[] territoryAt)
+            => BuildCore(recipe, indices, provinces, territories, biomes, rivers, water, riverWidths, territoryAt, true);
+
+        private static ProvinceMap BuildCore(HeightmapRecipe recipe, int[] rgb, ProvinceInfo[] provinces,
+            TerritoryInfo[] territories, byte[] biomes, byte[] rivers, WaterKind[] water, byte[] riverWidths,
+            int[] territoryAt, bool indexed)
         {
             recipe.Validate();
             var width = recipe.Width;
@@ -99,7 +108,9 @@ namespace GrandStrategy.WorldGeneration
                 for (var x = 0; x < width; x++)
                 {
                     var cell = y * width + x;
-                    var index = FindRegionIndex(byColor, rgb[cell], cell, width, "province");
+                    var index = indexed ? rgb[cell] : FindRegionIndex(byColor, rgb[cell], cell, width, "province");
+                    if (index < -1 || index >= provinces.Length)
+                        throw new ArgumentException($"Invalid province index at sample {cell}.");
                     if (index < 0) unassigned++;
                     // Reuse the packed RGB buffer for the owned province-index raster.
                     rgb[cell] = index;

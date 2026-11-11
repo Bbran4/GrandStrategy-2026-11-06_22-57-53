@@ -1,6 +1,7 @@
 // Routes drainage, selects river channels and carves them into the elevation field. River direction data
 // also drives flow rendering and navigation.
 using System;
+using System.Collections.Generic;
 
 namespace GrandStrategy.WorldGeneration
 {
@@ -291,6 +292,157 @@ namespace GrandStrategy.WorldGeneration
             return result;
         }
 
+        // Route an authored channel through ordered waypoints and grade the complete network downstream.
+        // Existing tributaries remain connected. An abandoned tail is removed if nothing else feeds it.
+        public static RiverMap RebuildAuthored(HeightmapResult world, RiverMap previous, IReadOnlyList<int> waypoints,
+            byte channelWidth, float channelDepth)
+        {
+            if (world == null || waypoints == null) throw new ArgumentNullException(world == null ? nameof(world) : nameof(waypoints));
+            var width = world.Recipe.Width;
+            var height = world.Recipe.Height;
+            var elevations = world.Elevations;
+            var sea = world.Recipe.SeaLevel;
+            var length = elevations.Length;
+            if (previous != null && (previous.Base.Recipe.Width != width || previous.Base.Recipe.Height != height))
+                throw new ArgumentException("The river network and edited world must share dimensions.");
+            if (channelWidth < 1 || channelWidth > 24 || float.IsNaN(channelDepth)
+                || channelDepth < MinimumCarveDepth || channelDepth > MaximumCarveDepth)
+                throw new ArgumentException("The authored river width or depth is outside its supported range.");
+            if (waypoints.Count == 1)
+                throw new ArgumentException("Draw a river with at least a start and a water outlet.");
+            if (previous == null && waypoints.Count == 0) return null;
+
+            var directions = previous == null ? new byte[length] : (byte[])previous.Directions.Clone();
+            var widths = new byte[length];
+            var repair = previous == null ? null : new bool[length];
+            for (var i = 0; i < length; i++)
+            {
+                if (directions[i] == 0) continue;
+                widths[i] = previous?.Widths?[i] ?? 1;
+                if (elevations[i] < sea)
+                {
+                    MarkOldBanks(i, widths[i]);
+                    directions[i] = widths[i] = 0;
+                }
+            }
+
+            var path = new List<int>();
+            var authored = new HashSet<int>();
+            var abandoned = new List<int>();
+            for (var i = 0; i < waypoints.Count; i++)
+            {
+                var to = waypoints[i];
+                if ((uint)to >= (uint)length) throw new ArgumentException("A river waypoint is outside the map.");
+                if (i == 0) { path.Add(to); authored.Add(to); continue; }
+                var from = waypoints[i - 1];
+                var x = from % width;
+                var y = from / width;
+                var dx = to % width - x;
+                var dy = to / width - y;
+                var steps = Math.Max(Math.Abs(dx), Math.Abs(dy));
+                for (var step = 1; step <= steps; step++)
+                {
+                    var next = (y + (int)Math.Round((double)dy * step / steps)) * width
+                        + x + (int)Math.Round((double)dx * step / steps);
+                    if (path[path.Count - 1] == next) continue;
+                    if (!authored.Add(next)) throw new ArgumentException("The drawn river crosses itself.");
+                    path.Add(next);
+                }
+            }
+
+            if (path.Count > 0)
+            {
+                if (path.Count < 2 || elevations[path[path.Count - 1]] >= sea)
+                    throw new ArgumentException("End the river at an ocean or lake cell.");
+                for (var i = 0; i < path.Count - 1; i++)
+                {
+                    var cell = path[i];
+                    if (elevations[cell] < sea) throw new ArgumentException("The river must stay on land until its outlet.");
+                    var next = path[i + 1];
+                    var old = Neighbor(cell, directions[cell], width, height);
+                    if (old >= 0 && old != next) abandoned.Add(old);
+                    if (old >= 0) MarkOldBanks(cell, widths[cell]);
+                    byte direction = 1;
+                    while (direction <= 8 && Neighbor(cell, direction, width, height) != next) direction++;
+                    if (direction > 8) throw new InvalidOperationException("The river path has a gap.");
+                    directions[cell] = direction;
+                    widths[cell] = channelWidth;
+                }
+            }
+
+            var incoming = new byte[length];
+            for (var cell = 0; cell < length; cell++)
+            {
+                if (directions[cell] == 0) continue;
+                var next = Neighbor(cell, directions[cell], width, height);
+                if (next >= 0 && directions[next] != 0) incoming[next]++;
+            }
+
+            foreach (var start in abandoned)
+                for (var cell = start; cell >= 0 && directions[cell] != 0 && incoming[cell] == 0 && !authored.Contains(cell);)
+                {
+                    var next = Neighbor(cell, directions[cell], width, height);
+                    MarkOldBanks(cell, widths[cell]);
+                    directions[cell] = widths[cell] = 0;
+                    if (next >= 0 && directions[next] != 0) incoming[next]--;
+                    cell = next;
+                }
+
+            var queue = new Queue<int>();
+            var cuts = new float[length];
+            if (previous != null)
+                for (var cell = 0; cell < length; cell++)
+                {
+                    var oldCut = previous.CutElevations[cell];
+                    if (repair[cell] || oldCut == 0f || elevations[cell] <= sea) continue;
+                    var oldBase = previous.Base.Elevations[cell];
+                    var moved = elevations[cell] == oldBase ? oldCut : Math.Max(sea, elevations[cell] - (oldBase - oldCut));
+                    if (moved < elevations[cell]) cuts[cell] = moved;
+                }
+            var channels = 0;
+            var carveDepth = previous?.CarveDepth ?? DefaultCarveDepth;
+            for (var cell = 0; cell < length; cell++)
+            {
+                if (directions[cell] == 0) continue;
+                var next = Neighbor(cell, directions[cell], width, height);
+                if (next < 0 || (elevations[next] >= sea && directions[next] == 0))
+                    throw new InvalidOperationException("A river lost its water outlet. Extend it to the new shoreline before applying.");
+                channels++;
+                if (incoming[cell] == 0) queue.Enqueue(cell);
+                var depth = authored.Contains(cell) ? channelDepth : carveDepth * .7f;
+                if (previous != null && !authored.Contains(cell) && previous.CutElevations[cell] != 0f)
+                    depth = Math.Min(MaximumCarveDepth, previous.Base.Elevations[cell] - previous.CutElevations[cell]);
+                CutChannel(cell, width, height, sea, .5 + widths[cell] * .8, depth, elevations, cuts,
+                    authored.Contains(cell) ? null : repair);
+            }
+
+            var graded = 0;
+            while (queue.Count > 0)
+            {
+                var cell = queue.Dequeue();
+                graded++;
+                var next = Neighbor(cell, directions[cell], width, height);
+                if (directions[next] == 0) continue;
+                var bed = RiverMap.ApplyCut(elevations[cell], cuts[cell]);
+                if (bed < RiverMap.ApplyCut(elevations[next], cuts[next])) cuts[next] = bed;
+                if (--incoming[next] == 0) queue.Enqueue(next);
+            }
+            if (graded != channels) throw new InvalidOperationException("The river route creates a loop. Change the waypoints.");
+            return RiverMap.Compose(world, cuts, directions, previous?.CatchmentPercent ?? DefaultCatchmentPercent,
+                carveDepth, widths, previous?.WidthScale ?? DefaultWidthScale);
+
+            void MarkOldBanks(int cell, byte diameter)
+            {
+                if (repair == null) return;
+                var x = cell % width;
+                var y = cell / width;
+                var reach = (int)Math.Ceiling(.5 + diameter * .8);
+                for (var row = Math.Max(0, y - reach); row <= Math.Min(height - 1, y + reach); row++)
+                    for (var column = Math.Max(0, x - reach); column <= Math.Min(width - 1, x + reach); column++)
+                        repair[row * width + column] = true;
+            }
+        }
+
         internal static void ValidateSettings(float catchmentPercent, float carveDepth, float widthScale)
         {
             if (float.IsNaN(catchmentPercent) || catchmentPercent < MinimumCatchmentPercent || catchmentPercent > MaximumCatchmentPercent)
@@ -321,7 +473,7 @@ namespace GrandStrategy.WorldGeneration
 
         // Lower terrain near a selected channel while blending the cut toward its banks.
         private static void CutChannel(int cell, int width, int height, float sea, double radius,
-            float depth, float[] source, float[] cuts)
+            float depth, float[] source, float[] cuts, bool[] repair = null)
         {
             var x = cell % width;
             var y = cell / width;
@@ -335,7 +487,7 @@ namespace GrandStrategy.WorldGeneration
                     var distanceSquared = dx * dx + dy * dy;
                     if (distanceSquared >= radiusSquared) continue;
                     var index = row * width + column;
-                    if (source[index] < sea) continue;
+                    if (source[index] < sea || (repair != null && !repair[index])) continue;
                     var depthAtSample = depth * (float)(1d - distanceSquared / radiusSquared);
                     var target = Math.Max(sea, source[index] - depthAtSample);
                     if (target < RiverMap.ApplyCut(source[index], cuts[index]))

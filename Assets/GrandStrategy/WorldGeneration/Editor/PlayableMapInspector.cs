@@ -46,7 +46,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private WaterMap stampWater;
         private byte[] stampRivers;
 
-        internal enum WorkspaceTab { Sculpt, Paint, Stamps, Preview, Publish }
+        internal enum WorkspaceTab { Sculpt, Paint, Stamps, Preview, Publish, Geography }
 
         public override void OnInspectorGUI()
         {
@@ -66,6 +66,8 @@ namespace GrandStrategy.WorldGeneration.Editor
 
             var canEdit = world != null && assigned != null && assigned.terrainData != null
                 && source.objectReferenceValue == world && !EditorApplication.isPlayingOrWillChangePlaymode;
+            if (geographyCapturing && (!canEdit || tab != WorkspaceTab.Geography || geographyTerrain != assigned))
+                StopGeographyCapture();
             if (stampTerrain != null && (!canEdit || stampTerrain != assigned || tab != WorkspaceTab.Stamps))
                 StopStamp();
             if (brushTerrain != null && (!canEdit || brushTerrain != assigned
@@ -103,6 +105,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                         break;
                     case WorkspaceTab.Publish:
                         DrawPublishControls(assigned, world, provinceMap);
+                        break;
+                    case WorkspaceTab.Geography:
+                        DrawGeography(assigned, world, provinceMap);
                         break;
                 }
             }
@@ -242,6 +247,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         {
             StopStamp();
             StopBrush();
+            StopGeographyCapture();
         }
 
         private void StopStamp()

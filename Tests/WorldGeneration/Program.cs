@@ -61,6 +61,7 @@ internal static class Program
             Require(raw[256] == 0 && raw[257] == 128 && raw[raw.Length - 2] == 0 && raw[raw.Length - 1] == 64, "RAW orientation/endianness invalid.");
         }
         CheckWater();
+        CheckGeographyAuthoring();
         CheckRivers();
         CheckRiverWidths();
         CheckNavalAccess();
@@ -958,6 +959,68 @@ internal static class Program
                 ? baseSample : (ushort)Math.Round(cut * 65535, MidpointRounding.AwayFromZero);
             Require(composed == finalReader.ReadUInt16(), "Exported layers did not reconstruct the final RAW16 sample.");
         }
+    }
+
+    private static void CheckGeographyAuthoring()
+    {
+        var recipe = Small();
+        recipe.Width = recipe.Height = 32;
+        var sea = recipe.SeaLevel;
+        var heights = Enumerable.Repeat(sea + .06f, 1024).ToArray();
+        var colors = Enumerable.Repeat(1, heights.Length).ToArray();
+        for (var y = 0; y < 32; y++)
+        {
+            heights[y * 32] = sea - .05f;
+            colors[y * 32] = 2;
+        }
+        var terrain = new HeightmapResult(recipe, heights);
+        var provinces = ProvinceMap.Build(recipe, colors, new[]
+        {
+            new ProvinceInfo { Id = "land", Type = "land", Rgb = 1 },
+            new ProvinceInfo { Id = "sea", Type = "ocean", Rgb = 2 }
+        });
+        int Cell(int x, int y) => y * recipe.Width + x;
+        var previous = RiverGenerator.RebuildAuthored(terrain, null,
+            new[] { Cell(8, 6), Cell(0, 6) }, 2, .012f);
+        var revised = RiverGenerator.RebuildAuthored(terrain, previous,
+            new[] { Cell(8, 6), Cell(7, 7), Cell(0, 7) }, 3, .016f);
+        Require(revised.DownstreamIndex(Cell(8, 6)) == Cell(7, 7)
+            && revised.Widths[Cell(7, 7)] == 3, "Authoring should reroute the start and apply its chosen channel width.");
+        Require(revised.Directions[Cell(4, 6)] == 0 && previous.Directions[Cell(4, 6)] != 0,
+            "Rerouting should remove the unfed tail without changing the source river.");
+        Require(RiverNavigation.Build(revised, WaterMap.Classify(revised.Terrain), RiverNavigation.DefaultMaximumRise)
+            .ChannelCount == 8, "Rerouted channels should remain connected to the sea.");
+        Reject(() => RiverGenerator.RebuildAuthored(terrain, null, new[] { Cell(8, 6), Cell(3, 6) }, 2, .012f),
+            "An authored channel cannot terminate on dry land.");
+        Reject(() => RiverGenerator.RebuildAuthored(terrain, null,
+            new[] { Cell(8, 6), Cell(5, 6), Cell(8, 6), Cell(0, 6) }, 2, .012f),
+            "An authored channel cannot cross itself.");
+
+        var edited = (float[])heights.Clone();
+        edited[Cell(1, 12)] = sea - .02f;
+        edited[Cell(0, 18)] = sea + .02f;
+        edited[Cell(15, 21)] = sea - .02f;
+        var review = GeographyAuthoring.Review(terrain, edited, null, Array.Empty<int>(), 2, .012f, provinces, null, false);
+        Require(review.Provinces.ProvinceAt[Cell(1, 12)] == 1 && review.Provinces.ProvinceAt[Cell(0, 18)] == 0,
+            "Flooded and reclaimed shoreline samples should join adjacent compatible provinces.");
+        Require(review.Provinces.ProvinceAt[Cell(15, 21)] == -1 && review.UnassignedProvinceCells == 1,
+            "A new lake with no matching region should be flagged as unassigned.");
+        Require(review.AffectedProvinces.SequenceEqual(new[] { "land", "sea" })
+            && provinces.ProvinceAt[Cell(1, 12)] == 0, "Review should identify affected regions without modifying the source map.");
+
+        var movedMouth = (float[])heights.Clone();
+        movedMouth[Cell(0, 6)] = sea + .02f;
+        var moved = new HeightmapResult(recipe, movedMouth);
+        var lostOutletRejected = false;
+        try
+        {
+            RiverGenerator.RebuildAuthored(moved, previous, Array.Empty<int>(), 2, .012f);
+        }
+        catch (InvalidOperationException)
+        {
+            lostOutletRejected = true;
+        }
+        Require(lostOutletRejected, "Moving a coast must not silently leave an existing river stranded on land.");
     }
 
     private static void CheckWater()
