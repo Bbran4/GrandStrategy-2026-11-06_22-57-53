@@ -38,7 +38,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private static readonly int[] Widths = { 1024, 2048, 3072 };
         private static readonly int[] Heights = { 512, 1024, 2048 };
 
-        [MenuItem("Tools/GrandStrategy/World Generator")]
+        [MenuItem("Tools/GrandStrategy/World Generator", false, 100)]
         public static void Open()
         {
             var window = GetWindow<WorldGeneratorWindow>("World Generator");

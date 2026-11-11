@@ -62,6 +62,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (geographyCapturing) StopGeographyCapture();
                 else RunGeographyAction(BeginGeographyCapture);
             }
+            if (geographyCapturing)
+                EditorGUILayout.HelpBox("Left-click in the Scene view to stage an edit. Review and apply to update the terrain.", MessageType.Info);
             EditorGUILayout.LabelField($"Coast stamps: {coastStrokes.Count}   River waypoints: {geographyWaypoints.Count}");
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -111,6 +113,7 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         private void BeginGeographyCapture()
         {
+            if (!PrepareSceneTool(geographyTerrain)) return;
             if (geographyOriginal == null)
             {
                 geographyRivers = geographyWorld.ReadRivers();

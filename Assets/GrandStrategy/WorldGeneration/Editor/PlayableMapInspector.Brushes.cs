@@ -71,11 +71,12 @@ namespace GrandStrategy.WorldGeneration.Editor
 
             if (brushTerrain != null)
             {
-                EditorGUILayout.HelpBox("Click or drag in the Scene view. Press Escape to release the brush.", MessageType.Info);
+                EditorGUILayout.HelpBox("Brush active. Hover over the authoring Terrain for the brush outline, then left-click or drag. Red marks a protected brush centre. Escape releases the brush.", MessageType.Info);
                 if (GUILayout.Button("Release Brush")) StopBrush();
             }
             else if (GUILayout.Button(paint ? "Activate Paint Brush" : "Activate Sculpt Brush"))
             {
+                if (!PrepareSceneTool(terrain)) return;
                 if (!paint)
                 {
                     var rivers = world.ReadRivers();
@@ -133,14 +134,22 @@ namespace GrandStrategy.WorldGeneration.Editor
             if (collider == null || !collider.Raycast(HandleUtility.GUIPointToWorldRay(input.mousePosition),
                     out var hit, float.PositiveInfinity)) return;
 
+            var local = hit.point - brushTerrain.transform.position;
             if (input.type == EventType.Repaint)
             {
-                using (new Handles.DrawingScope(brushPaint ? new Color(.45f, .9f, .55f) : new Color(1f, .74f, .3f)))
+                var colour = brushPaint ? new Color(.45f, .9f, .55f) : new Color(1f, .74f, .3f);
+                if (!brushPaint && sculptBrush != SculptBrush.RestoreGenerated)
+                {
+                    var recipe = brushWater.Source.Recipe;
+                    var size = brushTerrain.terrainData.size;
+                    var x = Mathf.Clamp(Mathf.FloorToInt(local.x / size.x * (recipe.Width - 1)), 0, recipe.Width - 1);
+                    var y = Mathf.Clamp(Mathf.FloorToInt(local.z / size.z * (recipe.Height - 1)), 0, recipe.Height - 1);
+                    if (!brushWater.AllowsSculpt(x, y, brushRivers)) colour = new Color(1f, .27f, .22f);
+                }
+                using (new Handles.DrawingScope(colour))
                     Handles.DrawWireDisc(hit.point + Vector3.up, Vector3.up, brushSize * .5f);
                 return;
             }
-
-            var local = hit.point - brushTerrain.transform.position;
             if (input.type == EventType.MouseDown && input.button == 0 && HandleUtility.nearestControl == control)
             {
                 input.Use();

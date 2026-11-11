@@ -13,12 +13,12 @@ namespace GrandStrategy.WorldGeneration.Editor
         private Vector2 scroll;
         private PlayableMapInspector workspace;
 
-        [MenuItem("Tools/Grand Strategy/World Editor")]
+        [MenuItem("Tools/GrandStrategy/World Sculptor", false, 101)]
         private static void OpenFromMenu() => Open(Selection.activeGameObject?.GetComponent<PlayableMap>());
 
         internal static void Open(PlayableMap selected)
         {
-            var window = GetWindow<TerrainWorldEditorWindow>("World Editor");
+            var window = GetWindow<TerrainWorldEditorWindow>("World Sculptor");
             window.minSize = new Vector2(320f, 240f);
             if (selected != null) window.SetMap(selected);
             else if (window.map == null) window.FindMap();

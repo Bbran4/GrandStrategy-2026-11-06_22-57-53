@@ -51,7 +51,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         public override void OnInspectorGUI()
         {
             DrawDefaultInspector();
-            if (GUILayout.Button("Open World Editor"))
+            if (GUILayout.Button("Open World Sculptor"))
                 TerrainWorldEditorWindow.Open((PlayableMap)target);
         }
 
@@ -233,6 +233,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
             else if (GUILayout.Button(stampShape == StampShape.Valley ? "Place Valley" : "Place Mountain Range"))
             {
+                if (!PrepareSceneTool(terrain)) return;
                 var rivers = world.ReadRivers();
                 stampWater = WaterMap.Classify(rivers?.Terrain ?? world.Read());
                 stampRivers = rivers?.BuildSurfaceMask();
@@ -241,6 +242,23 @@ namespace GrandStrategy.WorldGeneration.Editor
                 SceneView.lastActiveSceneView?.Focus();
                 SceneView.RepaintAll();
             }
+        }
+
+        private static bool PrepareSceneTool(Terrain terrain)
+        {
+            var collider = terrain.GetComponent<TerrainCollider>();
+            if (!terrain.gameObject.activeInHierarchy || collider == null || !collider.enabled
+                || collider.terrainData != terrain.terrainData)
+            {
+                EditorUtility.DisplayDialog("World Sculptor",
+                    "Enable the authoring Terrain and its Terrain Collider, and assign the same TerrainData to both.", "OK");
+                return false;
+            }
+
+            // The native Terrain Inspector can claim Scene view clicks while a Terrain is selected.
+            // This window retains its own Playable Map reference.
+            Selection.objects = Array.Empty<UnityEngine.Object>();
+            return true;
         }
 
         private void OnDisable()
@@ -272,8 +290,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 return;
             }
 
-            if (input.type == EventType.Layout && !input.alt)
-                HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
+            var control = GUIUtility.GetControlID(FocusType.Passive);
+            if (input.type == EventType.Layout && !input.alt) HandleUtility.AddDefaultControl(control);
             if (input.type == EventType.MouseMove) scene.Repaint();
 
             var collider = stampTerrain.GetComponent<TerrainCollider>();
@@ -318,7 +336,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                     Handles.DotHandleCap(0, hit.point + Vector3.up,
                         Quaternion.identity, HandleUtility.GetHandleSize(hit.point) * .045f, EventType.Repaint);
             }
-            if (input.type != EventType.MouseDown || input.button != 0 || input.alt) return;
+            if (input.type != EventType.MouseDown || input.button != 0 || input.alt
+                || HandleUtility.nearestControl != control) return;
 
             input.Use();
             try
