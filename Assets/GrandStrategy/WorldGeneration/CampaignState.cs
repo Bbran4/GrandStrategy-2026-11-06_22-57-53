@@ -46,11 +46,15 @@ namespace GrandStrategy.WorldGeneration
     }
 
     [Serializable]
+    internal enum ClanKind { Legacy, Hearthkeepers }
+
     internal sealed class CampaignSave
     {
         public int Version;
         public string MapKey;
         public string TribeName;
+        public ClanKind Clan;
+        public int TaxBonusRemainder;
         public int Colour;
         public int CapitalCell;
         public int Day;
@@ -101,7 +105,8 @@ namespace GrandStrategy.WorldGeneration
         private const int PeoplePerFood = 125;
         private const double MaxGrowthRate = .02;
         private const double MaxStarvationRate = .10;
-        private const int SaveVersion = 5;
+        private const int SaveVersion = 6;
+        private const int HearthkeeperTaxBonus = 5;
         private const SettlementBuilding AllBuildings =
             SettlementBuilding.Farm | SettlementBuilding.LumberCamp | SettlementBuilding.IronMine | SettlementBuilding.Docks;
         private const int StartingFood = 40;
@@ -123,6 +128,7 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public string TribeName => data.TribeName;
+        public ClanKind Clan => data.Clan;
         public int Colour => data.Colour;
         public int CapitalCell => data.CapitalCell;
         public int Capital => map.ProvinceAt[CapitalCell];
@@ -145,7 +151,11 @@ namespace GrandStrategy.WorldGeneration
                 return total;
             }
         }
-        public long TaxIncome => (OwnedPopulation + 99) / 100;
+        private long BaseTaxIncome => Math.Min(ResourceLimit, (OwnedPopulation + 99) / 100);
+        public long TaxIncome => BaseTaxIncome + TaxBonusNumerator(BaseTaxIncome) / 100;
+
+        private long TaxBonusNumerator(long tax)
+            => Clan == ClanKind.Hearthkeepers ? tax * HearthkeeperTaxBonus + data.TaxBonusRemainder : 0;
         public long TaxCollected => data.TaxCollected;
         public long TradeReceipts => data.TradeReceipts;
         public long TradeSpending => data.TradeSpending;
@@ -196,8 +206,10 @@ namespace GrandStrategy.WorldGeneration
 
         // Seed the capital and initial resources, while also creating population entries for independent
         // land provinces.
-        public static CampaignState Found(ProvinceMap map, string mapKey, int capitalCell, string name, int colour)
+        public static CampaignState Found(ProvinceMap map, string mapKey, int capitalCell, string name, int colour,
+            ClanKind clan = ClanKind.Legacy)
         {
+            if (clan != ClanKind.Legacy && clan != ClanKind.Hearthkeepers) throw new ArgumentOutOfRangeException(nameof(clan));
             var capital = ProvinceAt(map, capitalCell);
             if (!IsLand(map, capital) || !IsValidName(name) || colour < 0)
                 throw new ArgumentException("Founding requires a land province, a tribe name, and a colour.");
@@ -212,11 +224,12 @@ namespace GrandStrategy.WorldGeneration
                 Version = SaveVersion,
                 MapKey = mapKey,
                 TribeName = name.Trim(),
+                Clan = clan,
                 Colour = colour,
                 CapitalCell = capitalCell,
                 Day = 1,
                 Speed = 1,
-                Coin = StartingCoin,
+                Coin = clan == ClanKind.Hearthkeepers ? StartingCoin * 6 / 5 : StartingCoin,
                 Owned = owned,
                 Buildings = new int[owned.Length],
                 Markets = new NeighbourMarket[owned.Length],
@@ -225,8 +238,8 @@ namespace GrandStrategy.WorldGeneration
                 Pop = pop,
                 IntegrationTarget = -1,
                 TradePartner = -1,
-                Food = StartingFood,
-                Wood = StartingWood
+                Food = clan == ClanKind.Hearthkeepers ? StartingFood * 6 / 5 : StartingFood,
+                Wood = clan == ClanKind.Hearthkeepers ? StartingWood * 6 / 5 : StartingWood
             });
         }
 
@@ -267,6 +280,16 @@ namespace GrandStrategy.WorldGeneration
                         || !ValidStock(market.Wood) || !ValidStock(market.Iron))
                         throw new ArgumentException("The save contains invalid neighbour stock.");
             }
+
+            if (save.Version < 6)
+            {
+                save.Clan = ClanKind.Legacy;
+                save.TaxBonusRemainder = 0;
+            }
+            else if ((save.Clan != ClanKind.Legacy && save.Clan != ClanKind.Hearthkeepers)
+                || save.TaxBonusRemainder < 0 || save.TaxBonusRemainder >= 100
+                || (save.Clan == ClanKind.Legacy && save.TaxBonusRemainder != 0))
+                throw new ArgumentException("The save contains invalid clan data.");
 
             var state = new CampaignState(map, save);
             var target = save.IntegrationTarget;
@@ -314,10 +337,10 @@ namespace GrandStrategy.WorldGeneration
             {
                 save.Agreements = new List<TradeAgreement>();
                 save.FoodReserve = DefaultFoodReserve;
-                save.Version = SaveVersion;
             }
             else
                 state.ValidateTradeAgreements();
+            save.Version = SaveVersion;
             return state;
         }
 
@@ -374,8 +397,11 @@ namespace GrandStrategy.WorldGeneration
         // Keep costs, output and terrain restrictions in one place so the HUD and build validation agree.
         public (string Name, int Coin, int Wood, int Yield, string Resource, string SiteIssue) BuildingInfo(
             int province, SettlementBuilding building)
+            => BuildingInfo(map.Provinces[province], building);
+
+        internal static (string Name, int Coin, int Wood, int Yield, string Resource, string SiteIssue) BuildingInfo(
+            ProvinceInfo site, SettlementBuilding building)
         {
-            var site = map.Provinces[province];
             return building switch
             {
                 SettlementBuilding.Farm => ("Farm", 25, 15, Fertility(site), "food",
@@ -772,7 +798,10 @@ namespace GrandStrategy.WorldGeneration
             }
             if (taxes > 0)
             {
-                var collected = (int)Math.Min(ResourceLimit - Coin, taxes * Math.Min(ResourceLimit, TaxIncome));
+                var baseTax = taxes * BaseTaxIncome;
+                var bonus = TaxBonusNumerator(baseTax);
+                data.TaxBonusRemainder = (int)(bonus % 100);
+                var collected = (int)Math.Min(ResourceLimit - Coin, baseTax + bonus / 100);
                 data.Coin += collected;
                 RecordCoin(ref data.TaxCollected, collected);
             }

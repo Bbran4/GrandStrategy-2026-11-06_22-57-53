@@ -54,10 +54,17 @@ namespace GrandStrategy.WorldGeneration
         private bool hasSave;
         private string saveStatus;
         private Vector3 settlement;
-        private string tribeName = "My tribe";
+        private string tribeName = "Hearthkeepers";
         private string failure;
         private int colourIndex;
         private string provinceDetails;
+        private (Vector3 Point, string Label)[] resourceMarkers;
+        private static readonly (SettlementBuilding Building, string Label)[] ResourceBuildings =
+        {
+            (SettlementBuilding.Farm, "F"),
+            (SettlementBuilding.LumberCamp, "W"),
+            (SettlementBuilding.IronMine, "I")
+        };
         private Vector2 provinceScroll;
         private bool showProvinceDetails;
         private bool showTrade;
@@ -341,6 +348,7 @@ namespace GrandStrategy.WorldGeneration
             if (surface == null) return;
 
             PrepareHudStyles();
+            if (mapView == MapViewMode.Resources) DrawResourceMarkers();
             DrawTopBar();
             DrawMapDock();
             DrawCampaign();
@@ -367,7 +375,7 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label("No province at this location.");
             else
             {
-                GUILayout.Label(campaign == null ? "Choose a land province to establish a tribe." : "Click a province to inspect it.");
+                GUILayout.Label(campaign == null ? "Choose a land province to establish your clan." : "Click a province to inspect it.");
                 GUILayout.Label("WASD to pan | Scroll to zoom | Home to reset");
             }
             GUILayout.EndScrollView();
@@ -376,6 +384,7 @@ namespace GrandStrategy.WorldGeneration
 
         private void DrawProvince(ProvinceInfo province)
         {
+            if (mapView == MapViewMode.Resources) DrawProvinceResources(province);
             showProvinceDetails = GUILayout.Toggle(showProvinceDetails, "Terrain and neighbours");
             if (showProvinceDetails) GUILayout.Label(provinceDetails);
 
@@ -386,14 +395,16 @@ namespace GrandStrategy.WorldGeneration
             }
             if (!CampaignState.IsLand(surface.Map, selected))
             {
-                GUILayout.Label("Choose a land province to establish a tribe.");
+                GUILayout.Label("Choose a land province to establish your clan.");
                 return;
             }
 
-            GUILayout.Label("Tribe name");
+            GUILayout.Label("Hearthkeepers", hudHeading);
+            GUILayout.Label("Start with 120 coin, 48 food and 54 wood. Collect 5% more tax.");
+            GUILayout.Label("Clan name");
             GUI.SetNextControlName("TribeName");
             tribeName = GUILayout.TextField(tribeName, CampaignState.MaxNameLength);
-            if (GUILayout.Button("Tribe colour: " + ColourNames[colourIndex]))
+            if (GUILayout.Button("Clan colour: " + ColourNames[colourIndex]))
                 colourIndex = (colourIndex + 1) % ColourNames.Length;
 
             var dry = surface.IsDryLand(clickedCell) && surface.IsDryLand(selectedCell);
@@ -402,12 +413,12 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label("Isolated start: no neighbouring land communities.");
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && dry && !string.IsNullOrWhiteSpace(tribeName);
-            if (GUILayout.Button("Establish tribe here"))
+            if (GUILayout.Button("Establish clan here"))
             {
                 try
                 {
-                    ApplyCampaign(CampaignState.Found(surface.Map, mapKey, selectedCell, tribeName, colourIndex));
-                    saveStatus = "Tribe founded. The campaign is paused.";
+                    ApplyCampaign(CampaignState.Found(surface.Map, mapKey, selectedCell, tribeName, colourIndex, ClanKind.Hearthkeepers));
+                    saveStatus = "Clan founded. The campaign is paused.";
                 }
                 catch (Exception error)
                 {
@@ -545,7 +556,9 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
                 GUILayout.Label("Treasury", hudHeading);
-                GUILayout.Label($"Tax rate: +{campaign.TaxIncome:N0} coin every {CampaignState.TaxInterval} days");
+                GUILayout.Label($"Next tax collection: +{campaign.TaxIncome:N0} coin");
+                if (campaign.Clan == ClanKind.Hearthkeepers)
+                    GUILayout.Label("Hearthkeepers: +5% tax");
                 GUILayout.Label($"Recorded taxes +{campaign.TaxCollected:N0} | Trade +{campaign.TradeReceipts:N0} / −{campaign.TradeSpending:N0}");
                 DrawTradeAgreements();
                 DrawNearbyCommunities();
@@ -674,7 +687,7 @@ namespace GrandStrategy.WorldGeneration
         }
 
         private const float HudMargin = 12f;
-        private const float DockHeight = 104f;
+        private const float DockHeight = 128f;
         private static readonly Color HudGold = new Color(.83f, .69f, .42f);
         private static readonly Color HudPaper = new Color(.91f, .87f, .77f);
         private static readonly Color HudInk = new Color(.09f, .08f, .075f, .96f);
@@ -815,8 +828,11 @@ namespace GrandStrategy.WorldGeneration
             DrawMapViewButton("Realm", MapViewMode.Realm, x + slot + 4, y + 26, slot);
             DrawMapViewButton("Ownership", MapViewMode.Ownership, x + (slot + 4) * 2, y + 26, slot);
 
+            DrawMapViewButton("Resources", MapViewMode.Resources, x, y + 52, dock.width - 14);
+
             var status = mapView switch
             {
+                MapViewMode.Resources => "F Food  ·  W Wood  ·  I Iron  ·  D Docks",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership => campaign == null ? "No provinces held" : "Your colour marks provinces held",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
@@ -825,7 +841,111 @@ namespace GrandStrategy.WorldGeneration
                 MapViewMode.Provinces => "Land, sea & navigable river provinces",
                 _ => "Terrain and settlement"
             };
-            GUI.Label(new Rect(dock.x + 6, dock.y + 78, dock.width - 12, 21), status, hudLabel);
+            GUI.Label(new Rect(dock.x + 6, dock.y + 103, dock.width - 12, 21), status, hudLabel);
+        }
+
+        private void DrawProvinceResources(ProvinceInfo province)
+        {
+            GUILayout.Label("Province resources", hudHeading);
+            if (!CampaignState.IsLand(surface.Map, selected))
+            {
+                GUILayout.Label(selectedCell >= 0 ? surface.WaterResourceAtCell(selectedCell) + " province" : "Water province");
+                return;
+            }
+
+            foreach (var (building, _) in ResourceBuildings)
+            {
+                var info = CampaignState.BuildingInfo(province, building);
+                if (info.SiteIssue != null)
+                {
+                    GUILayout.Label(info.SiteIssue);
+                    continue;
+                }
+                var built = campaign != null && campaign.HasBuilding(selected, building);
+                var season = building == SettlementBuilding.Farm ? " before winter effects" : "";
+                GUILayout.Label($"+{info.Yield} {info.Resource} / {CampaignState.ProductionInterval} days"
+                    + $" with {info.Name.ToLowerInvariant()}{season}" + (built ? " (built)" : ""));
+            }
+
+            if (CampaignState.HasTradeAccess(province))
+            {
+                var river = province.RiverBankEdges > 0 || province.RiverSamples > 0 || province.RiverWaterSamples > 0;
+                var access = province.TouchesOpenSea && river ? "Coast and river" : province.TouchesOpenSea ? "Ocean coast"
+                    : river ? "River bank" : "Waterway";
+                GUILayout.Label(access + " | Docks add a trade slot");
+            }
+        }
+
+        private void DrawResourceMarkers()
+        {
+            if (Event.current.type != EventType.Repaint) return;
+            if (resourceMarkers == null) CacheResourceMarkers();
+
+            for (var i = 0; i < resourceMarkers.Length; i++)
+            {
+                var marker = resourceMarkers[i];
+                if (string.IsNullOrEmpty(marker.Label)) continue;
+                var point = mapCamera.WorldToScreenPoint(marker.Point);
+                if (point.z <= 0f || point.x < 0f || point.x > Screen.width || point.y < 0f || point.y > Screen.height)
+                    continue;
+
+                var width = marker.Label.Length * 6f + 8f;
+                var box = new Rect(point.x - width * .5f, Screen.height - point.y - 8f, width, 16f);
+                PaintHudRect(box, i == selected ? HudWine : HudInk);
+                GUI.Label(box, marker.Label, hudLabel);
+            }
+        }
+
+        private void CacheResourceMarkers()
+        {
+            var map = surface.Map;
+            resourceMarkers = new (Vector3 Point, string Label)[map.Provinces.Length];
+            var centres = new Vector2[resourceMarkers.Length];
+            var count = new int[resourceMarkers.Length];
+            var cells = new int[resourceMarkers.Length];
+            var distances = new float[resourceMarkers.Length];
+            for (var cell = 0; cell < map.ProvinceAt.Length; cell++)
+            {
+                var province = map.ProvinceAt[cell];
+                if (province < 0 || CampaignState.IsLand(map, province) != surface.IsDryLand(cell)) continue;
+                centres[province] += new Vector2(cell % map.Width, cell / map.Width);
+                count[province]++;
+            }
+            for (var i = 0; i < centres.Length; i++)
+            {
+                if (count[i] > 0) centres[i] /= count[i];
+                distances[i] = float.PositiveInfinity;
+            }
+            // Use the nearest cell belonging to the province, including for concave regions.
+            for (var cell = 0; cell < map.ProvinceAt.Length; cell++)
+            {
+                var province = map.ProvinceAt[cell];
+                if (province < 0 || CampaignState.IsLand(map, province) != surface.IsDryLand(cell)) continue;
+                var distance = (new Vector2(cell % map.Width, cell / map.Width) - centres[province]).sqrMagnitude;
+                if (distance >= distances[province]) continue;
+                distances[province] = distance;
+                cells[province] = cell;
+            }
+            for (var i = 0; i < resourceMarkers.Length; i++)
+            {
+                if (count[i] == 0) continue;
+                var province = map.Provinces[i];
+                var label = new StringBuilder();
+                if (CampaignState.IsLand(map, i))
+                {
+                    foreach (var (building, prefix) in ResourceBuildings)
+                    {
+                        var info = CampaignState.BuildingInfo(province, building);
+                        if (info.SiteIssue == null) label.Append(prefix).Append(info.Yield).Append(' ');
+                    }
+                    if (CampaignState.HasTradeAccess(province)) label.Append('D');
+                }
+                else
+                    label.Append(surface.WaterResourceAtCell(cells[i]));
+
+                var text = label.ToString().TrimEnd();
+                resourceMarkers[i] = (surface.ResourceMarkerAtCell(cells[i]), text.Length == 0 ? "—" : text);
+            }
         }
 
         private void DrawMapViewButton(string label, MapViewMode mode, float x, float y, float width, bool available = true)

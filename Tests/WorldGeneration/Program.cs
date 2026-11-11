@@ -441,6 +441,20 @@ internal static class Program
         var key = CampaignState.MapKey(map, recipe.Seed);
         Require(key != CampaignState.MapKey(map, recipe.Seed + 1), "Save keys should distinguish world seeds.");
         Reject(() => CampaignState.Found(map, key, recipe.Width, "Tribe", 0), "A water province was made capital.");
+        var hearthkeepers = CampaignState.Found(map, key, 0, "Hearthkeepers", 1, ClanKind.Hearthkeepers);
+        Require(hearthkeepers.Coin == 120 && hearthkeepers.Food == 48 && hearthkeepers.Wood == 54,
+            "Hearthkeepers should receive the opening stockpile bonus.");
+        hearthkeepers.Paused = false;
+        hearthkeepers.Advance(14d);
+        Require(hearthkeepers.Day == 15 && hearthkeepers.ToSave().TaxBonusRemainder == hearthkeepers.TaxCollected * 5,
+            "Small clans should carry fractional bonus coin to their next tax collection.");
+        var hearthkeeperSave = hearthkeepers.ToSave();
+        hearthkeeperSave.TaxBonusRemainder = 95;
+        var resumedHearthkeepers = CampaignState.Restore(map, key, hearthkeeperSave, 5);
+        Require(resumedHearthkeepers.Clan == ClanKind.Hearthkeepers
+            && resumedHearthkeepers.TaxIncome == (resumedHearthkeepers.OwnedPopulation + 99) / 100 + 1,
+            "Restoring a Hearthkeepers campaign should retain its pending tax bonus.");
+
         var campaign = CampaignState.Found(map, key, 0, "  Tribe  ", 1);
         Require(campaign.Paused && campaign.Day == 1 && campaign.Capital == 0 && campaign.Owns(0)
             && !campaign.Owns(1) && campaign.Population(1) > 0 && campaign.Population(3) == 0,
@@ -725,6 +739,10 @@ internal static class Program
             && alpine.BuildingInfo(1, SettlementBuilding.IronMine).Yield == 2
             && !alpine.CanBuild(1, SettlementBuilding.LumberCamp),
             "A river bank in alpine country must support docks and mines but require forest for lumber.");
+        Require(CampaignState.BuildingInfo(map.Provinces[1], SettlementBuilding.IronMine)
+                == alpine.BuildingInfo(1, SettlementBuilding.IronMine)
+            && CampaignState.BuildingInfo(map.Provinces[2], SettlementBuilding.Farm).SiteIssue != null,
+            "The pre-campaign resource view should use the construction site's yields and restrictions.");
         var cold = CampaignState.Found(map, key, tundra, "Tundra tribe", 0);
         Require(!cold.CanBuild(2, SettlementBuilding.Farm) && !cold.CanBuild(2, SettlementBuilding.Docks),
             "Tundra blocks farms, and a lake alone must not qualify for docks.");

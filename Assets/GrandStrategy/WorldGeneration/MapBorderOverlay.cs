@@ -6,7 +6,7 @@ using UnityEngine.Rendering;
 
 namespace GrandStrategy.WorldGeneration
 {
-    internal enum MapViewMode { Terrain, Territories, Provinces, Realm, Ownership, Biomes }
+    internal enum MapViewMode { Terrain, Territories, Provinces, Realm, Ownership, Biomes, Resources }
 
     internal sealed class MapBorderOverlay : IDisposable
     {
@@ -66,11 +66,11 @@ namespace GrandStrategy.WorldGeneration
         public void SetView(MapViewMode mode)
         {
             var showTerritories = HasTerritories && (mode == MapViewMode.Provinces
-                || mode == MapViewMode.Territories || mode == MapViewMode.Realm);
+                || mode == MapViewMode.Territories || mode == MapViewMode.Realm || mode == MapViewMode.Resources);
             if (showTerritories && territories.Mesh == null)
                 territories.Mesh = CreateMesh(territoryRaster, "Territory outlines");
             provinces.Visible = mode == MapViewMode.Provinces || mode == MapViewMode.Ownership
-                || mode == MapViewMode.Realm;
+                || mode == MapViewMode.Realm || mode == MapViewMode.Resources;
             territories.Visible = showTerritories;
         }
 

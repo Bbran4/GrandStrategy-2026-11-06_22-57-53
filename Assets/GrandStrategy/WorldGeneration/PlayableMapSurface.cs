@@ -327,6 +327,15 @@ namespace GrandStrategy.WorldGeneration
         public bool IsDryLand(int cell) => water[cell] == WaterKind.Land && !IsRiver(cell);
 
         // Convert a raster cell to map coordinates and find its height on the playable surface.
+        public string WaterResourceAtCell(int cell)
+            => IsRiver(cell) ? "River" : water[cell] == WaterKind.Lake ? "Lake" : water[cell] == WaterKind.Ocean ? "Ocean" : "Land";
+
+        public Vector3 ResourceMarkerAtCell(int cell)
+        {
+            var uv = new Vector2((cell % Map.Width + .5f) / Map.Width, (cell / Map.Width + .5f) / Map.Height);
+            return geometry.Sample(uv, out _);
+        }
+
         public Vector3 PointAtCell(int cell)
         {
             var x = ((cell % Map.Width + .5f) / Map.Width - .5f) * Aspect;
