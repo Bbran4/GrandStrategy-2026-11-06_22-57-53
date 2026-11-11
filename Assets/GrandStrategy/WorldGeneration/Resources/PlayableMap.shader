@@ -285,6 +285,44 @@ Shader "GrandStrategy/Playable Map"
                 AccumulateGround(TEXTURE2D_ARGS(colourMap, sampler_GroundPatterns), \
                     TEXTURE2D_ARGS(normalMap, sampler_GroundPatterns), coords, frequency, weight, result)
 
+            #if defined(_AUTHORED_TERRAIN)
+            void AccumulatePaintedCliff(float3 position, float3 dx, float3 dy, float3 normal, float weight,
+                inout GroundSample result)
+            {
+                UNITY_BRANCH
+                if (weight <= 0.002) return;
+
+                float2 side = normal.xz * normal.xz;
+                side /= max(side.x + side.y, 0.0001);
+                float2 direction = step(0.0, normal.xz) * 2.0 - 1.0;
+                // Convert the layer's map-UV tiling to repeats per terrain unit.
+                float2 scale = _AuthoredTile1.xy * float2(_GroundGrid.z, 1.0);
+                float2 xScale = float2(-direction.x, 1.0) * scale;
+                float2 zScale = float2(direction.y, 1.0) * scale;
+                float2 xUV = position.zy * xScale + _AuthoredTile1.zw;
+                float2 zUV = position.xy * zScale + _AuthoredTile1.zw;
+                float2 xDx = dx.zy * xScale;
+                float2 xDy = dy.zy * xScale;
+                float2 zDx = dx.xy * zScale;
+                float2 zDy = dy.xy * zScale;
+
+                float3 xColour = SAMPLE_TEXTURE2D_GRAD(_AuthoredColour1, sampler_GroundPatterns, xUV, xDx, xDy).rgb;
+                float3 zColour = SAMPLE_TEXTURE2D_GRAD(_AuthoredColour1, sampler_GroundPatterns, zUV, zDx, zDy).rgb;
+                float2 xNormal = UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_AuthoredNormal1, sampler_GroundPatterns,
+                    xUV, xDx, xDy)).xy;
+                float2 zNormal = UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_AuthoredNormal1, sampler_GroundPatterns,
+                    zUV, zDx, zDy)).xy;
+                float3 rockRelief = float3(0.0, xNormal.y, -direction.x * xNormal.x) * side.x
+                    + float3(direction.y * zNormal.x, zNormal.y, 0.0) * side.y;
+
+                float3 tangent = normalize(float3(normal.y, -normal.x, 0.0));
+                float3 bitangent = cross(tangent, normal);
+                result.colour += (xColour * side.x + zColour * side.y) * weight;
+                result.normalXY += float2(dot(rockRelief, tangent), dot(rockRelief, bitangent)) * weight;
+                result.weight += weight;
+            }
+            #endif
+
             struct TerrainPatches
             {
                 float2 origin;
@@ -681,7 +719,10 @@ Shader "GrandStrategy/Playable Map"
                     paintCoordinates.dx = paintDx * _AuthoredTile##layer.xy; \
                     paintCoordinates.dy = paintDy * _AuthoredTile##layer.xy; \
                     GROUND_LAYER(_AuthoredColour##layer, _AuthoredNormal##layer, paintCoordinates, 1.0, weight, paintedGround);
-                PAINT_LAYER(1, paint.x)
+                // Blend the rock layer into side projections as a painted slope approaches a cliff.
+                float paintedCliff = paint.x * smoothstep(0.13, 0.40, 1.0 - normal.y);
+                PAINT_LAYER(1, paint.x - paintedCliff)
+                AccumulatePaintedCliff(position, positionDx, positionDy, normal, paintedCliff, paintedGround);
                 PAINT_LAYER(2, paint.y)
                 PAINT_LAYER(3, paint.z)
                 #undef PAINT_LAYER
