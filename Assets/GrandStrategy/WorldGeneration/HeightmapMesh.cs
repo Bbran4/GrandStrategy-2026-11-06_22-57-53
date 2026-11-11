@@ -6,16 +6,33 @@ namespace GrandStrategy.WorldGeneration
 {
     public static class HeightmapMesh
     {
-        public static Mesh Create(HeightmapResult world, float heightScale, int longestSide = 256)
+        public static Vector2Int GridSize(int width, int height, int longestSide, int authoredResolution = 0)
+        {
+            var aspect = (float)width / height;
+            // The editable Terrain is sampled independently of the world and province rasters.
+            // Keep the original UV endpoints, and never oversample the selected heightmap.
+            var maxColumns = authoredResolution > 0 ? authoredResolution : width;
+            var maxRows = authoredResolution > 0 ? authoredResolution : height;
+            var columns = Mathf.Min(maxColumns, Mathf.Max(2, Mathf.RoundToInt(longestSide * Mathf.Min(1f, aspect)) + 1));
+            var rows = Mathf.Min(maxRows, Mathf.Max(2, Mathf.RoundToInt(longestSide / Mathf.Max(1f, aspect)) + 1));
+            return new Vector2Int(columns, rows);
+        }
+
+        public static Mesh Create(HeightmapResult world, float heightScale, int longestSide = 256,
+            TerrainData authored = null, WaterMap water = null, byte[] rivers = null)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (float.IsNaN(heightScale) || float.IsInfinity(heightScale) || heightScale <= 0 || heightScale > 1)
                 throw new ArgumentOutOfRangeException(nameof(heightScale));
             int width = world.Recipe.Width, height = world.Recipe.Height;
             var aspect = (float)width / height;
-            // Bound geometry independently of raster size. Endpoints remain aligned with the source.
-            int columns = Mathf.Min(width, Mathf.Max(2, Mathf.RoundToInt(longestSide * Mathf.Min(1, aspect)) + 1));
-            int rows = Mathf.Min(height, Mathf.Max(2, Mathf.RoundToInt(longestSide / Mathf.Max(1, aspect)) + 1));
+            var authoredResolution = authored == null ? 0 : authored.heightmapResolution;
+            var grid = GridSize(width, height, longestSide, authoredResolution);
+            var columns = grid.x;
+            var rows = grid.y;
+            var edited = authored == null ? null : authored.GetHeights(0, 0, authoredResolution, authoredResolution);
+            if (edited != null && water == null)
+                throw new ArgumentNullException(nameof(water));
             var vertices = new Vector3[columns * rows]; var uvs = new Vector2[vertices.Length];
             var triangles = new int[(columns - 1) * (rows - 1) * 6];
             for (var y = 0; y < rows; y++)
@@ -28,11 +45,33 @@ namespace GrandStrategy.WorldGeneration
                     var lower = Mathf.Lerp(world.Elevations[y0 * width + x0], world.Elevations[y0 * width + x1], sampleX - x0);
                     var upper = Mathf.Lerp(world.Elevations[y1 * width + x0], world.Elevations[y1 * width + x1], sampleX - x0);
                     var elevation = Mathf.Lerp(lower, upper, sampleY - y0);
+                    if (edited != null && IsDry(x0, y0) && IsDry(x1, y0) && IsDry(x0, y1) && IsDry(x1, y1))
+                    {
+                        var px = u * (authoredResolution - 1);
+                        var py = v * (authoredResolution - 1);
+                        var ax = Mathf.FloorToInt(px);
+                        var ay = Mathf.FloorToInt(py);
+                        var right = Mathf.Min(ax + 1, authoredResolution - 1);
+                        var top = Mathf.Min(ay + 1, authoredResolution - 1);
+                        var south = Mathf.Lerp(edited[ay, ax], edited[ay, right], px - ax);
+                        var north = Mathf.Lerp(edited[top, ax], edited[top, right], px - ax);
+                        elevation = Mathf.Max(world.Recipe.SeaLevel, Mathf.Lerp(south, north, py - ay));
+                    }
                     // Current classified water is below sea level. Lake-specific elevations come with hydrology.
                     vertices[y * columns + x] = new Vector3((u - .5f) * aspect,
                         Mathf.Max(0, elevation - world.Recipe.SeaLevel) * heightScale, v - .5f);
                     uvs[y * columns + x] = new Vector2(u, v);
                 }
+            bool IsDry(int x, int y) => IsLand(x, y)
+                && (x == 0 || IsLand(x - 1, y)) && (x == width - 1 || IsLand(x + 1, y))
+                && (y == 0 || IsLand(x, y - 1)) && (y == height - 1 || IsLand(x, y + 1));
+
+            bool IsLand(int x, int y)
+            {
+                var cell = y * width + x;
+                return water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0);
+            }
+
             var t = 0;
             for (var y = 0; y < rows - 1; y++)
                 for (var x = 0; x < columns - 1; x++)

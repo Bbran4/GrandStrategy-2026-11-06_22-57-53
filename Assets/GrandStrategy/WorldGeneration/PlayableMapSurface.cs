@@ -37,7 +37,8 @@ namespace GrandStrategy.WorldGeneration
         public float Aspect => (float)Map.Width / Map.Height;
         public Collider Collider { get; private set; }
 
-        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog)
+        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog,
+            TerrainData authored = null, int authoredMeshDetail = 1024)
         {
             var imported = provinces.ReadTerrain();
             var riverMap = world.ReadRivers();
@@ -60,7 +61,8 @@ namespace GrandStrategy.WorldGeneration
                 if (groundMaterial.shader == null || !groundMaterial.shader.isSupported)
                     throw new InvalidOperationException("The playable map shader requires Universal Render Pipeline.");
 
-                mesh = HeightmapMesh.Create(terrain, world.HeightScale, 512);
+                mesh = HeightmapMesh.Create(terrain, world.HeightScale, authored == null ? 512 : Mathf.Clamp(authoredMeshDetail, 512, 2048),
+                    authored, water, rivers);
                 colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
                 biomeSurface = CreateTexture("Biome IDs, ocean shoals, freshwater and snow", true, FilterMode.Trilinear, true);
@@ -70,6 +72,7 @@ namespace GrandStrategy.WorldGeneration
                 FillTextures(biomes, terrain);
                 material = new Material(groundMaterial) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
+                BindAuthoredPaint(material, authored, world.HeightScale);
                 material.SetTexture("_BiomeSurface", biomeSurface);
                 var flowTexture = riverFlow != null ? riverFlow : Texture2D.blackTexture;
                 material.SetTexture("_RiverFlow", flowTexture);
@@ -127,6 +130,32 @@ namespace GrandStrategy.WorldGeneration
                 Dispose();
                 throw;
             }
+        }
+
+        private void BindAuthoredPaint(Material target, TerrainData authored, float heightScale)
+        {
+            var size = new Vector3(Aspect, heightScale, 1f) * PlayableMap.TerrainAuthoringScale;
+            if (authored != null && (authored.size - size).sqrMagnitude > 0.0001f)
+                throw new InvalidOperationException("Restore the scene Terrain's original size to keep it aligned with the map.");
+
+            var layers = authored == null ? null : authored.terrainLayers;
+            if (layers?.Length > 4)
+                throw new InvalidOperationException("The scene Terrain supports the base layer and up to three painted layers.");
+
+            var hasPaint = layers?.Length > 1 && authored.alphamapTextureCount > 0;
+            target.SetTexture("_AuthoredControl", hasPaint ? authored.GetAlphamapTexture(0) : Texture2D.blackTexture);
+            for (var i = 1; i <= 3; i++)
+            {
+                var layer = layers != null && i < layers.Length ? layers[i] : null;
+                target.SetTexture($"_AuthoredColour{i}", layer?.diffuseTexture ?? Texture2D.grayTexture);
+                target.SetTexture($"_AuthoredNormal{i}", layer?.normalMapTexture ?? Texture2D.normalTexture);
+                var tile = layer?.tileSize ?? Vector2.one;
+                var offset = layer?.tileOffset ?? Vector2.zero;
+                tile = new Vector2(Mathf.Max(.0001f, tile.x), Mathf.Max(.0001f, tile.y));
+                target.SetVector($"_AuthoredTile{i}", new Vector4(size.x / tile.x, size.z / tile.y,
+                    offset.x / tile.x, offset.y / tile.y));
+            }
+            if (hasPaint) target.EnableKeyword("_AUTHORED_TERRAIN");
         }
 
         private static void ValidatePair(HeightmapResult world, HeightmapResult imported)

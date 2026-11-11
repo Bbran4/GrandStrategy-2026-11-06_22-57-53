@@ -55,6 +55,16 @@ Shader "GrandStrategy/Playable Map"
         [HideInInspector] _OwnershipGrid ("Ownership grid", Vector) = (1, 1, 0, 0)
         [HideInInspector] _OwnershipColour ("Ownership colour", Vector) = (0, 0, 0, 1)
         [HideInInspector] _ShowOwnership ("Show ownership", Float) = 0
+        [HideInInspector] _AuthoredControl ("Scene Terrain paint weights", 2D) = "black" {}
+        [HideInInspector] _AuthoredColour1 ("Scene Terrain layer 1", 2D) = "gray" {}
+        [HideInInspector] _AuthoredNormal1 ("Scene Terrain layer 1 normal", 2D) = "bump" {}
+        [HideInInspector] _AuthoredTile1 ("Scene Terrain layer 1 tiling", Vector) = (1, 1, 0, 0)
+        [HideInInspector] _AuthoredColour2 ("Scene Terrain layer 2", 2D) = "gray" {}
+        [HideInInspector] _AuthoredNormal2 ("Scene Terrain layer 2 normal", 2D) = "bump" {}
+        [HideInInspector] _AuthoredTile2 ("Scene Terrain layer 2 tiling", Vector) = (1, 1, 0, 0)
+        [HideInInspector] _AuthoredColour3 ("Scene Terrain layer 3", 2D) = "gray" {}
+        [HideInInspector] _AuthoredNormal3 ("Scene Terrain layer 3 normal", 2D) = "bump" {}
+        [HideInInspector] _AuthoredTile3 ("Scene Terrain layer 3 tiling", Vector) = (1, 1, 0, 0)
         _Selected ("Selected province", Vector) = (0, 0, 0, 0)
     }
 
@@ -68,11 +78,19 @@ Shader "GrandStrategy/Playable Map"
             // The first Play Mode frame needs the terrain pass instead of the Editor's placeholder.
             #pragma editor_sync_compilation
             #pragma target 3.0
+            #pragma multi_compile_local_fragment _ _AUTHORED_TERRAIN
             #pragma vertex Vert
             #pragma fragment Frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
 
+            TEXTURE2D(_AuthoredControl);
+            TEXTURE2D(_AuthoredColour1);
+            TEXTURE2D(_AuthoredNormal1);
+            TEXTURE2D(_AuthoredColour2);
+            TEXTURE2D(_AuthoredNormal2);
+            TEXTURE2D(_AuthoredColour3);
+            TEXTURE2D(_AuthoredNormal3);
             TEXTURE2D(_MapColours);
             SAMPLER(sampler_MapColours);
             TEXTURE2D(_LandTint);
@@ -122,6 +140,10 @@ Shader "GrandStrategy/Playable Map"
             TEXTURE2D(_ProvinceCorners);
             SAMPLER(sampler_ProvinceCorners);
             CBUFFER_START(UnityPerMaterial)
+                float4 _AuthoredControl_TexelSize;
+                float4 _AuthoredTile1;
+                float4 _AuthoredTile2;
+                float4 _AuthoredTile3;
                 float4 _Selected;
                 float4 _OwnershipGrid;
                 float4 _OwnershipColour;
@@ -262,6 +284,44 @@ Shader "GrandStrategy/Playable Map"
             #define GROUND_LAYER(colourMap, normalMap, coords, frequency, weight, result) \
                 AccumulateGround(TEXTURE2D_ARGS(colourMap, sampler_GroundPatterns), \
                     TEXTURE2D_ARGS(normalMap, sampler_GroundPatterns), coords, frequency, weight, result)
+
+            #if defined(_AUTHORED_TERRAIN)
+            void AccumulatePaintedCliff(float3 position, float3 dx, float3 dy, float3 normal, float weight,
+                inout GroundSample result)
+            {
+                UNITY_BRANCH
+                if (weight <= 0.002) return;
+
+                float2 side = normal.xz * normal.xz;
+                side /= max(side.x + side.y, 0.0001);
+                float2 direction = step(0.0, normal.xz) * 2.0 - 1.0;
+                // Convert the layer's map-UV tiling to repeats per terrain unit.
+                float2 scale = _AuthoredTile1.xy * float2(_GroundGrid.z, 1.0);
+                float2 xScale = float2(-direction.x, 1.0) * scale;
+                float2 zScale = float2(direction.y, 1.0) * scale;
+                float2 xUV = position.zy * xScale + _AuthoredTile1.zw;
+                float2 zUV = position.xy * zScale + _AuthoredTile1.zw;
+                float2 xDx = dx.zy * xScale;
+                float2 xDy = dy.zy * xScale;
+                float2 zDx = dx.xy * zScale;
+                float2 zDy = dy.xy * zScale;
+
+                float3 xColour = SAMPLE_TEXTURE2D_GRAD(_AuthoredColour1, sampler_GroundPatterns, xUV, xDx, xDy).rgb;
+                float3 zColour = SAMPLE_TEXTURE2D_GRAD(_AuthoredColour1, sampler_GroundPatterns, zUV, zDx, zDy).rgb;
+                float2 xNormal = UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_AuthoredNormal1, sampler_GroundPatterns,
+                    xUV, xDx, xDy)).xy;
+                float2 zNormal = UnpackNormal(SAMPLE_TEXTURE2D_GRAD(_AuthoredNormal1, sampler_GroundPatterns,
+                    zUV, zDx, zDy)).xy;
+                float3 rockRelief = float3(0.0, xNormal.y, -direction.x * xNormal.x) * side.x
+                    + float3(direction.y * zNormal.x, zNormal.y, 0.0) * side.y;
+
+                float3 tangent = normalize(float3(normal.y, -normal.x, 0.0));
+                float3 bitangent = cross(tangent, normal);
+                result.colour += (xColour * side.x + zColour * side.y) * weight;
+                result.normalXY += float2(dot(rockRelief, tangent), dot(rockRelief, bitangent)) * weight;
+                result.weight += weight;
+            }
+            #endif
 
             struct TerrainPatches
             {
@@ -644,6 +704,31 @@ Shader "GrandStrategy/Playable Map"
                     GROUND_LAYER(_SnowColour, _SnowNormal, tile, 35.0, snow, landDetail);
                     land += (landDetail.colour - land * landDetail.weight) * (_GroundDetail * 0.50);
                 }
+
+                #if defined(_AUTHORED_TERRAIN)
+                float2 paintUV = (input.uv * (_AuthoredControl_TexelSize.zw - 1.0) + 0.5)
+                    * _AuthoredControl_TexelSize.xy;
+                float3 paint = SAMPLE_TEXTURE2D(_AuthoredControl, sampler_MapColours, paintUV).gba * map.a;
+                GroundCoordinates paintCoordinates;
+                paintCoordinates.tangent = float2(1.0, 0.0);
+                float2 paintDx = ddx(input.uv);
+                float2 paintDy = ddy(input.uv);
+                GroundSample paintedGround = (GroundSample)0;
+                #define PAINT_LAYER(layer, weight) \
+                    paintCoordinates.uv = input.uv * _AuthoredTile##layer.xy + _AuthoredTile##layer.zw; \
+                    paintCoordinates.dx = paintDx * _AuthoredTile##layer.xy; \
+                    paintCoordinates.dy = paintDy * _AuthoredTile##layer.xy; \
+                    GROUND_LAYER(_AuthoredColour##layer, _AuthoredNormal##layer, paintCoordinates, 1.0, weight, paintedGround);
+                // Blend the rock layer into side projections as a painted slope approaches a cliff.
+                float paintedCliff = paint.x * smoothstep(0.13, 0.40, 1.0 - normal.y);
+                PAINT_LAYER(1, paint.x - paintedCliff)
+                AccumulatePaintedCliff(position, positionDx, positionDy, normal, paintedCliff, paintedGround);
+                PAINT_LAYER(2, paint.y)
+                PAINT_LAYER(3, paint.z)
+                #undef PAINT_LAYER
+                land = land * (1.0 - paintedGround.weight) + paintedGround.colour;
+                landDetail.normalXY = landDetail.normalXY * (1.0 - paintedGround.weight) + paintedGround.normalXY;
+                #endif
 
                 float3 canopy = SAMPLE_TEXTURE2D(_ForestCanopy, sampler_ForestCanopy, input.uv).rgb;
                 float clearing = _CapitalClearing.z > 0.0
