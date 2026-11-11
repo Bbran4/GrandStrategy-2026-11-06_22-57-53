@@ -46,7 +46,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private WaterMap stampWater;
         private byte[] stampRivers;
 
-        internal enum WorkspaceTab { Sculpt, Paint, Stamps, Preview }
+        internal enum WorkspaceTab { Sculpt, Paint, Stamps, Preview, Publish }
 
         public override void OnInspectorGUI()
         {
@@ -77,6 +77,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 EditorGUILayout.HelpBox(world == null ? "Assign a World asset on the Playable Map first."
                     : assigned == null ? "Create a Scene Terrain from the current World asset to begin."
                     : "Create a Scene Terrain for the current World asset.", MessageType.Info);
+                if (tab == WorkspaceTab.Publish)
+                    DrawPublishControls(null, world, provinceMap);
                 DrawCreateTerrain(world, assigned, terrain, source);
                 return;
             }
@@ -98,6 +100,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                     case WorkspaceTab.Preview:
                         DrawPreviewControls(assigned, world, provinceMap);
                         DrawCreateTerrain(world, assigned, terrain, source);
+                        break;
+                    case WorkspaceTab.Publish:
+                        DrawPublishControls(assigned, world, provinceMap);
                         break;
                 }
             }

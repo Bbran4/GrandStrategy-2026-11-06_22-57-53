@@ -18,6 +18,11 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField] private WorldHeightmap world;
         [SerializeField] private ProvinceMapAsset provinceMap;
         [SerializeField] private MapTreeCatalog treeCatalog;
+        [SerializeField, HideInInspector] private PublishedWorld publishedWorld;
+#if UNITY_EDITOR
+        public const string EditablePreviewSessionKey = "GrandStrategy.EditableWorldPreview";
+#endif
+        private bool editablePreview;
         [SerializeField, HideInInspector] private Terrain authoringTerrain;
         [SerializeField, HideInInspector] private WorldHeightmap authoringWorld;
         [SerializeField, HideInInspector] private int authoredMeshDetail = 1024;
@@ -79,26 +84,38 @@ namespace GrandStrategy.WorldGeneration
         {
             try
             {
-                if (world == null || provinceMap == null)
-                    throw new InvalidOperationException("Assign a World asset and its matching Province Map asset.");
+#if UNITY_EDITOR
+                var previewScene = UnityEditor.SessionState.GetString(EditablePreviewSessionKey, string.Empty);
+                editablePreview = !string.IsNullOrEmpty(previewScene) && previewScene == gameObject.scene.path;
+                if (editablePreview) UnityEditor.SessionState.EraseString(EditablePreviewSessionKey);
+#endif
+                var release = editablePreview ? null : publishedWorld;
+                var activeWorld = release == null ? world : release.World;
+                var activeProvinces = release == null ? provinceMap : release.Provinces;
+                if (activeWorld == null || activeProvinces == null || (release != null && release.Terrain == null))
+                    throw new InvalidOperationException("Assign a World and matching Province Map, or a complete published world.");
                 mapCamera = GetComponent<Camera>();
                 // The map is anchored at the scene origin, independently of the camera.
-                if (authoringTerrain != null && (authoringWorld != world || authoringTerrain.terrainData == null
-                    || transform.IsChildOf(authoringTerrain.transform)))
+                if (authoringTerrain != null && (transform.IsChildOf(authoringTerrain.transform)
+                    || (release == null && (authoringWorld != world || authoringTerrain.terrainData == null))))
                     throw new InvalidOperationException("Recreate the scene Terrain for the assigned World asset.");
-                var useSculpt = terrainComparison != TerrainComparison.Generated && terrainComparison != TerrainComparison.PaintOnly;
-                var usePaint = terrainComparison != TerrainComparison.Generated && terrainComparison != TerrainComparison.SculptedOnly;
-                surface = new PlayableMapSurface(world, provinceMap, treeCatalog,
-                    authoringTerrain == null ? null : authoringTerrain.terrainData, authoredMeshDetail, useSculpt, usePaint);
-                mapKey = CampaignState.MapKey(surface.Map, world.Seed);
+
+                var terrain = release != null ? release.Terrain : authoringTerrain == null ? null : authoringTerrain.terrainData;
+                var meshDetail = release == null ? authoredMeshDetail : release.MeshDetail;
+                var useSculpt = release != null
+                    || (terrainComparison != TerrainComparison.Generated && terrainComparison != TerrainComparison.PaintOnly);
+                var usePaint = release != null
+                    || (terrainComparison != TerrainComparison.Generated && terrainComparison != TerrainComparison.SculptedOnly);
+                surface = new PlayableMapSurface(activeWorld, activeProvinces, treeCatalog, terrain, meshDetail, useSculpt, usePaint);
+                mapKey = CampaignState.MapKey(surface.Map, activeWorld.Seed);
                 savePath = CampaignSaveFile.PathFor(mapKey);
-                hasSave = File.Exists(savePath);
+                hasSave = !editablePreview && File.Exists(savePath);
                 mapCamera.orthographic = true;
                 mapCamera.clearFlags = CameraClearFlags.SolidColor;
                 mapCamera.backgroundColor = new Color(.045f, .058f, .075f);
                 mapCamera.nearClipPlane = .01f;
                 mapCamera.farClipPlane = 2f * (surface.Aspect + 4f);
-                if (authoringTerrain != null && startAtReferenceView)
+                if (terrain != null && startAtReferenceView)
                 {
                     zoom = targetZoom = ReferenceViewZoom;
                     focus = new Vector3(referenceViewFocus.x, 0f, referenceViewFocus.y);
@@ -574,7 +591,8 @@ namespace GrandStrategy.WorldGeneration
             }
 
             GUILayout.BeginHorizontal();
-            if (campaign != null && GUILayout.Button("Save campaign")) SaveCampaign();
+            if (editablePreview) GUILayout.Label("Terrain preview · campaign saving disabled.");
+            else if (campaign != null && GUILayout.Button("Save campaign")) SaveCampaign();
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && hasSave;
             if (GUILayout.Button("Load campaign")) LoadCampaign();

@@ -7,7 +7,7 @@ namespace GrandStrategy.WorldGeneration.Editor
 {
     public sealed class TerrainWorldEditorWindow : EditorWindow
     {
-        private static readonly string[] Tabs = { "Sculpt", "Paint", "Stamps", "Preview" };
+        private static readonly string[] Tabs = { "Sculpt", "Paint", "Stamps", "Preview", "Publish" };
         [SerializeField] private PlayableMap map;
         [SerializeField] private int tab;
         private Vector2 scroll;
@@ -22,6 +22,16 @@ namespace GrandStrategy.WorldGeneration.Editor
             window.minSize = new Vector2(320f, 240f);
             if (selected != null) window.SetMap(selected);
             else if (window.map == null) window.FindMap();
+        }
+
+        [InitializeOnLoadMethod]
+        private static void ClearPreviewAfterPlay()
+        {
+            EditorApplication.playModeStateChanged += state =>
+            {
+                if (state == PlayModeStateChange.EnteredEditMode)
+                    SessionState.EraseString(PlayableMap.EditablePreviewSessionKey);
+            };
         }
 
         private void OnEnable() => EditorApplication.hierarchyChanged += OnHierarchyChanged;
