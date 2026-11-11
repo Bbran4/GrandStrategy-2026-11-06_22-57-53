@@ -19,6 +19,9 @@ namespace GrandStrategy.WorldGeneration.Editor
         private const string RiverPreviewName = "River Channels";
         private const string ProvincePreviewName = "Province Outline Preview";
         private const string TerritoryPreviewName = "Territory Outline Preview";
+        private const float RiverPreviewLift = .35f;
+        private const float ProvincePreviewLift = .65f;
+        private const float TerritoryPreviewLift = .85f;
         private static readonly GUIContent[] MeshDetailLabels =
         {
             new GUIContent("512 (comparison)"), new GUIContent("1024 (standard)"), new GUIContent("2048 (fine)")
@@ -93,6 +96,12 @@ namespace GrandStrategy.WorldGeneration.Editor
                     DrawScenePreview(assigned, world);
                     DrawRegionPreview(assigned, world, provinceMap, false);
                     DrawRegionPreview(assigned, world, provinceMap, true);
+                    if (HasTerrainOverlays(assigned) && GUILayout.Button(new GUIContent("Refit All Overlays to Terrain",
+                        "Update existing rivers and boundaries after using Unity's sculpting brushes.")))
+                    {
+                        RefitTerrainOverlays(assigned, "Refit Terrain Overlays");
+                        SceneView.RepaintAll();
+                    }
                     DrawReferenceViews(assigned, world == null ? 0f : world.SeaLevel);
                     DrawTerrainStamp(assigned, world);
                 }
@@ -305,9 +314,16 @@ namespace GrandStrategy.WorldGeneration.Editor
                 }
 
             if (!changed) return;
-            Undo.RegisterCompleteObjectUndo(data, cut ? "Stamp Valley" : "Stamp Mountain Range");
+            var undoName = cut ? "Stamp Valley" : "Stamp Mountain Range";
+            Undo.SetCurrentGroupName(undoName);
+            Undo.RegisterCompleteObjectUndo(data, undoName);
             data.SetHeights(left, bottom, heights);
             EditorUtility.SetDirty(data);
+
+            // Include one height sample outside the edit because interpolated positions can also move there.
+            var affected = Rect.MinMaxRect((left - 1) * step.x, (bottom - 1) * step.z,
+                (right + 1) * step.x, (top + 1) * step.z);
+            RefitTerrainOverlays(stampTerrain, undoName, affected);
 
             // Match the runtime mesh's protected shore and riverbank samples.
             bool IsDryInterior(int x, int y) => IsLand(x, y)
@@ -318,6 +334,46 @@ namespace GrandStrategy.WorldGeneration.Editor
             {
                 var cell = y * recipe.Width + x;
                 return stampWater[cell] == WaterKind.Land && (stampRivers == null || stampRivers[cell] == 0);
+            }
+        }
+
+        private static bool HasTerrainOverlays(Terrain terrain)
+            => terrain.transform.Find(ScenePreviewName + "/" + RiverPreviewName) != null
+                || terrain.transform.Find(ProvincePreviewName) != null
+                || terrain.transform.Find(TerritoryPreviewName) != null;
+
+        // A sculpt only changes elevation, so reuse the existing overlay vertices and connectivity.
+        private static void RefitTerrainOverlays(Terrain terrain, string undoName, Rect? affected = null)
+        {
+            var data = terrain.terrainData;
+            var size = data.size;
+            Refit(ScenePreviewName + "/" + RiverPreviewName, RiverPreviewLift);
+            Refit(ProvincePreviewName, ProvincePreviewLift);
+            Refit(TerritoryPreviewName, TerritoryPreviewLift);
+
+            void Refit(string path, float lift)
+            {
+                var layer = terrain.transform.Find(path);
+                var mesh = layer == null ? null : layer.GetComponent<MeshFilter>()?.sharedMesh;
+                if (mesh == null) return;
+
+                var vertices = mesh.vertices;
+                var changed = false;
+                for (var i = 0; i < vertices.Length; i++)
+                {
+                    var vertex = vertices[i];
+                    if (affected.HasValue && !affected.Value.Contains(new Vector2(vertex.x, vertex.z))) continue;
+                    var elevation = data.GetInterpolatedHeight(vertex.x / size.x, vertex.z / size.z) + lift;
+                    if (Mathf.Approximately(vertex.y, elevation)) continue;
+                    vertices[i].y = elevation;
+                    changed = true;
+                }
+                if (!changed) return;
+
+                Undo.RegisterCompleteObjectUndo(mesh, undoName);
+                mesh.vertices = vertices;
+                mesh.RecalculateBounds();
+                EditorUtility.SetDirty(mesh);
             }
         }
 
@@ -500,7 +556,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             var land = territories
                 ? Array.ConvertAll(map.Territories, territory => IsLand(territory?.Type))
                 : Array.ConvertAll(map.Provinces, province => IsLand(province?.Type));
-            var lift = territories ? .85f : .65f;
+            var lift = territories ? TerritoryPreviewLift : ProvincePreviewLift;
 
             for (var y = 0; y < height; y++)
                 for (var x = 0; x < width; x++)
@@ -752,7 +808,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var elevation = data.GetInterpolatedHeight(u, v);
                 index = vertices.Count;
                 // Lift the unlit overlay slightly so it remains visible over the terrain surface.
-                vertices.Add(new Vector3(u * size.x, elevation + .35f, v * size.z));
+                vertices.Add(new Vector3(u * size.x, elevation + RiverPreviewLift, v * size.z));
                 corners.Add(key, index);
                 return index;
             }
