@@ -18,6 +18,7 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField] private MapTreeCatalog treeCatalog;
         [SerializeField, HideInInspector] private Terrain authoringTerrain;
         [SerializeField, HideInInspector] private WorldHeightmap authoringWorld;
+        [SerializeField, HideInInspector] private int authoredMeshDetail = 1024;
         private bool hidAuthoringTerrain;
 
         private static readonly string[] ColourNames = { "Blue", "Red", "Green", "Violet", "Ochre" };
@@ -77,7 +78,7 @@ namespace GrandStrategy.WorldGeneration
                     || transform.IsChildOf(authoringTerrain.transform)))
                     throw new InvalidOperationException("Recreate the scene Terrain for the assigned World asset.");
                 surface = new PlayableMapSurface(world, provinceMap, treeCatalog,
-                    authoringTerrain == null ? null : authoringTerrain.terrainData);
+                    authoringTerrain == null ? null : authoringTerrain.terrainData, authoredMeshDetail);
                 mapKey = CampaignState.MapKey(surface.Map, world.Seed);
                 savePath = CampaignSaveFile.PathFor(mapKey);
                 hasSave = File.Exists(savePath);

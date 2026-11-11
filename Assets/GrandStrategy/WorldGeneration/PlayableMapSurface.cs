@@ -37,7 +37,8 @@ namespace GrandStrategy.WorldGeneration
         public float Aspect => (float)Map.Width / Map.Height;
         public Collider Collider { get; private set; }
 
-        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog, TerrainData authored = null)
+        public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog,
+            TerrainData authored = null, int authoredMeshDetail = 1024)
         {
             var imported = provinces.ReadTerrain();
             var riverMap = world.ReadRivers();
@@ -60,7 +61,7 @@ namespace GrandStrategy.WorldGeneration
                 if (groundMaterial.shader == null || !groundMaterial.shader.isSupported)
                     throw new InvalidOperationException("The playable map shader requires Universal Render Pipeline.");
 
-                mesh = HeightmapMesh.Create(terrain, world.HeightScale, authored == null ? 512 : 1024,
+                mesh = HeightmapMesh.Create(terrain, world.HeightScale, authored == null ? 512 : Mathf.Clamp(authoredMeshDetail, 512, 2048),
                     authored, water, rivers);
                 colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);

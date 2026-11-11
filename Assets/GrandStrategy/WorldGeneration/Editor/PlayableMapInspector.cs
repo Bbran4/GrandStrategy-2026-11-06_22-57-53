@@ -11,6 +11,17 @@ namespace GrandStrategy.WorldGeneration.Editor
     public sealed class PlayableMapInspector : UnityEditor.Editor
     {
         private const float DefaultSnowLine = .55f;
+        private static readonly GUIContent[] MeshDetailLabels =
+        {
+            new GUIContent("512 (comparison)"), new GUIContent("1024 (standard)"), new GUIContent("2048 (fine)")
+        };
+        private static readonly int[] MeshDetailValues = { 512, 1024, 2048 };
+        private static readonly GUIContent[] HeightmapLabels =
+        {
+            new GUIContent("Match generated world"), new GUIContent("2049 × 2049")
+        };
+        private static readonly int[] HeightmapValues = { 0, 2049 };
+        private int heightmapResolution;
         private float snowLine = DefaultSnowLine;
         private float stampLength = 190f;
         private float stampWidth = 85f;
@@ -26,6 +37,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             var world = serializedObject.FindProperty("world").objectReferenceValue as WorldHeightmap;
             var terrain = serializedObject.FindProperty("authoringTerrain");
             var source = serializedObject.FindProperty("authoringWorld");
+            var meshDetail = serializedObject.FindProperty("authoredMeshDetail");
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Scene Terrain", EditorStyles.boldLabel);
@@ -44,6 +56,20 @@ namespace GrandStrategy.WorldGeneration.Editor
                     EditorGUILayout.ObjectField("Authoring Terrain", assigned, typeof(Terrain), true);
                 if (GUILayout.Button("Select Terrain for Sculpting and Painting"))
                     Selection.activeGameObject = assigned.gameObject;
+
+                if (assigned.terrainData != null && world != null)
+                {
+                    meshDetail.intValue = EditorGUILayout.IntPopup(new GUIContent("Play Mode Mesh Detail",
+                        "Subdivisions along the longer side. Finer meshes take longer to build and use more memory."),
+                        meshDetail.intValue, MeshDetailLabels, MeshDetailValues);
+                    var samples = assigned.terrainData.heightmapResolution;
+                    var grid = HeightmapMesh.GridSize(world.Width, world.Height, meshDetail.intValue, samples);
+                    EditorGUILayout.LabelField("Playable Mesh", $"{grid.x:N0} × {grid.y:N0} vertices");
+                    if (meshDetail.intValue >= samples)
+                        EditorGUILayout.HelpBox($"The scene Terrain's {samples:N0} height samples limit usable detail.",
+                            MessageType.Info);
+                    serializedObject.ApplyModifiedProperties();
+                }
 
                 if (source.objectReferenceValue != world)
                     EditorGUILayout.HelpBox("This Terrain was created for a different World asset.", MessageType.Warning);
@@ -75,6 +101,9 @@ namespace GrandStrategy.WorldGeneration.Editor
 
             using (new EditorGUI.DisabledScope(world == null || EditorApplication.isPlayingOrWillChangePlaymode))
             {
+                heightmapResolution = EditorGUILayout.IntPopup(new GUIContent("New Terrain Heightmap",
+                    "The fine heightmap gives brushes more samples to work with."),
+                    heightmapResolution, HeightmapLabels, HeightmapValues);
                 var label = assigned == null ? "Create Scene Terrain" : "Create Another Scene Terrain";
                 if (GUILayout.Button(label))
                 {
@@ -238,7 +267,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             var generated = world.Read();
             var width = generated.Recipe.Width;
             var height = generated.Recipe.Height;
-            var resolution = Mathf.Clamp(Mathf.NextPowerOfTwo(Mathf.Max(width, height) - 1) + 1, 33, 2049);
+            var resolution = heightmapResolution > 0 ? heightmapResolution
+                : Mathf.Clamp(Mathf.NextPowerOfTwo(Mathf.Max(width, height) - 1) + 1, 33, 2049);
             var scale = PlayableMap.TerrainAuthoringScale;
             var size = new Vector3((float)width / height, world.HeightScale, 1f) * scale;
             var data = new TerrainData { heightmapResolution = resolution, alphamapResolution = 1024, size = size };

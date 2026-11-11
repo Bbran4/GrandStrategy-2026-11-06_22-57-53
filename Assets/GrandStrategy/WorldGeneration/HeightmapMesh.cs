@@ -6,6 +6,18 @@ namespace GrandStrategy.WorldGeneration
 {
     public static class HeightmapMesh
     {
+        public static Vector2Int GridSize(int width, int height, int longestSide, int authoredResolution = 0)
+        {
+            var aspect = (float)width / height;
+            // The editable Terrain is sampled independently of the world and province rasters.
+            // Keep the original UV endpoints, and never oversample the selected heightmap.
+            var maxColumns = authoredResolution > 0 ? authoredResolution : width;
+            var maxRows = authoredResolution > 0 ? authoredResolution : height;
+            var columns = Mathf.Min(maxColumns, Mathf.Max(2, Mathf.RoundToInt(longestSide * Mathf.Min(1f, aspect)) + 1));
+            var rows = Mathf.Min(maxRows, Mathf.Max(2, Mathf.RoundToInt(longestSide / Mathf.Max(1f, aspect)) + 1));
+            return new Vector2Int(columns, rows);
+        }
+
         public static Mesh Create(HeightmapResult world, float heightScale, int longestSide = 256,
             TerrainData authored = null, WaterMap water = null, byte[] rivers = null)
         {
@@ -14,10 +26,10 @@ namespace GrandStrategy.WorldGeneration
                 throw new ArgumentOutOfRangeException(nameof(heightScale));
             int width = world.Recipe.Width, height = world.Recipe.Height;
             var aspect = (float)width / height;
-            // Bound geometry independently of raster size. Endpoints remain aligned with the source.
-            int columns = Mathf.Min(width, Mathf.Max(2, Mathf.RoundToInt(longestSide * Mathf.Min(1, aspect)) + 1));
-            int rows = Mathf.Min(height, Mathf.Max(2, Mathf.RoundToInt(longestSide / Mathf.Max(1, aspect)) + 1));
             var authoredResolution = authored == null ? 0 : authored.heightmapResolution;
+            var grid = GridSize(width, height, longestSide, authoredResolution);
+            var columns = grid.x;
+            var rows = grid.y;
             var edited = authored == null ? null : authored.GetHeights(0, 0, authoredResolution, authoredResolution);
             if (edited != null && water == null)
                 throw new ArgumentNullException(nameof(water));
