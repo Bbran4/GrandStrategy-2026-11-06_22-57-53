@@ -12,6 +12,12 @@ namespace GrandStrategy.WorldGeneration.Editor
     {
         private const float DefaultSnowLine = .55f;
         private float snowLine = DefaultSnowLine;
+        private float stampLength = 190f;
+        private float stampWidth = 85f;
+        private float stampRise = 34f;
+        private float stampAngle;
+        private Terrain stampTerrain;
+        private HeightmapResult stampSource;
 
         public override void OnInspectorGUI()
         {
@@ -41,6 +47,10 @@ namespace GrandStrategy.WorldGeneration.Editor
 
                 if (source.objectReferenceValue != world)
                     EditorGUILayout.HelpBox("This Terrain was created for a different World asset.", MessageType.Warning);
+
+                using (new EditorGUI.DisabledScope(world == null || source.objectReferenceValue != world
+                    || assigned.terrainData == null || EditorApplication.isPlayingOrWillChangePlaymode))
+                    DrawMountainStamp(assigned, world);
 
                 using (new EditorGUI.DisabledScope(world == null || source.objectReferenceValue != world
                     || assigned.terrainData == null || assigned.terrainData.terrainLayers.Length != 4
@@ -82,6 +92,140 @@ namespace GrandStrategy.WorldGeneration.Editor
                     }
                 }
             }
+        }
+
+        private void DrawMountainStamp(Terrain terrain, WorldHeightmap world)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Mountain Range Stamp", EditorStyles.boldLabel);
+            stampLength = EditorGUILayout.Slider("Length", stampLength, 40f, 440f);
+            stampWidth = EditorGUILayout.Slider("Width", stampWidth, 25f, 220f);
+            stampRise = EditorGUILayout.Slider("Rise", stampRise, 5f, 90f);
+            stampAngle = EditorGUILayout.Slider("Rotation", stampAngle, 0f, 180f);
+            if (stampTerrain != null)
+            {
+                EditorGUILayout.HelpBox("Click an inland slope in the Scene view. Escape cancels.", MessageType.Info);
+                if (GUILayout.Button("Cancel Stamp")) StopStamp();
+                SceneView.RepaintAll();
+            }
+            else if (GUILayout.Button("Place Mountain Range"))
+            {
+                stampSource = world.Read();
+                stampTerrain = terrain;
+                SceneView.duringSceneGui += DrawStampInScene;
+                SceneView.lastActiveSceneView?.Focus();
+                SceneView.RepaintAll();
+            }
+        }
+
+        private void OnDisable() => StopStamp();
+
+        private void StopStamp()
+        {
+            SceneView.duringSceneGui -= DrawStampInScene;
+            stampTerrain = null;
+            stampSource = null;
+            SceneView.RepaintAll();
+        }
+
+        private void DrawStampInScene(SceneView scene)
+        {
+            var input = Event.current;
+            if (stampTerrain == null || EditorApplication.isPlayingOrWillChangePlaymode
+                || (input.type == EventType.KeyDown && input.keyCode == KeyCode.Escape))
+            {
+                if (input.type == EventType.KeyDown) input.Use();
+                StopStamp();
+                return;
+            }
+
+            if (input.type == EventType.Layout && !input.alt)
+                HandleUtility.AddDefaultControl(GUIUtility.GetControlID(FocusType.Passive));
+            if (input.type == EventType.MouseMove) scene.Repaint();
+
+            var collider = stampTerrain.GetComponent<TerrainCollider>();
+            var ray = HandleUtility.GUIPointToWorldRay(input.mousePosition);
+            if (collider == null || !collider.Raycast(ray, out var hit, float.PositiveInfinity)) return;
+
+            var radians = stampAngle * Mathf.Deg2Rad;
+            var axis = new Vector2(Mathf.Cos(radians), Mathf.Sin(radians));
+            if (input.type == EventType.Repaint)
+            {
+                var terrain = stampTerrain;
+                var data = terrain.terrainData;
+                var origin = terrain.transform.position;
+                var points = new Vector3[49];
+                for (var i = 0; i < points.Length; i++)
+                {
+                    var angle = i * Mathf.PI * 2f / (points.Length - 1);
+                    var along = Mathf.Cos(angle) * stampLength * .5f;
+                    var across = Mathf.Sin(angle) * stampWidth * .5f;
+                    var x = hit.point.x + along * axis.x - across * axis.y;
+                    var z = hit.point.z + along * axis.y + across * axis.x;
+                    var y = data.GetInterpolatedHeight(Mathf.Clamp01((x - origin.x) / data.size.x),
+                        Mathf.Clamp01((z - origin.z) / data.size.z)) + origin.y;
+                    points[i] = new Vector3(x, y + 1f, z);
+                }
+                using (new Handles.DrawingScope(new Color(.95f, .7f, .28f)))
+                    Handles.DrawAAPolyLine(3f, points);
+            }
+            if (input.type != EventType.MouseDown || input.button != 0 || input.alt) return;
+
+            input.Use();
+            try
+            {
+                ApplyMountainStamp(hit.point - stampTerrain.transform.position, axis);
+            }
+            finally
+            {
+                StopStamp();
+                Repaint();
+            }
+        }
+
+        private void ApplyMountainStamp(Vector3 centre, Vector2 axis)
+        {
+            var data = stampTerrain.terrainData;
+            var step = data.heightmapScale;
+            var last = data.heightmapResolution - 1;
+            var radius = Mathf.Max(stampLength, stampWidth) * .5f;
+            var left = Mathf.Clamp(Mathf.FloorToInt((centre.x - radius) / step.x), 0, last);
+            var right = Mathf.Clamp(Mathf.CeilToInt((centre.x + radius) / step.x), 0, last);
+            var bottom = Mathf.Clamp(Mathf.FloorToInt((centre.z - radius) / step.z), 0, last);
+            var top = Mathf.Clamp(Mathf.CeilToInt((centre.z + radius) / step.z), 0, last);
+            var heights = data.GetHeights(left, bottom, right - left + 1, top - bottom + 1);
+            var recipe = stampSource.Recipe;
+            var changed = false;
+
+            for (var y = bottom; y <= top; y++)
+                for (var x = left; x <= right; x++)
+                {
+                    var offset = new Vector2(x * step.x - centre.x, y * step.z - centre.z);
+                    var along = Vector2.Dot(offset, axis) * 2f / stampLength;
+                    var across = Vector2.Dot(offset, new Vector2(-axis.y, axis.x)) * 2f / stampWidth;
+                    var footprint = along * along + across * across;
+                    if (footprint >= 1f) continue;
+                    var sourceX = Mathf.RoundToInt((float)x / last * (recipe.Width - 1));
+                    var sourceY = Mathf.RoundToInt((float)y / last * (recipe.Height - 1));
+                    var altitude = stampSource.Elevations[sourceY * recipe.Width + sourceX];
+                    var inland = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(recipe.SeaLevel + .015f, recipe.SeaLevel + .07f, altitude));
+                    if (inland <= 0f) continue;
+
+                    var envelope = (1f - footprint) * (1f - footprint);
+                    var ridge = Mathf.Exp(-4.5f * Mathf.Abs(across - .18f * Mathf.Sin(along * 6f)));
+                    var peaks = .52f + .48f * Mathf.PerlinNoise(along * 4.5f + 16f, 7.3f);
+                    var gullies = Mathf.PerlinNoise(along * 13f + across * across * 4f + 22f, across * 2.5f + 9f);
+                    var relief = envelope * peaks * (.36f + .64f * ridge) * (.64f + .36f * gullies);
+                    var old = heights[y - bottom, x - left];
+                    var raised = Mathf.Min(1f, old + relief * inland * stampRise / step.y);
+                    heights[y - bottom, x - left] = raised;
+                    changed |= raised > old;
+                }
+
+            if (!changed) return;
+            Undo.RegisterCompleteObjectUndo(data, "Stamp Mountain Range");
+            data.SetHeights(left, bottom, heights);
+            EditorUtility.SetDirty(data);
         }
 
         private void CreateTerrain(WorldHeightmap world, Terrain previous, SerializedProperty terrain, SerializedProperty source)
