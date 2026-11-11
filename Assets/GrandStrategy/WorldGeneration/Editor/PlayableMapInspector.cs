@@ -36,7 +36,18 @@ namespace GrandStrategy.WorldGeneration.Editor
         private float snowLine = DefaultSnowLine;
         private float stampLength = 190f;
         private float stampWidth = 85f;
-        private enum StampShape { MountainRange, Valley }
+        private enum StampShape { MountainRange, Valley, Heightmap }
+        private Texture2D stampTexture;
+        private Texture2D sampledStampTexture;
+        private float[] stampMask;
+        private bool subtractHeightmap;
+        private int stampSeed;
+        private float stampVariation = .25f;
+        private float stampNoiseX;
+        private float stampNoiseY;
+        private string stampError;
+        private const int StampMaskSize = 512;
+        private bool StampCuts => stampShape == StampShape.Valley || (stampShape == StampShape.Heightmap && subtractHeightmap);
         private StampShape stampShape;
         private float stampRise = 34f;
         private float stampDepth = 22f;
@@ -215,25 +226,49 @@ namespace GrandStrategy.WorldGeneration.Editor
         private void DrawTerrainStamp(Terrain terrain, WorldHeightmap world)
         {
             EditorGUILayout.Space();
+            if (GUILayout.Button("Select Terrain for Unity Brush Tools"))
+            {
+                StopStamp();
+                Selection.activeGameObject = terrain.gameObject;
+            }
             EditorGUILayout.LabelField("Terrain Stamp", EditorStyles.boldLabel);
             stampShape = (StampShape)EditorGUILayout.EnumPopup("Shape", stampShape);
             stampLength = EditorGUILayout.Slider("Length", stampLength, 40f, 440f);
             stampWidth = EditorGUILayout.Slider("Width", stampWidth, 25f, 220f);
-            if (stampShape == StampShape.Valley)
+            if (stampShape == StampShape.Heightmap)
+            {
+                stampTexture = (Texture2D)EditorGUILayout.ObjectField("Heightmap", stampTexture, typeof(Texture2D), false);
+                subtractHeightmap = EditorGUILayout.Toggle("Subtract", subtractHeightmap);
+                var reload = stampTexture != null && GUILayout.Button("Reload Heightmap");
+                if (stampTexture != sampledStampTexture || reload) ReadStampMask();
+                if (stampTexture == null)
+                    EditorGUILayout.HelpBox("Assign a grayscale heightmap or a texture from the Terrain Stamp Library.", MessageType.Info);
+                if (!string.IsNullOrEmpty(stampError))
+                    EditorGUILayout.HelpBox(stampError, MessageType.Warning);
+            }
+            stampSeed = EditorGUILayout.IntField("Seed", stampSeed);
+            stampVariation = EditorGUILayout.Slider("Variation Strength", stampVariation, 0f, 1f);
+            // Mix all seed bits, including the sign, into two stable Perlin offsets.
+            var seedBits = unchecked((uint)stampSeed * 2654435761u + 2246822519u);
+            stampNoiseX = 23f + (seedBits & 65535u) / 64f;
+            stampNoiseY = 47f + (seedBits >> 16) / 64f;
+
+            if (StampCuts)
                 stampDepth = EditorGUILayout.Slider("Depth", stampDepth, 5f, 90f);
             else
                 stampRise = EditorGUILayout.Slider("Rise", stampRise, 5f, 90f);
-            stampAngle = EditorGUILayout.Slider("Rotation", stampAngle, 0f, 180f);
+            stampAngle = EditorGUILayout.Slider("Rotation", stampAngle, 0f, 360f);
             stampFalloff = EditorGUILayout.Slider("Falloff", stampFalloff, 1f, 4f);
             if (stampTerrain != null)
             {
-                EditorGUILayout.HelpBox("Click an inland slope in the Scene view. Red marks protected water or banks. Escape cancels.", MessageType.Info);
+                EditorGUILayout.HelpBox("The grid previews the resulting height. Click to stamp repeatedly, or press Escape to stop.", MessageType.Info);
                 if (GUILayout.Button("Cancel Stamp")) StopStamp();
                 SceneView.RepaintAll();
             }
-            else if (GUILayout.Button(stampShape == StampShape.Valley ? "Place Valley" : "Place Mountain Range"))
+            else
             {
-                if (!PrepareSceneTool(terrain)) return;
+                using (new EditorGUI.DisabledScope(stampShape == StampShape.Heightmap && stampMask == null))
+                    if (!GUILayout.Button("Activate Stamp") || !PrepareSceneTool(terrain)) return;
                 var rivers = world.ReadRivers();
                 stampWater = WaterMap.Classify(rivers?.Terrain ?? world.Read());
                 stampRivers = rivers?.BuildSurfaceMask();
@@ -241,6 +276,41 @@ namespace GrandStrategy.WorldGeneration.Editor
                 SceneView.duringSceneGui += DrawStampInScene;
                 SceneView.lastActiveSceneView?.Focus();
                 SceneView.RepaintAll();
+            }
+        }
+
+        private void ReadStampMask()
+        {
+            sampledStampTexture = stampTexture;
+            stampMask = null;
+            stampError = null;
+            if (stampTexture == null) return;
+
+            // Read the red channel through a linear target so non-readable imported masks also work.
+            var previous = RenderTexture.active;
+            var buffer = RenderTexture.GetTemporary(StampMaskSize, StampMaskSize, 0,
+                RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+            Texture2D copy = null;
+            try
+            {
+                Graphics.Blit(stampTexture, buffer);
+                RenderTexture.active = buffer;
+                copy = new Texture2D(StampMaskSize, StampMaskSize, TextureFormat.RGBAHalf, false, true);
+                copy.ReadPixels(new Rect(0, 0, StampMaskSize, StampMaskSize), 0, 0);
+                var pixels = copy.GetPixels();
+                var mask = new float[pixels.Length];
+                for (var i = 0; i < pixels.Length; i++) mask[i] = Mathf.Clamp01(pixels[i].r);
+                stampMask = mask;
+            }
+            catch (Exception exception)
+            {
+                stampError = $"Could not read heightmap: {exception.Message}";
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(buffer);
+                if (copy != null) DestroyImmediate(copy);
             }
         }
 
@@ -282,7 +352,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private void DrawStampInScene(SceneView scene)
         {
             var input = Event.current;
-            if (stampTerrain == null || EditorApplication.isPlayingOrWillChangePlaymode
+            if (stampTerrain == null || stampTerrain.terrainData == null || EditorApplication.isPlayingOrWillChangePlaymode
                 || (input.type == EventType.KeyDown && input.keyCode == KeyCode.Escape))
             {
                 if (input.type == EventType.KeyDown) input.Use();
@@ -300,66 +370,141 @@ namespace GrandStrategy.WorldGeneration.Editor
 
             var radians = stampAngle * Mathf.Deg2Rad;
             var axis = new Vector2(Mathf.Cos(radians), Mathf.Sin(radians));
+            if (stampShape == StampShape.Heightmap && stampMask == null) return;
+            var centre = hit.point - stampTerrain.transform.position;
             if (input.type == EventType.Repaint)
             {
-                var terrain = stampTerrain;
-                var data = terrain.terrainData;
-                var origin = terrain.transform.position;
-                var points = new Vector3[49];
-                for (var i = 0; i < points.Length; i++)
-                {
-                    var angle = i * Mathf.PI * 2f / (points.Length - 1);
-                    var along = Mathf.Cos(angle) * stampLength * .5f;
-                    var across = Mathf.Sin(angle) * stampWidth * .5f;
-                    var x = hit.point.x + along * axis.x - across * axis.y;
-                    var z = hit.point.z + along * axis.y + across * axis.x;
-                    var y = data.GetInterpolatedHeight(Mathf.Clamp01((x - origin.x) / data.size.x),
-                        Mathf.Clamp01((z - origin.z) / data.size.z)) + origin.y;
-                    points[i] = new Vector3(x, y + 1f, z);
-                }
-                var colour = stampShape == StampShape.Valley ? new Color(.40f, .83f, 1f) : new Color(.95f, .7f, .28f);
-                var editable = new List<Vector3>();
-                var protectedEdges = new List<Vector3>();
-                for (var i = 1; i < points.Length; i++)
-                {
-                    var middle = (points[i - 1] + points[i]) * .5f - origin;
-                    var lines = CanStampAt(middle, data.size) ? editable : protectedEdges;
-                    lines.Add(points[i - 1]);
-                    lines.Add(points[i]);
-                }
-                var warning = new Color(1f, .27f, .22f);
-                using (new Handles.DrawingScope(colour))
-                    Handles.DrawLines(editable.ToArray());
-                using (new Handles.DrawingScope(warning))
-                    Handles.DrawLines(protectedEdges.ToArray());
-                using (new Handles.DrawingScope(CanStampAt(hit.point - origin, data.size) ? colour : warning))
-                    Handles.DotHandleCap(0, hit.point + Vector3.up,
-                        Quaternion.identity, HandleUtility.GetHandleSize(hit.point) * .045f, EventType.Repaint);
+                DrawStampPreview(centre, axis);
+                return;
             }
             if (input.type != EventType.MouseDown || input.button != 0 || input.alt
                 || HandleUtility.nearestControl != control) return;
 
             input.Use();
-            try
-            {
-                if (!ApplyTerrainStamp(hit.point - stampTerrain.transform.position, axis))
-                    scene.ShowNotification(new GUIContent("The stamp made no height changes. Try moving farther inland."));
-            }
-            finally
-            {
-                StopStamp();
-                Repaint();
-            }
+            if (!ApplyTerrainStamp(centre, axis))
+                scene.ShowNotification(new GUIContent("The stamp made no height changes. Try moving farther inland."));
+            scene.Repaint();
         }
 
-        private bool CanStampAt(Vector3 local, Vector3 size)
+        private void DrawStampPreview(Vector3 centre, Vector2 axis)
         {
-            var u = local.x / size.x;
-            var v = local.z / size.z;
-            if (u < 0f || u > 1f || v < 0f || v > 1f) return false;
-            var recipe = stampWater.Source.Recipe;
-            return stampWater.AllowsSculpt(Mathf.FloorToInt(u * (recipe.Width - 1)),
-                Mathf.FloorToInt(v * (recipe.Height - 1)), stampRivers);
+            const int count = 33;
+            var data = stampTerrain.terrainData;
+            var size = data.size;
+            var origin = stampTerrain.transform.position;
+            var crossAxis = new Vector2(-axis.y, axis.x);
+            var points = new Vector3[count * count];
+            var changed = new bool[points.Length];
+            for (var y = 0; y < count; y++)
+                for (var x = 0; x < count; x++)
+                {
+                    var offset = axis * ((float)x / (count - 1) - .5f) * stampLength
+                        + crossAxis * ((float)y / (count - 1) - .5f) * stampWidth;
+                    var localX = centre.x + offset.x;
+                    var localZ = centre.z + offset.y;
+                    var u = localX / size.x;
+                    var v = localZ / size.z;
+                    if (u < 0f || u > 1f || v < 0f || v > 1f) continue;
+                    var before = data.GetInterpolatedHeight(u, v) / size.y;
+                    var after = StampHeight(before, u, v, offset, axis, crossAxis, size.y);
+                    var index = y * count + x;
+                    changed[index] = !Mathf.Approximately(before, after);
+                    points[index] = origin + new Vector3(localX, after * size.y + .5f, localZ);
+                }
+
+            var lines = new List<Vector3>();
+            for (var y = 0; y < count; y++)
+                for (var x = 0; x < count; x++)
+                {
+                    var index = y * count + x;
+                    if (!changed[index]) continue;
+                    if (x + 1 < count && changed[index + 1])
+                    {
+                        lines.Add(points[index]);
+                        lines.Add(points[index + 1]);
+                    }
+                    if (y + 1 < count && changed[index + count])
+                    {
+                        lines.Add(points[index]);
+                        lines.Add(points[index + count]);
+                    }
+                }
+
+            var oldDepth = Handles.zTest;
+            // Draw cuts through the existing surface to reveal the shape before applying.
+            Handles.zTest = UnityEngine.Rendering.CompareFunction.Always;
+            try
+            {
+                using (new Handles.DrawingScope(StampCuts ? new Color(.4f, .83f, 1f) : new Color(.95f, .7f, .28f)))
+                    Handles.DrawLines(lines.ToArray());
+            }
+            finally { Handles.zTest = oldDepth; }
+        }
+
+        private float StampHeight(float before, float u, float v, Vector2 offset,
+            Vector2 axis, Vector2 crossAxis, float heightScale)
+        {
+            var along = Vector2.Dot(offset, axis) * 2f / stampLength;
+            var across = Vector2.Dot(offset, crossAxis) * 2f / stampWidth;
+            if (Mathf.Abs(along) >= 1f || Mathf.Abs(across) >= 1f) return before;
+
+            var source = stampWater.Source;
+            var recipe = source.Recipe;
+            var sourceX = u * (recipe.Width - 1);
+            var sourceY = v * (recipe.Height - 1);
+            if (!stampWater.AllowsSculpt(Mathf.FloorToInt(sourceX), Mathf.FloorToInt(sourceY), stampRivers))
+                return before;
+            var altitude = source.Elevations[Mathf.RoundToInt(sourceY) * recipe.Width + Mathf.RoundToInt(sourceX)];
+            var inland = Mathf.SmoothStep(0f, 1f,
+                Mathf.InverseLerp(recipe.SeaLevel + .015f, recipe.SeaLevel + .07f, altitude));
+            if (inland <= 0f) return before;
+
+            float relief;
+            if (stampShape == StampShape.Heightmap)
+            {
+                var edge = Mathf.Max(Mathf.Abs(along), Mathf.Abs(across));
+                var fade = Mathf.Pow(1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(.76f, 1f, edge)), stampFalloff);
+                relief = ReadMask(along, across) * fade;
+            }
+            else
+            {
+                var footprint = along * along + across * across;
+                if (footprint >= 1f) return before;
+                var envelope = Mathf.Pow(1f - footprint, stampFalloff);
+                var spine = across - .18f * Mathf.Sin(along * 6f);
+                if (StampCuts)
+                    relief = envelope * (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(.13f, .68f, Mathf.Abs(spine))));
+                else
+                {
+                    var ridge = Mathf.Exp(-4.5f * Mathf.Abs(spine));
+                    var peaks = .52f + .48f * Mathf.PerlinNoise(along * 4.5f + 16f, 7.3f);
+                    var gullies = Mathf.PerlinNoise(along * 13f + across * across * 4f + 22f, across * 2.5f + 9f);
+                    relief = envelope * peaks * (.36f + .64f * ridge) * (.64f + .36f * gullies);
+                }
+            }
+
+            // Modulate existing relief so zero-valued areas and the edge of the source remain fixed.
+            var noise = Mathf.Clamp01(Mathf.PerlinNoise(stampNoiseX + along * 8f, stampNoiseY + across * 8f));
+            relief = Mathf.Clamp01(relief * (1f + stampVariation * (2f * noise - 1f)));
+            var amount = relief * inland * (StampCuts ? stampDepth : stampRise) / heightScale;
+            return StampCuts
+                ? Mathf.Max(Mathf.Min(before, recipe.SeaLevel + .015f), before - amount)
+                : Mathf.Min(1f, before + amount);
+        }
+
+        private float ReadMask(float along, float across)
+        {
+            const int last = StampMaskSize - 1;
+            var x = (along * .5f + .5f) * last;
+            var y = (across * .5f + .5f) * last;
+            var left = Mathf.FloorToInt(x);
+            var bottom = Mathf.FloorToInt(y);
+            var right = Mathf.Min(left + 1, last);
+            var top = Mathf.Min(bottom + 1, last);
+            return Mathf.Lerp(
+                Mathf.Lerp(stampMask[bottom * StampMaskSize + left], stampMask[bottom * StampMaskSize + right], x - left),
+                Mathf.Lerp(stampMask[top * StampMaskSize + left], stampMask[top * StampMaskSize + right], x - left),
+                y - bottom);
         }
 
         // Change only the heightmap rectangle touched by the rotated stamp. The profile tapers at the edge
@@ -369,15 +514,12 @@ namespace GrandStrategy.WorldGeneration.Editor
             var data = stampTerrain.terrainData;
             var step = data.heightmapScale;
             var last = data.heightmapResolution - 1;
-            var radius = Mathf.Max(stampLength, stampWidth) * .5f;
+            var radius = new Vector2(stampLength, stampWidth).magnitude * .5f;
             var left = Mathf.Clamp(Mathf.FloorToInt((centre.x - radius) / step.x), 0, last);
             var right = Mathf.Clamp(Mathf.CeilToInt((centre.x + radius) / step.x), 0, last);
             var bottom = Mathf.Clamp(Mathf.FloorToInt((centre.z - radius) / step.z), 0, last);
             var top = Mathf.Clamp(Mathf.CeilToInt((centre.z + radius) / step.z), 0, last);
             var heights = data.GetHeights(left, bottom, right - left + 1, top - bottom + 1);
-            var source = stampWater.Source;
-            var recipe = source.Recipe;
-            var cut = stampShape == StampShape.Valley;
             var changed = false;
             var crossAxis = new Vector2(-axis.y, axis.x);
 
@@ -385,44 +527,15 @@ namespace GrandStrategy.WorldGeneration.Editor
                 for (var x = left; x <= right; x++)
                 {
                     var offset = new Vector2(x * step.x - centre.x, y * step.z - centre.z);
-                    var along = Vector2.Dot(offset, axis) * 2f / stampLength;
-                    var across = Vector2.Dot(offset, crossAxis) * 2f / stampWidth;
-                    var footprint = along * along + across * across;
-                    if (footprint >= 1f) continue;
-                    var u = (float)x / last * (recipe.Width - 1);
-                    var v = (float)y / last * (recipe.Height - 1);
-                    var sourceX = Mathf.FloorToInt(u);
-                    var sourceY = Mathf.FloorToInt(v);
-                    if (!stampWater.AllowsSculpt(sourceX, sourceY, stampRivers)) continue;
-                    var altitude = source.Elevations[Mathf.RoundToInt(v) * recipe.Width + Mathf.RoundToInt(u)];
-                    var inland = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(recipe.SeaLevel + .015f, recipe.SeaLevel + .07f, altitude));
-                    if (inland <= 0f) continue;
-
-                    var envelope = Mathf.Pow(1f - footprint, stampFalloff);
-                    var spine = across - .18f * Mathf.Sin(along * 6f);
                     var old = heights[y - bottom, x - left];
-                    float height;
-                    if (cut)
-                    {
-                        // A broad floor and tapered ends make the cut read as a pass from above.
-                        var channel = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(.13f, .68f, Mathf.Abs(spine)));
-                        var depth = envelope * channel * inland * stampDepth / step.y;
-                        height = Mathf.Max(Mathf.Min(old, recipe.SeaLevel + .015f), old - depth);
-                    }
-                    else
-                    {
-                        var ridge = Mathf.Exp(-4.5f * Mathf.Abs(spine));
-                        var peaks = .52f + .48f * Mathf.PerlinNoise(along * 4.5f + 16f, 7.3f);
-                        var gullies = Mathf.PerlinNoise(along * 13f + across * across * 4f + 22f, across * 2.5f + 9f);
-                        var relief = envelope * peaks * (.36f + .64f * ridge) * (.64f + .36f * gullies);
-                        height = Mathf.Min(1f, old + relief * inland * stampRise / step.y);
-                    }
+                    var height = StampHeight(old, (float)x / last, (float)y / last, offset, axis, crossAxis, data.size.y);
                     heights[y - bottom, x - left] = height;
                     changed |= height != old;
                 }
 
             if (!changed) return false;
-            var undoName = cut ? "Stamp Valley" : "Stamp Mountain Range";
+            var undoName = StampCuts ? "Subtract Terrain Stamp" : "Raise Terrain Stamp";
+            Undo.IncrementCurrentGroup();
             Undo.SetCurrentGroupName(undoName);
             Undo.RegisterCompleteObjectUndo(data, undoName);
             data.SetHeights(left, bottom, heights);

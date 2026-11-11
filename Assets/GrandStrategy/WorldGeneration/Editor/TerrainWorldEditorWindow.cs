@@ -7,9 +7,11 @@ namespace GrandStrategy.WorldGeneration.Editor
 {
     public sealed class TerrainWorldEditorWindow : EditorWindow
     {
-        private static readonly string[] Tabs = { "Sculpt", "Paint", "Stamps", "Preview", "Publish", "Geography" };
+        private static readonly string[] Tabs = { "Stamps", "Rivers" };
         [SerializeField] private PlayableMap map;
-        [SerializeField] private int tab;
+        [SerializeField] private int authoringTab;
+        private bool showMapControls;
+        private int mapTab;
         private Vector2 scroll;
         private PlayableMapInspector workspace;
 
@@ -75,6 +77,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             workspace = null;
         }
 
+        private void OnInspectorUpdate() => Repaint();
+
         private void OnGUI()
         {
             SetMap((PlayableMap)EditorGUILayout.ObjectField("Playable Map", map, typeof(PlayableMap), true));
@@ -87,11 +91,22 @@ namespace GrandStrategy.WorldGeneration.Editor
 
             if (workspace == null)
                 workspace = (PlayableMapInspector)UnityEditor.Editor.CreateEditor(map, typeof(PlayableMapInspector));
-            tab = GUILayout.Toolbar(tab, Tabs);
+            showMapControls = EditorGUILayout.ToggleLeft("Show Map Preview and Publish Controls", showMapControls);
+            var section = PlayableMapInspector.WorkspaceTab.Stamps;
+            if (showMapControls)
+            {
+                mapTab = GUILayout.Toolbar(mapTab, new[] { "Preview", "Publish" });
+                section = mapTab == 0 ? PlayableMapInspector.WorkspaceTab.Preview : PlayableMapInspector.WorkspaceTab.Publish;
+            }
+            else
+            {
+                authoringTab = GUILayout.Toolbar(authoringTab, Tabs);
+                section = authoringTab == 0 ? PlayableMapInspector.WorkspaceTab.Stamps : PlayableMapInspector.WorkspaceTab.Geography;
+            }
             using (var view = new EditorGUILayout.ScrollViewScope(scroll))
             {
                 scroll = view.scrollPosition;
-                workspace.DrawWorkspace((PlayableMapInspector.WorkspaceTab)tab);
+                workspace.DrawWorkspace(section);
             }
         }
     }

@@ -1,4 +1,4 @@
-// Stages coastline and river edits before replacing the editable map with a reviewed revision.
+// Stages river edits before replacing the editable map with a reviewed revision.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -11,9 +11,6 @@ namespace GrandStrategy.WorldGeneration.Editor
 {
     public sealed partial class PlayableMapInspector
     {
-        private enum GeographyTool { ReclaimLand, Flood, RiverWaypoints }
-        private GeographyTool geographyTool;
-        private int coastRadius = 12;
         private int authoredRiverWidth = 3;
         private float authoredRiverDepth = .012f;
         private Terrain geographyTerrain;
@@ -21,10 +18,8 @@ namespace GrandStrategy.WorldGeneration.Editor
         private ProvinceMapAsset geographyProvinces;
         private HeightmapResult geographyOriginal;
         private RiverMap geographyRivers;
-        private float[] geographyElevations;
         private bool geographyCapturing;
         private readonly List<int> geographyWaypoints = new List<int>();
-        private readonly List<(int Cell, int Radius, bool Land)> coastStrokes = new List<(int, int, bool)>();
         private GeographyRevision geographyReview;
         private string geographyStatus;
 
@@ -44,27 +39,21 @@ namespace GrandStrategy.WorldGeneration.Editor
                 geographyProvinces = provinces;
             }
 
-            EditorGUILayout.HelpBox("Stage coastline stamps or click river waypoints from source to ocean or lake. Review the affected regions before applying.", MessageType.Info);
-            geographyTool = (GeographyTool)EditorGUILayout.EnumPopup("Tool", geographyTool);
+            EditorGUILayout.HelpBox("Draw a route from an inland source to an ocean or lake. Review it, then apply to carve the channel and update the river network.", MessageType.Info);
             EditorGUI.BeginChangeCheck();
-            if (geographyTool == GeographyTool.RiverWaypoints)
-            {
-                authoredRiverWidth = EditorGUILayout.IntSlider("River Width (samples)", authoredRiverWidth, 1, 24);
-                authoredRiverDepth = EditorGUILayout.Slider("River Depth", authoredRiverDepth,
-                    RiverGenerator.MinimumCarveDepth, RiverGenerator.MaximumCarveDepth);
-            }
-            else
-                coastRadius = EditorGUILayout.IntSlider("Coast Stamp Radius", coastRadius, 1, 64);
+            authoredRiverWidth = EditorGUILayout.IntSlider("River Width (samples)", authoredRiverWidth, 1, 24);
+            authoredRiverDepth = EditorGUILayout.Slider("River Depth", authoredRiverDepth,
+                RiverGenerator.MinimumCarveDepth, RiverGenerator.MaximumCarveDepth);
             if (EditorGUI.EndChangeCheck()) geographyReview = null;
 
-            if (GUILayout.Button(geographyCapturing ? "Release Geography Tool" : "Edit in Scene View"))
+            if (GUILayout.Button(geographyCapturing ? "Release River Tool" : "Draw River Waypoints"))
             {
                 if (geographyCapturing) StopGeographyCapture();
                 else RunGeographyAction(BeginGeographyCapture);
             }
             if (geographyCapturing)
                 EditorGUILayout.HelpBox("Left-click in the Scene view to stage an edit. Review and apply to update the terrain.", MessageType.Info);
-            EditorGUILayout.LabelField($"Coast stamps: {coastStrokes.Count}   River waypoints: {geographyWaypoints.Count}");
+            EditorGUILayout.LabelField($"River waypoints: {geographyWaypoints.Count}");
             using (new EditorGUILayout.HorizontalScope())
             {
                 using (new EditorGUI.DisabledScope(geographyWaypoints.Count == 0))
@@ -77,8 +66,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (GUILayout.Button("Discard Draft")) ClearGeographyDraft();
             }
 
-            using (new EditorGUI.DisabledScope(coastStrokes.Count == 0 && geographyWaypoints.Count == 0))
-                if (GUILayout.Button("Review Geography Changes"))
+            using (new EditorGUI.DisabledScope(geographyWaypoints.Count < 2))
+                if (GUILayout.Button("Review River Cut"))
                     RunGeographyAction(ReviewGeography);
 
             if (geographyReview != null)
@@ -92,7 +81,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 EditorGUILayout.LabelField(Names(review.AffectedTerritories), EditorStyles.wordWrappedLabel);
                 if (review.UnassignedProvinceCells > 0 || review.UnassignedTerritoryCells > 0)
                     EditorGUILayout.HelpBox($"{review.UnassignedProvinceCells:N0} province samples and {review.UnassignedTerritoryCells:N0} territory samples have no adjoining compatible region. Review these areas before publishing.", MessageType.Warning);
-                if (GUILayout.Button("Apply as New Editable Geography"))
+                if (GUILayout.Button("Apply River Cut"))
                     RunGeographyAction(() => ApplyGeography(review));
             }
             if (!string.IsNullOrEmpty(geographyStatus))
@@ -119,7 +108,6 @@ namespace GrandStrategy.WorldGeneration.Editor
                 geographyRivers = geographyWorld.ReadRivers();
                 geographyOriginal = geographyRivers?.Terrain ?? geographyWorld.Read();
                 geographyProvinces.ValidateTerrain(geographyOriginal);
-                geographyElevations = (float[])(geographyRivers?.Base ?? geographyOriginal).Elevations.Clone();
             }
             geographyCapturing = true;
             SceneView.duringSceneGui += DrawGeographyInScene;
@@ -139,9 +127,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             StopGeographyCapture();
             geographyOriginal = null;
             geographyRivers = null;
-            geographyElevations = null;
             geographyWaypoints.Clear();
-            coastStrokes.Clear();
             geographyReview = null;
             geographyStatus = null;
         }
@@ -173,12 +159,9 @@ namespace GrandStrategy.WorldGeneration.Editor
 
             if (input.type == EventType.Repaint)
             {
-                foreach (var stroke in coastStrokes)
-                    using (new Handles.DrawingScope(stroke.Land ? new Color(.42f, .94f, .47f) : new Color(.35f, .72f, 1f)))
-                        Handles.DrawWireDisc(Position(stroke.Cell), Vector3.up, stroke.Radius * size.x / recipe.Width);
                 if (geographyWaypoints.Count > 0)
                 {
-                    var points = new Vector3[geographyWaypoints.Count + (hasHit && geographyTool == GeographyTool.RiverWaypoints ? 1 : 0)];
+                    var points = new Vector3[geographyWaypoints.Count + (hasHit ? 1 : 0)];
                     for (var i = 0; i < geographyWaypoints.Count; i++) points[i] = Position(geographyWaypoints[i]);
                     if (points.Length > geographyWaypoints.Count) points[points.Length - 1] = hit.point + Vector3.up * 2f;
                     using (new Handles.DrawingScope(new Color(.40f, .83f, 1f)))
@@ -188,9 +171,6 @@ namespace GrandStrategy.WorldGeneration.Editor
                             Handles.DotHandleCap(0, point, Quaternion.identity, HandleUtility.GetHandleSize(point) * .035f, EventType.Repaint);
                     }
                 }
-                if (hasHit && geographyTool != GeographyTool.RiverWaypoints)
-                    using (new Handles.DrawingScope(Color.white))
-                        Handles.DrawWireDisc(hit.point + Vector3.up * 2f, Vector3.up, coastRadius * size.x / recipe.Width);
                 return;
             }
 
@@ -200,13 +180,8 @@ namespace GrandStrategy.WorldGeneration.Editor
             var x = Mathf.Clamp((int)(local.x / size.x * recipe.Width), 0, recipe.Width - 1);
             var y = Mathf.Clamp((int)(local.z / size.z * recipe.Height), 0, recipe.Height - 1);
             var cell = y * recipe.Width + x;
-            if (geographyTool == GeographyTool.RiverWaypoints)
-            {
-                if (geographyWaypoints.Count == 0 || geographyWaypoints[geographyWaypoints.Count - 1] != cell)
-                    geographyWaypoints.Add(cell);
-            }
-            else
-                StageCoastStamp(x, y, geographyTool == GeographyTool.ReclaimLand);
+            if (geographyWaypoints.Count == 0 || geographyWaypoints[geographyWaypoints.Count - 1] != cell)
+                geographyWaypoints.Add(cell);
             geographyReview = null;
             input.Use();
             view.Repaint();
@@ -221,29 +196,11 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
-        private void StageCoastStamp(int centreX, int centreY, bool land)
-        {
-            var recipe = geographyOriginal.Recipe;
-            var target = Mathf.Clamp01(recipe.SeaLevel + (land ? .024f : -.024f));
-            for (var y = Mathf.Max(0, centreY - coastRadius); y <= Mathf.Min(recipe.Height - 1, centreY + coastRadius); y++)
-                for (var x = Mathf.Max(0, centreX - coastRadius); x <= Mathf.Min(recipe.Width - 1, centreX + coastRadius); x++)
-                {
-                    var distance = Vector2.Distance(new Vector2(x, y), new Vector2(centreX, centreY));
-                    if (distance >= coastRadius) continue;
-                    var index = y * recipe.Width + x;
-                    var current = geographyElevations[index];
-                    if (land ? current >= target : current <= target) continue;
-                    var strength = 1f - Mathf.SmoothStep(0f, 1f, distance / coastRadius);
-                    geographyElevations[index] = Mathf.Lerp(current, target, strength);
-                }
-            coastStrokes.Add((centreY * recipe.Width + centreX, coastRadius, land));
-        }
-
         private void ReviewGeography()
         {
             StopGeographyCapture();
             geographyReview = null;
-            geographyReview = GeographyAuthoring.Review(geographyOriginal, geographyElevations, geographyRivers,
+            geographyReview = GeographyAuthoring.Review(geographyOriginal, (geographyRivers?.Base ?? geographyOriginal).Elevations, geographyRivers,
                 geographyWaypoints, (byte)authoredRiverWidth, authoredRiverDepth, geographyProvinces.Map,
                 geographyWorld.ReadClimateSettings(), geographyWorld.HasBiomes);
             geographyStatus = "Review complete. Apply to create new editable assets.";
