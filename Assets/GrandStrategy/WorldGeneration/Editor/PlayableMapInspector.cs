@@ -1,6 +1,7 @@
 // Adds Unity Terrain authoring to the Playable Map Inspector. It creates editable scene terrain, stamps
 // mountain ranges and prepares the paint layers read in Play Mode.
 using System;
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -15,6 +16,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private const float DefaultSnowLine = .55f;
         private const string ScenePreviewName = "Terrain Scene Preview";
         private const string SeaMaterialName = "Scene Preview Sea";
+        private const string RiverPreviewName = "River Channels";
         private static readonly GUIContent[] MeshDetailLabels =
         {
             new GUIContent("512 (comparison)"), new GUIContent("1024 (standard)"), new GUIContent("2048 (fine)")
@@ -308,7 +310,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var native = terrainObject.GetComponent<Terrain>();
                 native.heightmapPixelError = 2;
                 native.drawInstanced = true;
-                CreateScenePreview(native, world.SeaLevel);
+                CreateScenePreview(native, world);
                 AssetDatabase.SaveAssets();
 
                 Undo.RegisterCreatedObjectUndo(terrainObject, "Create Scene Terrain");
@@ -389,13 +391,20 @@ namespace GrandStrategy.WorldGeneration.Editor
         {
             var preview = terrain.transform.Find(ScenePreviewName);
             var enabled = preview != null && preview.gameObject.activeSelf;
-            var next = EditorGUILayout.Toggle(new GUIContent("Sea Level and Sun",
-                "Show a sea-level surface and directional light while editing the Terrain."), enabled);
+            var next = EditorGUILayout.Toggle(new GUIContent("Water and Sun Preview",
+                "Show sea level, river channels and directional light while editing the Terrain."), enabled);
+            if (enabled && next && world != null && world.HasRivers && GUILayout.Button("Refresh River Preview"))
+            {
+                UpdateRiverPreview(terrain, world, preview, true);
+                AssetDatabase.SaveAssets();
+                EditorSceneManager.MarkSceneDirty(terrain.gameObject.scene);
+                SceneView.RepaintAll();
+            }
             if (next == enabled) return;
 
             if (preview == null)
             {
-                var created = CreateScenePreview(terrain, world.SeaLevel);
+                var created = CreateScenePreview(terrain, world);
                 if (created == null) return;
                 Undo.RegisterCreatedObjectUndo(created, "Create Terrain Scene Preview");
                 AssetDatabase.SaveAssets();
@@ -412,7 +421,7 @@ namespace GrandStrategy.WorldGeneration.Editor
 
         // Keep the preview under the Terrain so it stays with the editing canvas and disappears
         // when Play Mode takes over. The EditorOnly tag also keeps the preview out of builds.
-        private static GameObject CreateScenePreview(Terrain terrain, float seaLevel)
+        private static GameObject CreateScenePreview(Terrain terrain, WorldHeightmap world)
         {
             var shader = Shader.Find("Universal Render Pipeline/Unlit");
             if (shader == null)
@@ -452,7 +461,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 water.transform.SetParent(root.transform, false);
                 var size = data.size;
                 // The built-in plane spans ten units. Place it slightly below sea level to avoid z-fighting.
-                water.transform.localPosition = new Vector3(size.x * .5f, seaLevel * size.y - .1f, size.z * .5f);
+                water.transform.localPosition = new Vector3(size.x * .5f, world.SeaLevel * size.y - .1f, size.z * .5f);
                 water.transform.localScale = new Vector3(size.x * .1f, 1f, size.z * .1f);
                 DestroyImmediate(water.GetComponent<Collider>());
                 var renderer = water.GetComponent<MeshRenderer>();
@@ -467,12 +476,93 @@ namespace GrandStrategy.WorldGeneration.Editor
                 light.type = LightType.Directional;
                 light.intensity = 1f;
                 light.shadows = LightShadows.Soft;
+                UpdateRiverPreview(terrain, world, root.transform, false);
                 return root;
             }
             catch
             {
                 DestroyImmediate(root);
                 throw;
+            }
+        }
+
+        // The ribbon uses the world generator's widened river mask, so the scene shows the same
+        // route as Play Mode. Its height follows the editable Terrain and can be refreshed after sculpting.
+        private static void UpdateRiverPreview(Terrain terrain, WorldHeightmap world, Transform preview, bool recordUndo)
+        {
+            var rivers = world.ReadRivers();
+            if (rivers == null) return;
+
+            var data = terrain.terrainData;
+            var water = WaterMap.Classify(rivers.Terrain);
+            var mask = rivers.BuildSurfaceMask();
+            var width = rivers.Terrain.Recipe.Width;
+            var height = rivers.Terrain.Recipe.Height;
+            var stride = width + 1;
+            var size = data.size;
+            var vertices = new List<Vector3>();
+            var indices = new List<int>();
+            var corners = new Dictionary<int, int>();
+            for (var cell = 0; cell < mask.Length; cell++)
+            {
+                if (mask[cell] == 0 || water[cell] != WaterKind.Land) continue;
+                var x = cell % width;
+                var y = cell / width;
+                var southWest = Corner(x, y);
+                var southEast = Corner(x + 1, y);
+                var northWest = Corner(x, y + 1);
+                var northEast = Corner(x + 1, y + 1);
+                indices.Add(southWest);
+                indices.Add(northWest);
+                indices.Add(southEast);
+                indices.Add(southEast);
+                indices.Add(northWest);
+                indices.Add(northEast);
+            }
+
+            var riverObject = preview.Find(RiverPreviewName);
+            if (riverObject == null)
+            {
+                var child = new GameObject(RiverPreviewName, typeof(MeshFilter), typeof(MeshRenderer));
+                riverObject = child.transform;
+                riverObject.SetParent(preview, false);
+                var renderer = child.GetComponent<MeshRenderer>();
+                renderer.sharedMaterial = preview.Find("Sea Level").GetComponent<MeshRenderer>().sharedMaterial;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+                if (recordUndo) Undo.RegisterCreatedObjectUndo(child, "Add River Preview");
+            }
+
+            var filter = riverObject.GetComponent<MeshFilter>();
+            var mesh = filter.sharedMesh;
+            if (mesh == null)
+            {
+                mesh = new Mesh { name = "Scene Preview Rivers" };
+                AssetDatabase.AddObjectToAsset(mesh, data);
+                if (recordUndo) Undo.RecordObject(filter, "Assign River Preview");
+                filter.sharedMesh = mesh;
+            }
+            else if (recordUndo)
+                Undo.RegisterCompleteObjectUndo(mesh, "Refresh River Preview");
+
+            mesh.Clear();
+            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            mesh.SetVertices(vertices);
+            mesh.SetTriangles(indices, 0);
+            EditorUtility.SetDirty(mesh);
+
+            int Corner(int x, int y)
+            {
+                var key = y * stride + x;
+                if (corners.TryGetValue(key, out var index)) return index;
+                var u = (float)x / width;
+                var v = (float)y / height;
+                var elevation = data.GetInterpolatedHeight(u, v);
+                index = vertices.Count;
+                // Lift the unlit overlay slightly so it remains visible over the terrain surface.
+                vertices.Add(new Vector3(u * size.x, elevation + .35f, v * size.z));
+                corners.Add(key, index);
+                return index;
             }
         }
 
