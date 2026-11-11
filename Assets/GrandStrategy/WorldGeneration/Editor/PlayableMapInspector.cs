@@ -18,6 +18,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private const string SeaMaterialName = "Scene Preview Sea";
         private const string RiverPreviewName = "River Channels";
         private const string ProvincePreviewName = "Province Outline Preview";
+        private const string TerritoryPreviewName = "Territory Outline Preview";
         private static readonly GUIContent[] MeshDetailLabels =
         {
             new GUIContent("512 (comparison)"), new GUIContent("1024 (standard)"), new GUIContent("2048 (fine)")
@@ -86,7 +87,8 @@ namespace GrandStrategy.WorldGeneration.Editor
                     || assigned.terrainData == null || EditorApplication.isPlayingOrWillChangePlaymode))
                 {
                     DrawScenePreview(assigned, world);
-                    DrawProvincePreview(assigned, world, provinceMap);
+                    DrawRegionPreview(assigned, world, provinceMap, false);
+                    DrawRegionPreview(assigned, world, provinceMap, true);
                     DrawReferenceViews(assigned, world == null ? 0f : world.SeaLevel);
                     DrawMountainStamp(assigned, world);
                 }
@@ -390,14 +392,24 @@ namespace GrandStrategy.WorldGeneration.Editor
             view.Repaint();
         }
 
-        private static void DrawProvincePreview(Terrain terrain, WorldHeightmap world, ProvinceMapAsset provinces)
+        private static void DrawRegionPreview(Terrain terrain, WorldHeightmap world, ProvinceMapAsset provinces,
+            bool territories)
         {
             if (world == null || provinces == null || terrain.terrainData == null) return;
-            var preview = terrain.transform.Find(ProvincePreviewName);
+            var label = territories ? "Territory Outlines" : "Province Outlines";
+            var previewName = territories ? TerritoryPreviewName : ProvincePreviewName;
+            var preview = terrain.transform.Find(previewName);
             var enabled = preview != null && preview.gameObject.activeSelf;
-            var show = EditorGUILayout.Toggle(new GUIContent("Province Outlines",
-                "Trace imported province edges touching land while you sculpt."), enabled);
-            var refresh = enabled && show && GUILayout.Button("Refresh Province Outlines");
+            var available = provinces.Map != null && (!territories || provinces.Map.HasTerritoryPreview);
+            if (!available)
+            {
+                // An existing overlay can still be hidden if its source asset no longer has this layer.
+                if (!enabled) return;
+                EditorGUILayout.HelpBox($"The current map has no source data for {label}.", MessageType.Warning);
+            }
+            var show = EditorGUILayout.Toggle(new GUIContent(label,
+                "Trace imported boundaries touching land while you sculpt."), enabled);
+            var refresh = available && enabled && show && GUILayout.Button("Refresh " + label);
             if (show == enabled && !refresh) return;
 
             try
@@ -405,11 +417,11 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (show)
                 {
                     provinces.ValidateTerrain(world.Read());
-                    RebuildProvincePreview(terrain, provinces.Map, preview);
+                    RebuildRegionPreview(terrain, provinces.Map, preview, previewName, label, territories);
                 }
                 if (preview != null && show != enabled)
                 {
-                    Undo.RecordObject(preview.gameObject, "Toggle Province Outlines");
+                    Undo.RecordObject(preview.gameObject, "Toggle " + label);
                     preview.gameObject.SetActive(show);
                 }
                 EditorSceneManager.MarkSceneDirty(terrain.gameObject.scene);
@@ -418,19 +430,20 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
             catch (Exception exception)
             {
-                EditorUtility.DisplayDialog("Could not update Province Outlines", exception.Message, "OK");
+                EditorUtility.DisplayDialog("Could not update " + label, exception.Message, "OK");
             }
         }
 
         // Follow the imported raster on the editable Terrain. Subdivide each edge to avoid crossing
         // through terrain samples when the editing heightmap is finer than the province grid.
-        private static void RebuildProvincePreview(Terrain terrain, ProvinceMap map, Transform preview)
+        private static void RebuildRegionPreview(Terrain terrain, ProvinceMap map, Transform preview,
+            string previewName, string label, bool territories)
         {
             var data = terrain.terrainData;
             var path = AssetDatabase.GetAssetPath(data);
             var shader = Shader.Find("Universal Render Pipeline/Unlit");
             if (string.IsNullOrEmpty(path) || shader == null)
-                throw new InvalidOperationException("Province Outlines need saved TerrainData and the URP Unlit shader.");
+                throw new InvalidOperationException(label + " need saved TerrainData and the URP Unlit shader.");
 
             var width = map.Width;
             var height = map.Height;
@@ -439,17 +452,20 @@ namespace GrandStrategy.WorldGeneration.Editor
             var along = Mathf.CeilToInt((float)samples / height);
             var vertices = new List<Vector3>();
             var indices = new List<int>();
-            var land = Array.ConvertAll(map.Provinces, province =>
-                string.Equals(province.Type, "land", StringComparison.OrdinalIgnoreCase));
+            var raster = territories ? map.TerritoryAt : map.ProvinceAt;
+            var land = territories
+                ? Array.ConvertAll(map.Territories, territory => IsLand(territory?.Type))
+                : Array.ConvertAll(map.Provinces, province => IsLand(province?.Type));
+            var lift = territories ? .85f : .65f;
 
             for (var y = 0; y < height; y++)
                 for (var x = 0; x < width; x++)
                 {
                     var index = y * width + x;
-                    var id = map.ProvinceAt[index];
-                    if (x + 1 < width && DrawEdge(id, map.ProvinceAt[index + 1]))
+                    var id = raster[index];
+                    if (x + 1 < width && DrawEdge(id, raster[index + 1]))
                         AddEdge(x + 1, y, x + 1, y + 1, along);
-                    if (y + 1 < height && DrawEdge(id, map.ProvinceAt[index + width]))
+                    if (y + 1 < height && DrawEdge(id, raster[index + width]))
                         AddEdge(x, y + 1, x + 1, y + 1, across);
                 }
 
@@ -457,39 +473,39 @@ namespace GrandStrategy.WorldGeneration.Editor
             {
                 Material material = null;
                 foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
-                    if (asset is Material candidate && candidate.name == ProvincePreviewName)
+                    if (asset is Material candidate && candidate.name == previewName)
                     {
                         material = candidate;
                         break;
                     }
                 if (material == null)
                 {
-                    material = new Material(shader) { name = ProvincePreviewName };
-                    material.SetColor("_BaseColor", new Color(.99f, .72f, .20f));
+                    material = new Material(shader) { name = previewName };
+                    material.SetColor("_BaseColor", territories ? new Color(.32f, .84f, 1f) : new Color(.99f, .72f, .20f));
                     AssetDatabase.AddObjectToAsset(material, data);
                 }
 
-                var child = new GameObject(ProvincePreviewName, typeof(MeshFilter), typeof(MeshRenderer)) { tag = "EditorOnly" };
+                var child = new GameObject(previewName, typeof(MeshFilter), typeof(MeshRenderer)) { tag = "EditorOnly" };
                 preview = child.transform;
                 preview.SetParent(terrain.transform, false);
                 var renderer = child.GetComponent<MeshRenderer>();
                 renderer.sharedMaterial = material;
                 renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
-                Undo.RegisterCreatedObjectUndo(child, "Add Province Outlines");
+                Undo.RegisterCreatedObjectUndo(child, "Add " + label);
             }
 
             var filter = preview.GetComponent<MeshFilter>();
             var mesh = filter.sharedMesh;
             if (mesh == null)
             {
-                mesh = new Mesh { name = ProvincePreviewName };
+                mesh = new Mesh { name = previewName };
                 AssetDatabase.AddObjectToAsset(mesh, data);
-                Undo.RecordObject(filter, "Assign Province Outlines");
+                Undo.RecordObject(filter, "Assign " + label);
                 filter.sharedMesh = mesh;
             }
             else
-                Undo.RegisterCompleteObjectUndo(mesh, "Refresh Province Outlines");
+                Undo.RegisterCompleteObjectUndo(mesh, "Refresh " + label);
 
             mesh.Clear();
             mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
@@ -497,7 +513,10 @@ namespace GrandStrategy.WorldGeneration.Editor
             mesh.SetIndices(indices, MeshTopology.Lines, 0);
             EditorUtility.SetDirty(mesh);
 
-            bool DrawEdge(int a, int b) => a != b && ((a >= 0 && land[a]) || (b >= 0 && land[b]));
+            static bool IsLand(string type) => string.Equals(type, "land", StringComparison.OrdinalIgnoreCase);
+
+            bool DrawEdge(int a, int b) => a != b
+                && (((uint)a < (uint)land.Length && land[a]) || ((uint)b < (uint)land.Length && land[b]));
 
             void AddEdge(int x0, int y0, int x1, int y1, int divisions)
             {
@@ -508,7 +527,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     var t = (float)i / divisions;
                     var u = Mathf.Lerp(x0, x1, t) / width;
                     var v = Mathf.Lerp(y0, y1, t) / height;
-                    vertices.Add(new Vector3(u * size.x, data.GetInterpolatedHeight(u, v) + .65f, v * size.z));
+                    vertices.Add(new Vector3(u * size.x, data.GetInterpolatedHeight(u, v) + lift, v * size.z));
                     if (i == 0) continue;
                     indices.Add(first + i - 1);
                     indices.Add(first + i);
