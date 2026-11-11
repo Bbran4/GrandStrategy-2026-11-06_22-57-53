@@ -11,7 +11,7 @@ using UnityEngine.SceneManagement;
 namespace GrandStrategy.WorldGeneration.Editor
 {
     [CustomEditor(typeof(PlayableMap))]
-    public sealed class PlayableMapInspector : UnityEditor.Editor
+    public sealed partial class PlayableMapInspector : UnityEditor.Editor
     {
         private const float DefaultSnowLine = .55f;
         private const string ScenePreviewName = "Terrain Scene Preview";
@@ -41,114 +41,134 @@ namespace GrandStrategy.WorldGeneration.Editor
         private float stampRise = 34f;
         private float stampDepth = 22f;
         private float stampAngle;
+        private float stampFalloff = 2f;
         private Terrain stampTerrain;
         private WaterMap stampWater;
         private byte[] stampRivers;
 
+        internal enum WorkspaceTab { Sculpt, Paint, Stamps, Preview }
+
         public override void OnInspectorGUI()
         {
             DrawDefaultInspector();
+            if (GUILayout.Button("Open World Editor"))
+                TerrainWorldEditorWindow.Open((PlayableMap)target);
+        }
+
+        internal void DrawWorkspace(WorkspaceTab tab)
+        {
             serializedObject.Update();
             var world = serializedObject.FindProperty("world").objectReferenceValue as WorldHeightmap;
             var provinceMap = serializedObject.FindProperty("provinceMap").objectReferenceValue as ProvinceMapAsset;
             var terrain = serializedObject.FindProperty("authoringTerrain");
             var source = serializedObject.FindProperty("authoringWorld");
-            var meshDetail = serializedObject.FindProperty("authoredMeshDetail");
-
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Scene Terrain", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox(
-                "Sculpt and paint the scene Terrain in Edit Mode, then save the scene. Play Mode reads its heights and paint. " +
-                "Keep the first Terrain Layer as the base. The next three layers blend over the generated ground. " +
-                "The generated coastline and riverbanks are protected from height edits.", MessageType.Info);
-            snowLine = EditorGUILayout.Slider(new GUIContent("Snow Line",
-                "Fraction of the elevation range above sea level. Steep faces retain less snow."),
-                snowLine, .25f, .9f);
-
             var assigned = terrain.objectReferenceValue as Terrain;
-            if (assigned != null)
+
+            var canEdit = world != null && assigned != null && assigned.terrainData != null
+                && source.objectReferenceValue == world && !EditorApplication.isPlayingOrWillChangePlaymode;
+            if (stampTerrain != null && (!canEdit || stampTerrain != assigned || tab != WorkspaceTab.Stamps))
+                StopStamp();
+            if (brushTerrain != null && (!canEdit || brushTerrain != assigned
+                || (tab != WorkspaceTab.Sculpt && tab != WorkspaceTab.Paint) || brushPaint != (tab == WorkspaceTab.Paint)))
+                StopBrush();
+
+            if (world == null || assigned == null || assigned.terrainData == null || source.objectReferenceValue != world)
             {
-                using (new EditorGUI.DisabledScope(true))
-                    EditorGUILayout.ObjectField("Authoring Terrain", assigned, typeof(Terrain), true);
-                if (GUILayout.Button("Select Terrain for Sculpting and Painting"))
-                    Selection.activeGameObject = assigned.gameObject;
-
-                if (assigned.terrainData != null && world != null)
-                {
-                    EditorGUILayout.PropertyField(serializedObject.FindProperty("terrainComparison"),
-                        new GUIContent("Play Mode Terrain", "Compare the generated terrain and your edits on the same mesh and camera view."));
-                    meshDetail.intValue = EditorGUILayout.IntPopup(new GUIContent("Play Mode Mesh Detail",
-                        "Subdivisions along the longer side. Finer meshes take longer to build and use more memory."),
-                        meshDetail.intValue, MeshDetailLabels, MeshDetailValues);
-                    var samples = assigned.terrainData.heightmapResolution;
-                    var grid = HeightmapMesh.GridSize(world.Width, world.Height, meshDetail.intValue, samples);
-                    EditorGUILayout.LabelField("Playable Mesh", $"{grid.x:N0} × {grid.y:N0} vertices");
-                    if (meshDetail.intValue >= samples)
-                        EditorGUILayout.HelpBox($"The scene Terrain's {samples:N0} height samples limit usable detail.",
-                            MessageType.Info);
-                    serializedObject.ApplyModifiedProperties();
-                }
-
-                if (source.objectReferenceValue != world)
-                    EditorGUILayout.HelpBox("This Terrain was created for a different World asset.", MessageType.Warning);
-
-                using (new EditorGUI.DisabledScope(world == null || source.objectReferenceValue != world
-                    || assigned.terrainData == null || EditorApplication.isPlayingOrWillChangePlaymode))
-                {
-                    DrawScenePreview(assigned, world);
-                    DrawRegionPreview(assigned, world, provinceMap, false);
-                    DrawRegionPreview(assigned, world, provinceMap, true);
-                    if (HasTerrainOverlays(assigned) && GUILayout.Button(new GUIContent("Refit All Overlays to Terrain",
-                        "Update existing rivers and boundaries after using Unity's sculpting brushes.")))
-                    {
-                        RefitTerrainOverlays(assigned, "Refit Terrain Overlays");
-                        SceneView.RepaintAll();
-                    }
-                    DrawReferenceViews(assigned, world == null ? 0f : world.SeaLevel);
-                    DrawTerrainStamp(assigned, world);
-                }
-
-                using (new EditorGUI.DisabledScope(world == null || source.objectReferenceValue != world
-                    || assigned.terrainData == null || assigned.terrainData.terrainLayers.Length != 4
-                    || EditorApplication.isPlayingOrWillChangePlaymode))
-                {
-                    if (GUILayout.Button("Repaint from Height and Slope") && EditorUtility.DisplayDialog(
-                        "Repaint Scene Terrain?", "This replaces the current paint, including brush strokes. Sculpted heights are kept.",
-                        "Repaint", "Cancel"))
-                    {
-                        var data = assigned.terrainData;
-                        var weights = BuildPaint(data, world.SeaLevel, snowLine);
-                        const string undoName = "Repaint Scene Terrain";
-                        Undo.RegisterCompleteObjectUndo(data, undoName);
-                        Undo.RegisterCompleteObjectUndo(data.alphamapTextures, undoName);
-                        data.SetAlphamaps(0, 0, weights);
-                        EditorUtility.SetDirty(data);
-                        foreach (var texture in data.alphamapTextures) EditorUtility.SetDirty(texture);
-                        SceneView.RepaintAll();
-                    }
-                }
+                EditorGUILayout.HelpBox(world == null ? "Assign a World asset on the Playable Map first."
+                    : assigned == null ? "Create a Scene Terrain from the current World asset to begin."
+                    : "Create a Scene Terrain for the current World asset.", MessageType.Info);
+                DrawCreateTerrain(world, assigned, terrain, source);
+                return;
             }
 
+            using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))
+            {
+                switch (tab)
+                {
+                    case WorkspaceTab.Sculpt:
+                        DrawBrushControls(assigned, world, false);
+                        break;
+                    case WorkspaceTab.Paint:
+                        DrawBrushControls(assigned, world, true);
+                        DrawRepaint(assigned, world);
+                        break;
+                    case WorkspaceTab.Stamps:
+                        DrawTerrainStamp(assigned, world);
+                        break;
+                    case WorkspaceTab.Preview:
+                        DrawPreviewControls(assigned, world, provinceMap);
+                        DrawCreateTerrain(world, assigned, terrain, source);
+                        break;
+                }
+            }
+            serializedObject.ApplyModifiedProperties();
+        }
+
+        private void DrawRepaint(Terrain terrain, WorldHeightmap world)
+        {
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Automatic Paint", EditorStyles.boldLabel);
+            snowLine = EditorGUILayout.Slider("Snow Line", snowLine, .25f, .9f);
+            var data = terrain.terrainData;
+            using (new EditorGUI.DisabledScope(data.terrainLayers.Length != 4))
+            {
+                if (!GUILayout.Button("Repaint from Height and Slope") || !EditorUtility.DisplayDialog(
+                    "Repaint Scene Terrain?", "This replaces the current paint, including brush strokes. Sculpted heights are kept.",
+                    "Repaint", "Cancel")) return;
+                var weights = BuildPaint(data, world.SeaLevel, snowLine);
+                const string undoName = "Repaint Scene Terrain";
+                Undo.RegisterCompleteObjectUndo(data, undoName);
+                Undo.RegisterCompleteObjectUndo(data.alphamapTextures, undoName);
+                data.SetAlphamaps(0, 0, weights);
+                MarkPaintDirty(data);
+                SceneView.RepaintAll();
+            }
+        }
+
+        private void DrawPreviewControls(Terrain terrain, WorldHeightmap world, ProvinceMapAsset provinceMap)
+        {
+            DrawScenePreview(terrain, world);
+            DrawRegionPreview(terrain, world, provinceMap, false);
+            DrawRegionPreview(terrain, world, provinceMap, true);
+            if (HasTerrainOverlays(terrain) && GUILayout.Button("Refit All Overlays to Terrain"))
+            {
+                RefitTerrainOverlays(terrain, "Refit Terrain Overlays");
+                SceneView.RepaintAll();
+            }
+            DrawReferenceViews(terrain, world.SeaLevel);
+
+            EditorGUILayout.Space();
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("terrainComparison"),
+                new GUIContent("Play Mode Terrain", "Compare generated terrain and your edits on the same mesh."));
+            var meshDetail = serializedObject.FindProperty("authoredMeshDetail");
+            meshDetail.intValue = EditorGUILayout.IntPopup(new GUIContent("Play Mode Mesh Detail",
+                "Subdivisions along the longer side. Finer meshes take longer to build and use more memory."),
+                meshDetail.intValue, MeshDetailLabels, MeshDetailValues);
+            var samples = terrain.terrainData.heightmapResolution;
+            var grid = HeightmapMesh.GridSize(world.Width, world.Height, meshDetail.intValue, samples);
+            EditorGUILayout.LabelField("Playable Mesh", $"{grid.x:N0} × {grid.y:N0} vertices");
+        }
+
+        private void DrawCreateTerrain(WorldHeightmap world, Terrain assigned, SerializedProperty terrain, SerializedProperty source)
+        {
             using (new EditorGUI.DisabledScope(world == null || EditorApplication.isPlayingOrWillChangePlaymode))
             {
                 heightmapResolution = EditorGUILayout.IntPopup(new GUIContent("New Terrain Heightmap",
                     "The fine heightmap gives brushes more samples to work with."),
                     heightmapResolution, HeightmapLabels, HeightmapValues);
                 var label = assigned == null ? "Create Scene Terrain" : "Create Another Scene Terrain";
-                if (GUILayout.Button(label))
+                if (!GUILayout.Button(label)) return;
+                if (assigned != null && !EditorUtility.DisplayDialog("Replace Scene Terrain?",
+                    "The current Terrain asset will be kept. A new scene Terrain will take its place.", "Create", "Cancel"))
+                    return;
+                try
                 {
-                    if (assigned != null && !EditorUtility.DisplayDialog("Replace Scene Terrain?",
-                        "The current Terrain asset will be kept. A new scene Terrain will take its place.", "Create", "Cancel"))
-                        return;
-                    try
-                    {
-                        CreateTerrain(world, assigned, terrain, source);
-                    }
-                    catch (Exception exception)
-                    {
-                        Debug.LogException(exception, target);
-                        EditorUtility.DisplayDialog("Could not create Scene Terrain", exception.Message, "OK");
-                    }
+                    CreateTerrain(world, assigned, terrain, source);
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception, target);
+                    EditorUtility.DisplayDialog("Could not create Scene Terrain", exception.Message, "OK");
                 }
             }
         }
@@ -166,6 +186,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             else
                 stampRise = EditorGUILayout.Slider("Rise", stampRise, 5f, 90f);
             stampAngle = EditorGUILayout.Slider("Rotation", stampAngle, 0f, 180f);
+            stampFalloff = EditorGUILayout.Slider("Falloff", stampFalloff, 1f, 4f);
             if (stampTerrain != null)
             {
                 EditorGUILayout.HelpBox("Click an inland slope in the Scene view. Red marks protected water or banks. Escape cancels.", MessageType.Info);
@@ -184,7 +205,11 @@ namespace GrandStrategy.WorldGeneration.Editor
             }
         }
 
-        private void OnDisable() => StopStamp();
+        private void OnDisable()
+        {
+            StopStamp();
+            StopBrush();
+        }
 
         private void StopStamp()
         {
@@ -315,7 +340,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     var inland = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(recipe.SeaLevel + .015f, recipe.SeaLevel + .07f, altitude));
                     if (inland <= 0f) continue;
 
-                    var envelope = (1f - footprint) * (1f - footprint);
+                    var envelope = Mathf.Pow(1f - footprint, stampFalloff);
                     var spine = across - .18f * Mathf.Sin(along * 6f);
                     var old = heights[y - bottom, x - left];
                     float height;
