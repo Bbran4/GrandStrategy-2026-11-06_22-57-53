@@ -21,6 +21,9 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField, HideInInspector] private Terrain authoringTerrain;
         [SerializeField, HideInInspector] private WorldHeightmap authoringWorld;
         [SerializeField, HideInInspector] private int authoredMeshDetail = 1024;
+        [SerializeField, HideInInspector] private bool startAtReferenceView;
+        [SerializeField, HideInInspector] private Vector2 referenceViewFocus;
+        public const float ReferenceViewZoom = .20f;
         private bool hidAuthoringTerrain;
 
         private static readonly string[] ColourNames = { "Blue", "Red", "Green", "Violet", "Ochre" };
@@ -91,6 +94,11 @@ namespace GrandStrategy.WorldGeneration
                 mapCamera.backgroundColor = new Color(.045f, .058f, .075f);
                 mapCamera.nearClipPlane = .01f;
                 mapCamera.farClipPlane = 2f * (surface.Aspect + 4f);
+                if (authoringTerrain != null && startAtReferenceView)
+                {
+                    zoom = targetZoom = ReferenceViewZoom;
+                    focus = new Vector3(referenceViewFocus.x, 0f, referenceViewFocus.y);
+                }
                 UpdateCamera(0f);
                 if (authoringTerrain != null && authoringTerrain.gameObject.activeSelf)
                 {
@@ -185,27 +193,32 @@ namespace GrandStrategy.WorldGeneration
             zoom = Mathf.Lerp(zoom, targetZoom, 1f - Mathf.Exp(-ZoomResponse * deltaTime));
             if (Mathf.Abs(zoom - targetZoom) < .0001f) zoom = targetZoom;
 
-            var tilt = 1f - Mathf.InverseLerp(TiltedZoom, 1f, zoom);
-            var pitch = Mathf.SmoothStep(90f, TiltedPitch, tilt);
-            var rotation = Quaternion.Euler(pitch, 0f, 0f);
-            var groundProjection = Mathf.Sin(pitch * Mathf.Deg2Rad);
-
             var mapAspect = surface.Aspect;
-            var viewAspect = Mathf.Max(.001f, mapCamera.aspect);
-            // At full zoom-out the padded fit covers both map axes, including in a tall Game view.
-            var overviewSize = .54f * Mathf.Max(1f, mapAspect / viewAspect);
-            mapCamera.orthographicSize = overviewSize * zoom;
+            var frame = CameraFrame(mapAspect, mapCamera.aspect, zoom, new Vector2(focus.x, focus.z));
+            var rotation = frame.Rotation;
+            focus = new Vector3(frame.Focus.x, 0f, frame.Focus.y);
+            mapCamera.orthographicSize = frame.HalfHeight;
             surface.SetZoom(zoom);
-
-            var halfWidth = mapCamera.orthographicSize * viewAspect;
-            var halfDepth = mapCamera.orthographicSize / groundProjection;
-            var panX = Mathf.Max(0f, mapAspect * .5f - halfWidth);
-            var panZ = Mathf.Max(0f, .5f - halfDepth);
-            focus.x = Mathf.Clamp(focus.x, -panX, panX);
-            focus.z = Mathf.Clamp(focus.z, -panZ, panZ);
 
             var distance = mapAspect + 4f;
             mapCamera.transform.SetPositionAndRotation(focus + rotation * Vector3.back * distance, rotation);
+        }
+
+        // Share the framing rules with the editor so a saved ridge can be inspected at the play camera angle.
+        public static (Vector2 Focus, Quaternion Rotation, float HalfHeight) CameraFrame(
+            float mapAspect, float viewAspect, float zoom, Vector2 requestedFocus)
+        {
+            var tilt = 1f - Mathf.InverseLerp(TiltedZoom, 1f, zoom);
+            var pitch = Mathf.SmoothStep(90f, TiltedPitch, tilt);
+            var groundProjection = Mathf.Sin(pitch * Mathf.Deg2Rad);
+            viewAspect = Mathf.Max(.001f, viewAspect);
+            // The padded overview covers the world in both landscape and portrait views.
+            var halfHeight = .54f * Mathf.Max(1f, mapAspect / viewAspect) * zoom;
+            var panX = Mathf.Max(0f, mapAspect * .5f - halfHeight * viewAspect);
+            var panZ = Mathf.Max(0f, .5f - halfHeight / groundProjection);
+            var centre = new Vector2(Mathf.Clamp(requestedFocus.x, -panX, panX),
+                Mathf.Clamp(requestedFocus.y, -panZ, panZ));
+            return (centre, Quaternion.Euler(pitch, 0f, 0f), halfHeight);
         }
 
         // Raycast the rendered surface and resolve the clicked position to the corresponding smoothed

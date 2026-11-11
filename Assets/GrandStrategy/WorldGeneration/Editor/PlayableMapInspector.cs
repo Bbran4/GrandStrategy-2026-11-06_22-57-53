@@ -82,6 +82,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                     || assigned.terrainData == null || EditorApplication.isPlayingOrWillChangePlaymode))
                 {
                     DrawScenePreview(assigned, world);
+                    DrawReferenceViews(assigned, world.SeaLevel);
                     DrawMountainStamp(assigned, world);
                 }
 
@@ -325,6 +326,63 @@ namespace GrandStrategy.WorldGeneration.Editor
                 else DestroyImmediate(data);
                 throw;
             }
+        }
+
+        private void DrawReferenceViews(Terrain terrain, float seaLevel)
+        {
+            var view = SceneView.lastActiveSceneView;
+            var start = serializedObject.FindProperty("startAtReferenceView");
+            var savedFocus = serializedObject.FindProperty("referenceViewFocus");
+            using (new EditorGUI.DisabledScope(view == null))
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Map Overview"))
+                        FrameScene(view, terrain, seaLevel, 1f, Vector2.zero);
+                    if (GUILayout.Button("Inspect Ridge"))
+                        FrameScene(view, terrain, seaLevel, PlayableMap.ReferenceViewZoom, FocusFromScene(view, terrain));
+                }
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Save Ridge as Play Start"))
+                    {
+                        // Save the requested centre before clamping, since Scene and Game view aspect ratios can differ.
+                        savedFocus.vector2Value = FocusFromScene(view, terrain);
+                        start.boolValue = true;
+                        serializedObject.ApplyModifiedProperties();
+                        FrameScene(view, terrain, seaLevel, PlayableMap.ReferenceViewZoom, savedFocus.vector2Value);
+                    }
+                    if (start.boolValue && GUILayout.Button("View Saved Ridge"))
+                        FrameScene(view, terrain, seaLevel, PlayableMap.ReferenceViewZoom, savedFocus.vector2Value);
+                }
+            }
+
+            if (start.boolValue && GUILayout.Button("Restore Overview on Play"))
+            {
+                start.boolValue = false;
+                serializedObject.ApplyModifiedProperties();
+            }
+        }
+
+        private static Vector2 FocusFromScene(SceneView view, Terrain terrain)
+        {
+            var local = view.pivot - terrain.transform.position - terrain.terrainData.size * .5f;
+            return new Vector2(local.x, local.z) / PlayableMap.TerrainAuthoringScale;
+        }
+
+        private static void FrameScene(SceneView view, Terrain terrain, float seaLevel, float zoom, Vector2 focus)
+        {
+            view.in2DMode = false;
+            var size = terrain.terrainData.size;
+            var aspect = Mathf.Max(.001f, view.camera.aspect);
+            var frame = PlayableMap.CameraFrame(size.x / size.z, aspect, zoom, focus);
+            var scale = PlayableMap.TerrainAuthoringScale;
+            var point = terrain.transform.position + new Vector3(size.x * .5f + frame.Focus.x * scale,
+                seaLevel * size.y, size.z * .5f + frame.Focus.y * scale);
+            // SceneView.size uses the shorter viewport axis. CameraFrame returns the vertical half-size.
+            view.LookAt(point, frame.Rotation, frame.HalfHeight * scale * Mathf.Min(1f, aspect), true, true);
+            view.Repaint();
         }
 
         private static void DrawScenePreview(Terrain terrain, WorldHeightmap world)
