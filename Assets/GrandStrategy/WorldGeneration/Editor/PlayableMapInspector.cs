@@ -107,22 +107,50 @@ namespace GrandStrategy.WorldGeneration.Editor
         private void DrawRepaint(Terrain terrain, WorldHeightmap world)
         {
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Automatic Paint", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("Generated Paint", EditorStyles.boldLabel);
             snowLine = EditorGUILayout.Slider("Snow Line", snowLine, .25f, .9f);
             var data = terrain.terrainData;
-            using (new EditorGUI.DisabledScope(data.terrainLayers.Length != 4))
+            var baseline = FindPaintBaseline(data);
+            var matches = baseline != null && baseline.Matches(data);
+            if (baseline == null && data.terrainLayers.Length == 4)
+                EditorGUILayout.HelpBox("First repaint compares existing paint with the default generated paint. Differences are kept as manual edits.", MessageType.Info);
+            else if (baseline != null && !matches)
+                EditorGUILayout.HelpBox("Restore the original layer order and paint resolution to use this generated paint layer.", MessageType.Warning);
+            using (new EditorGUI.DisabledScope(data.terrainLayers.Length != 4 || (baseline != null && !matches)))
             {
-                if (!GUILayout.Button("Repaint from Height and Slope") || !EditorUtility.DisplayDialog(
-                    "Repaint Scene Terrain?", "This replaces the current paint, including brush strokes. Sculpted heights are kept.",
-                    "Repaint", "Cancel")) return;
-                var weights = BuildPaint(data, world.SeaLevel, snowLine);
-                const string undoName = "Repaint Scene Terrain";
+                if (!GUILayout.Button("Regenerate Base Paint")) return;
+                StopBrush();
+                const string undoName = "Regenerate Base Paint";
+                Undo.SetCurrentGroupName(undoName);
                 Undo.RegisterCompleteObjectUndo(data, undoName);
                 Undo.RegisterCompleteObjectUndo(data.alphamapTextures, undoName);
-                data.SetAlphamaps(0, 0, weights);
+                if (baseline == null)
+                    baseline = CreatePaintBaseline(data, BuildPaint(data, world.SeaLevel, DefaultSnowLine));
+                Undo.RegisterCompleteObjectUndo(baseline, undoName);
+                baseline.Merge(data, BuildPaint(data, world.SeaLevel, snowLine));
+                EditorUtility.SetDirty(baseline);
                 MarkPaintDirty(data);
                 SceneView.RepaintAll();
             }
+        }
+
+        private static GeneratedTerrainPaint FindPaintBaseline(TerrainData data)
+        {
+            var path = AssetDatabase.GetAssetPath(data);
+            if (string.IsNullOrEmpty(path)) return null;
+            foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
+                if (asset is GeneratedTerrainPaint baseline) return baseline;
+            return null;
+        }
+
+        private static GeneratedTerrainPaint CreatePaintBaseline(TerrainData data, float[,,] paint)
+        {
+            var baseline = CreateInstance<GeneratedTerrainPaint>();
+            baseline.name = "Generated Base Paint";
+            baseline.Initialize(data, paint);
+            AssetDatabase.AddObjectToAsset(baseline, data);
+            EditorUtility.SetDirty(baseline);
+            return baseline;
         }
 
         private void DrawPreviewControls(Terrain terrain, WorldHeightmap world, ProvinceMapAsset provinceMap)
@@ -445,7 +473,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (ground != null)
                 {
                     AddLayers(data, ground);
-                    data.SetAlphamaps(0, 0, BuildPaint(data, world.SeaLevel, snowLine));
+                    var paint = BuildPaint(data, world.SeaLevel, snowLine);
+                    data.SetAlphamaps(0, 0, paint);
+                    CreatePaintBaseline(data, paint);
                 }
 
                 terrainObject = Terrain.CreateTerrainGameObject(data);
@@ -935,27 +965,28 @@ namespace GrandStrategy.WorldGeneration.Editor
         // the map's physical aspect ratio.
         private static float[,] Resample(HeightmapResult source, int resolution)
         {
-            var width = source.Recipe.Width;
-            var height = source.Recipe.Height;
             var heights = new float[resolution, resolution];
             for (var y = 0; y < resolution; y++)
-            {
-                var sy = (float)y / (resolution - 1) * (height - 1);
-                var south = Mathf.FloorToInt(sy);
-                var north = Mathf.Min(south + 1, height - 1);
                 for (var x = 0; x < resolution; x++)
-                {
-                    var sx = (float)x / (resolution - 1) * (width - 1);
-                    var west = Mathf.FloorToInt(sx);
-                    var east = Mathf.Min(west + 1, width - 1);
-                    var lower = Mathf.Lerp(source.Elevations[south * width + west],
-                        source.Elevations[south * width + east], sx - west);
-                    var upper = Mathf.Lerp(source.Elevations[north * width + west],
-                        source.Elevations[north * width + east], sx - west);
-                    heights[y, x] = Mathf.Lerp(lower, upper, sy - south);
-                }
-            }
+                    heights[y, x] = SampleGeneratedHeight(source, (float)x / (resolution - 1), (float)y / (resolution - 1));
             return heights;
+        }
+
+        private static float SampleGeneratedHeight(HeightmapResult source, float u, float v)
+        {
+            var width = source.Recipe.Width;
+            var height = source.Recipe.Height;
+            var sx = u * (width - 1);
+            var sy = v * (height - 1);
+            var west = Mathf.FloorToInt(sx);
+            var east = Mathf.Min(west + 1, width - 1);
+            var south = Mathf.FloorToInt(sy);
+            var north = Mathf.Min(south + 1, height - 1);
+            var lower = Mathf.Lerp(source.Elevations[south * width + west],
+                source.Elevations[south * width + east], sx - west);
+            var upper = Mathf.Lerp(source.Elevations[north * width + west],
+                source.Elevations[north * width + east], sx - west);
+            return Mathf.Lerp(lower, upper, sy - south);
         }
     }
 }

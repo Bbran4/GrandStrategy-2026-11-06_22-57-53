@@ -7,8 +7,10 @@ namespace GrandStrategy.WorldGeneration.Editor
 {
     public sealed partial class PlayableMapInspector
     {
-        private enum SculptBrush { Raise, Lower, Smooth, Flatten }
+        private enum SculptBrush { Raise, Lower, Smooth, Flatten, RestoreGenerated }
+        private enum PaintBrush { Layer, RestoreGenerated }
         private SculptBrush sculptBrush;
+        private PaintBrush paintBrush;
         private float brushSize = 45f;
         private float brushStrength = .35f;
         private int paintLayer = 1;
@@ -16,6 +18,7 @@ namespace GrandStrategy.WorldGeneration.Editor
         private WaterMap brushWater;
         private byte[] brushRivers;
         private bool brushPaint;
+        private GeneratedTerrainPaint strokePaintBaseline;
         private SceneView brushView;
         private int brushControl;
         private int strokeGroup = -1;
@@ -35,18 +38,36 @@ namespace GrandStrategy.WorldGeneration.Editor
                     EditorGUILayout.HelpBox("Assign between one and four Terrain Layers to paint this terrain.", MessageType.Info);
                     return;
                 }
-                var names = Array.ConvertAll(layers, layer => layer == null ? "(Missing layer)" : layer.name);
-                paintLayer = EditorGUILayout.Popup("Layer", Mathf.Clamp(paintLayer, 0, names.Length - 1), names);
+                paintBrush = (PaintBrush)EditorGUILayout.EnumPopup("Brush", paintBrush);
+                if (paintBrush == PaintBrush.Layer)
+                {
+                    var names = Array.ConvertAll(layers, layer => layer == null ? "(Missing layer)" : layer.name);
+                    paintLayer = EditorGUILayout.Popup("Layer", Mathf.Clamp(paintLayer, 0, names.Length - 1), names);
+                }
+                else
+                {
+                    var baseline = FindPaintBaseline(data);
+                    if (baseline == null || !baseline.Matches(data))
+                    {
+                        StopBrush();
+                        EditorGUILayout.HelpBox("A matching generated paint layer is needed. Use Regenerate Base Paint to set one up on an older Terrain.", MessageType.Info);
+                        return;
+                    }
+                    EditorGUILayout.HelpBox("Restore Generated returns all samples inside the brush to the current generated paint.", MessageType.Info);
+                }
             }
             else
             {
                 sculptBrush = (SculptBrush)EditorGUILayout.EnumPopup("Brush", sculptBrush);
                 if (sculptBrush == SculptBrush.Flatten)
                     EditorGUILayout.HelpBox("Flatten uses the height under the first click of each stroke.", MessageType.Info);
+                else if (sculptBrush == SculptBrush.RestoreGenerated)
+                    EditorGUILayout.HelpBox("Restore Generated blends this area toward the original World heightmap.", MessageType.Info);
             }
 
             brushSize = EditorGUILayout.Slider("Diameter", brushSize, 5f, 200f);
-            brushStrength = EditorGUILayout.Slider("Strength", brushStrength, .01f, 1f);
+            if (!paint || paintBrush != PaintBrush.RestoreGenerated)
+                brushStrength = EditorGUILayout.Slider("Strength", brushStrength, .01f, 1f);
 
             if (brushTerrain != null)
             {
@@ -129,7 +150,13 @@ namespace GrandStrategy.WorldGeneration.Editor
                 strokeGroup = Undo.GetCurrentGroup();
                 Undo.SetCurrentGroupName(undoName);
                 Undo.RegisterCompleteObjectUndo(data, undoName);
-                if (brushPaint) Undo.RegisterCompleteObjectUndo(data.alphamapTextures, undoName);
+                if (brushPaint)
+                {
+                    Undo.RegisterCompleteObjectUndo(data.alphamapTextures, undoName);
+                    var baseline = FindPaintBaseline(data);
+                    strokePaintBaseline = baseline != null && baseline.Matches(data) ? baseline : null;
+                    if (strokePaintBaseline != null) Undo.RegisterCompleteObjectUndo(strokePaintBaseline, undoName);
+                }
                 brushControl = control;
                 GUIUtility.hotControl = control;
                 brushView = scene;
@@ -161,7 +188,11 @@ namespace GrandStrategy.WorldGeneration.Editor
             var data = brushTerrain == null ? null : brushTerrain.terrainData;
             if (data != null)
             {
-                if (brushPaint) MarkPaintDirty(data);
+                if (brushPaint)
+                {
+                    MarkPaintDirty(data);
+                    if (strokePaintBaseline != null) EditorUtility.SetDirty(strokePaintBaseline);
+                }
                 else
                 {
                     data.SyncHeightmap();
@@ -172,6 +203,7 @@ namespace GrandStrategy.WorldGeneration.Editor
             Undo.CollapseUndoOperations(strokeGroup);
             strokeGroup = -1;
             brushView = null;
+            strokePaintBaseline = null;
             SceneView.RepaintAll();
         }
 
@@ -192,14 +224,21 @@ namespace GrandStrategy.WorldGeneration.Editor
             if (brushPaint)
             {
                 var weights = data.GetAlphamaps(area.x, area.y, area.width, area.height);
-                if ((uint)paintLayer >= (uint)weights.GetLength(2)) return;
+                var restore = paintBrush == PaintBrush.RestoreGenerated;
+                if (restore ? strokePaintBaseline == null : (uint)paintLayer >= (uint)weights.GetLength(2)) return;
                 for (var y = 0; y < area.height; y++)
                     for (var x = 0; x < area.width; x++)
                     {
                         var mix = Strength(x, y);
                         if (mix == 0f) continue;
-                        for (var layer = 0; layer < weights.GetLength(2); layer++)
-                            weights[y, x, layer] = Mathf.Lerp(weights[y, x, layer], layer == paintLayer ? 1f : 0f, mix);
+                        if (restore)
+                            strokePaintBaseline.RestoreCell(weights, area, x, y);
+                        else
+                        {
+                            strokePaintBaseline?.MarkManual(area, x, y, mix * (1f - weights[y, x, paintLayer]));
+                            for (var layer = 0; layer < weights.GetLength(2); layer++)
+                                weights[y, x, layer] = Mathf.Lerp(weights[y, x, layer], layer == paintLayer ? 1f : 0f, mix);
+                        }
                     }
                 data.SetAlphamaps(area.x, area.y, weights);
                 return;
@@ -216,8 +255,15 @@ namespace GrandStrategy.WorldGeneration.Editor
                     if (mix == 0f) continue;
                     var sourceX = Mathf.FloorToInt((float)(left + x) / (width - 1) * (recipe.Width - 1));
                     var sourceY = Mathf.FloorToInt((float)(bottom + y) / (height - 1) * (recipe.Height - 1));
-                    if (!brushWater.AllowsSculpt(sourceX, sourceY, brushRivers)) continue;
                     var old = original[y, x];
+                    if (sculptBrush == SculptBrush.RestoreGenerated)
+                    {
+                        var generated = SampleGeneratedHeight(brushWater.Source,
+                            (float)(left + x) / (width - 1), (float)(bottom + y) / (height - 1));
+                        heights[y, x] = Mathf.Lerp(old, generated, mix);
+                        continue;
+                    }
+                    if (!brushWater.AllowsSculpt(sourceX, sourceY, brushRivers)) continue;
                     var next = sculptBrush switch
                     {
                         SculptBrush.Raise => old + mix * 5f / size.y,
