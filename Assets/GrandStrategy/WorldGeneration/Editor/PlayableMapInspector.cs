@@ -75,6 +75,8 @@ namespace GrandStrategy.WorldGeneration.Editor
 
                 if (assigned.terrainData != null && world != null)
                 {
+                    EditorGUILayout.PropertyField(serializedObject.FindProperty("terrainComparison"),
+                        new GUIContent("Play Mode Terrain", "Compare the generated terrain and your edits on the same mesh and camera view."));
                     meshDetail.intValue = EditorGUILayout.IntPopup(new GUIContent("Play Mode Mesh Detail",
                         "Subdivisions along the longer side. Finer meshes take longer to build and use more memory."),
                         meshDetail.intValue, MeshDetailLabels, MeshDetailValues);

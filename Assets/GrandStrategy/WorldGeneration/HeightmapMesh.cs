@@ -23,7 +23,7 @@ namespace GrandStrategy.WorldGeneration
         // Sample the generated and authored heights in the same UV space. Water and its immediate banks
         // keep their generated heights.
         public static Mesh Create(HeightmapResult world, float heightScale, int longestSide = 256,
-            TerrainData authored = null, WaterMap water = null, byte[] rivers = null)
+            TerrainData authored = null, WaterMap water = null, byte[] rivers = null, bool useAuthoredHeights = true)
         {
             if (world == null) throw new ArgumentNullException(nameof(world));
             if (float.IsNaN(heightScale) || float.IsInfinity(heightScale) || heightScale <= 0 || heightScale > 1)
@@ -34,7 +34,9 @@ namespace GrandStrategy.WorldGeneration
             var grid = GridSize(width, height, longestSide, authoredResolution);
             var columns = grid.x;
             var rows = grid.y;
-            var edited = authored == null ? null : authored.GetHeights(0, 0, authoredResolution, authoredResolution);
+            // Comparison views share the editable heightmap's mesh density even when sampling generated heights.
+            var edited = authored != null && useAuthoredHeights
+                ? authored.GetHeights(0, 0, authoredResolution, authoredResolution) : null;
             if (edited != null && water == null)
                 throw new ArgumentNullException(nameof(water));
             var vertices = new Vector3[columns * rows]; var uvs = new Vector2[vertices.Length];

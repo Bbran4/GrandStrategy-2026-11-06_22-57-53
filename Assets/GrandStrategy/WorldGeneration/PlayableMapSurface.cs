@@ -41,7 +41,8 @@ namespace GrandStrategy.WorldGeneration
         // Validate the world and province pair first, then build rendering and geography from the same
         // underlying world samples.
         public PlayableMapSurface(WorldHeightmap world, ProvinceMapAsset provinces, MapTreeCatalog treeCatalog,
-            TerrainData authored = null, int authoredMeshDetail = 1024)
+            TerrainData authored = null, int authoredMeshDetail = 1024,
+            bool useAuthoredHeights = true, bool useAuthoredPaint = true)
         {
             var riverMap = world.ReadRivers();
             var terrain = riverMap?.Terrain ?? world.Read();
@@ -63,8 +64,12 @@ namespace GrandStrategy.WorldGeneration
                 if (groundMaterial.shader == null || !groundMaterial.shader.isSupported)
                     throw new InvalidOperationException("The playable map shader requires Universal Render Pipeline.");
 
+                var authoredSize = new Vector3(Aspect, world.HeightScale, 1f) * PlayableMap.TerrainAuthoringScale;
+                if (authored != null && (authored.size - authoredSize).sqrMagnitude > 0.0001f)
+                    throw new InvalidOperationException("Restore the scene Terrain's original size to keep it aligned with the map.");
+
                 mesh = HeightmapMesh.Create(terrain, world.HeightScale, authored == null ? 512 : Mathf.Clamp(authoredMeshDetail, 512, 2048),
-                    authored, water, rivers);
+                    authored, water, rivers, useAuthoredHeights);
                 colours = CreateTexture("Base colours and land coverage", false, FilterMode.Trilinear, true);
                 regions = CreateTexture("Province indices", true, FilterMode.Point, false);
                 biomeSurface = CreateTexture("Biome IDs, ocean shoals, freshwater and snow", true, FilterMode.Trilinear, true);
@@ -74,7 +79,7 @@ namespace GrandStrategy.WorldGeneration
                 FillTextures(biomes, terrain);
                 material = new Material(groundMaterial) { hideFlags = HideFlags.DontSave };
                 material.SetTexture("_MapColours", colours);
-                BindAuthoredPaint(material, authored, world.HeightScale);
+                BindAuthoredPaint(material, useAuthoredPaint ? authored : null, authoredSize);
                 material.SetTexture("_BiomeSurface", biomeSurface);
                 var flowTexture = riverFlow != null ? riverFlow : Texture2D.blackTexture;
                 material.SetTexture("_RiverFlow", flowTexture);
@@ -136,12 +141,8 @@ namespace GrandStrategy.WorldGeneration
 
         // Bind the editor Terrain's first control texture and its three paint layers. The base channel
         // leaves the generated material visible.
-        private void BindAuthoredPaint(Material target, TerrainData authored, float heightScale)
+        private static void BindAuthoredPaint(Material target, TerrainData authored, Vector3 size)
         {
-            var size = new Vector3(Aspect, heightScale, 1f) * PlayableMap.TerrainAuthoringScale;
-            if (authored != null && (authored.size - size).sqrMagnitude > 0.0001f)
-                throw new InvalidOperationException("Restore the scene Terrain's original size to keep it aligned with the map.");
-
             var layers = authored == null ? null : authored.terrainLayers;
             if (layers?.Length > 4)
                 throw new InvalidOperationException("The scene Terrain supports the base layer and up to three painted layers.");

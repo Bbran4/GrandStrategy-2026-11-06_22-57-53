@@ -21,6 +21,8 @@ namespace GrandStrategy.WorldGeneration
         [SerializeField, HideInInspector] private Terrain authoringTerrain;
         [SerializeField, HideInInspector] private WorldHeightmap authoringWorld;
         [SerializeField, HideInInspector] private int authoredMeshDetail = 1024;
+        private enum TerrainComparison { SculptedAndPainted, Generated, SculptedOnly, PaintOnly }
+        [SerializeField, HideInInspector] private TerrainComparison terrainComparison;
         [SerializeField, HideInInspector] private bool startAtReferenceView;
         [SerializeField, HideInInspector] private Vector2 referenceViewFocus;
         public const float ReferenceViewZoom = .20f;
@@ -84,8 +86,10 @@ namespace GrandStrategy.WorldGeneration
                 if (authoringTerrain != null && (authoringWorld != world || authoringTerrain.terrainData == null
                     || transform.IsChildOf(authoringTerrain.transform)))
                     throw new InvalidOperationException("Recreate the scene Terrain for the assigned World asset.");
+                var useSculpt = terrainComparison != TerrainComparison.Generated && terrainComparison != TerrainComparison.PaintOnly;
+                var usePaint = terrainComparison != TerrainComparison.Generated && terrainComparison != TerrainComparison.SculptedOnly;
                 surface = new PlayableMapSurface(world, provinceMap, treeCatalog,
-                    authoringTerrain == null ? null : authoringTerrain.terrainData, authoredMeshDetail);
+                    authoringTerrain == null ? null : authoringTerrain.terrainData, authoredMeshDetail, useSculpt, usePaint);
                 mapKey = CampaignState.MapKey(surface.Map, world.Seed);
                 savePath = CampaignSaveFile.PathFor(mapKey);
                 hasSave = File.Exists(savePath);
