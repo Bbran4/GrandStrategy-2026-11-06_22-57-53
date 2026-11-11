@@ -13,6 +13,8 @@ namespace GrandStrategy.WorldGeneration.Editor
     public sealed class PlayableMapInspector : UnityEditor.Editor
     {
         private const float DefaultSnowLine = .55f;
+        private const string ScenePreviewName = "Terrain Scene Preview";
+        private const string SeaMaterialName = "Scene Preview Sea";
         private static readonly GUIContent[] MeshDetailLabels =
         {
             new GUIContent("512 (comparison)"), new GUIContent("1024 (standard)"), new GUIContent("2048 (fine)")
@@ -78,7 +80,10 @@ namespace GrandStrategy.WorldGeneration.Editor
 
                 using (new EditorGUI.DisabledScope(world == null || source.objectReferenceValue != world
                     || assigned.terrainData == null || EditorApplication.isPlayingOrWillChangePlaymode))
+                {
+                    DrawScenePreview(assigned, world);
                     DrawMountainStamp(assigned, world);
+                }
 
                 using (new EditorGUI.DisabledScope(world == null || source.objectReferenceValue != world
                     || assigned.terrainData == null || assigned.terrainData.terrainLayers.Length != 4
@@ -302,6 +307,7 @@ namespace GrandStrategy.WorldGeneration.Editor
                 var native = terrainObject.GetComponent<Terrain>();
                 native.heightmapPixelError = 2;
                 native.drawInstanced = true;
+                CreateScenePreview(native, world.SeaLevel);
                 AssetDatabase.SaveAssets();
 
                 Undo.RegisterCreatedObjectUndo(terrainObject, "Create Scene Terrain");
@@ -317,6 +323,97 @@ namespace GrandStrategy.WorldGeneration.Editor
                 if (terrainObject != null) DestroyImmediate(terrainObject);
                 if (AssetDatabase.Contains(data)) AssetDatabase.DeleteAsset(assetPath);
                 else DestroyImmediate(data);
+                throw;
+            }
+        }
+
+        private static void DrawScenePreview(Terrain terrain, WorldHeightmap world)
+        {
+            var preview = terrain.transform.Find(ScenePreviewName);
+            var enabled = preview != null && preview.gameObject.activeSelf;
+            var next = EditorGUILayout.Toggle(new GUIContent("Sea Level and Sun",
+                "Show a sea-level surface and directional light while editing the Terrain."), enabled);
+            if (next == enabled) return;
+
+            if (preview == null)
+            {
+                var created = CreateScenePreview(terrain, world.SeaLevel);
+                if (created == null) return;
+                Undo.RegisterCreatedObjectUndo(created, "Create Terrain Scene Preview");
+                AssetDatabase.SaveAssets();
+            }
+            else
+            {
+                Undo.RecordObject(preview.gameObject, "Toggle Terrain Scene Preview");
+                preview.gameObject.SetActive(next);
+            }
+
+            EditorSceneManager.MarkSceneDirty(terrain.gameObject.scene);
+            SceneView.RepaintAll();
+        }
+
+        // Keep the preview under the Terrain so it stays with the editing canvas and disappears
+        // when Play Mode takes over. The EditorOnly tag also keeps the preview out of builds.
+        private static GameObject CreateScenePreview(Terrain terrain, float seaLevel)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null)
+            {
+                Debug.LogWarning("Could not find the URP Unlit shader for the sea-level preview.", terrain);
+                return null;
+            }
+
+            var data = terrain.terrainData;
+            var path = AssetDatabase.GetAssetPath(data);
+            if (string.IsNullOrEmpty(path))
+            {
+                Debug.LogWarning("Save the TerrainData as an asset before creating its preview.", terrain);
+                return null;
+            }
+
+            Material sea = null;
+            foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
+                if (asset is Material material && material.name == SeaMaterialName)
+                {
+                    sea = material;
+                    break;
+                }
+            if (sea == null)
+            {
+                sea = new Material(shader) { name = SeaMaterialName };
+                sea.SetColor("_BaseColor", new Color(.10f, .26f, .33f, 1f));
+                AssetDatabase.AddObjectToAsset(sea, data);
+            }
+
+            var root = new GameObject(ScenePreviewName) { tag = "EditorOnly" };
+            root.transform.SetParent(terrain.transform, false);
+            try
+            {
+                var water = GameObject.CreatePrimitive(PrimitiveType.Plane);
+                water.name = "Sea Level";
+                water.transform.SetParent(root.transform, false);
+                var size = data.size;
+                // The built-in plane spans ten units. Place it slightly below sea level to avoid z-fighting.
+                water.transform.localPosition = new Vector3(size.x * .5f, seaLevel * size.y - .1f, size.z * .5f);
+                water.transform.localScale = new Vector3(size.x * .1f, 1f, size.z * .1f);
+                DestroyImmediate(water.GetComponent<Collider>());
+                var renderer = water.GetComponent<MeshRenderer>();
+                renderer.sharedMaterial = sea;
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+
+                var sun = new GameObject("Preview Sun", typeof(Light));
+                sun.transform.SetParent(root.transform, false);
+                sun.transform.rotation = Quaternion.LookRotation(new Vector3(1f, -1.075f, -1f));
+                var light = sun.GetComponent<Light>();
+                light.type = LightType.Directional;
+                light.intensity = 1f;
+                light.shadows = LightShadows.Soft;
+                return root;
+            }
+            catch
+            {
+                DestroyImmediate(root);
                 throw;
             }
         }
