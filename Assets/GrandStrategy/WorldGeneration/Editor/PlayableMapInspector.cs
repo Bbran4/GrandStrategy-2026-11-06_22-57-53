@@ -10,6 +10,9 @@ namespace GrandStrategy.WorldGeneration.Editor
     [CustomEditor(typeof(PlayableMap))]
     public sealed class PlayableMapInspector : UnityEditor.Editor
     {
+        private const float DefaultSnowLine = .55f;
+        private float snowLine = DefaultSnowLine;
+
         public override void OnInspectorGUI()
         {
             DrawDefaultInspector();
@@ -24,6 +27,9 @@ namespace GrandStrategy.WorldGeneration.Editor
                 "Sculpt and paint the scene Terrain in Edit Mode, then save the scene. Play Mode reads its heights and paint. " +
                 "Keep the first Terrain Layer as the base. The next three layers blend over the generated ground. " +
                 "The generated coastline and riverbanks are protected from height edits.", MessageType.Info);
+            snowLine = EditorGUILayout.Slider(new GUIContent("Snow Line",
+                "Fraction of the elevation range above sea level. Steep faces retain less snow."),
+                snowLine, .25f, .9f);
 
             var assigned = terrain.objectReferenceValue as Terrain;
             if (assigned != null)
@@ -35,6 +41,26 @@ namespace GrandStrategy.WorldGeneration.Editor
 
                 if (source.objectReferenceValue != world)
                     EditorGUILayout.HelpBox("This Terrain was created for a different World asset.", MessageType.Warning);
+
+                using (new EditorGUI.DisabledScope(world == null || source.objectReferenceValue != world
+                    || assigned.terrainData == null || assigned.terrainData.terrainLayers.Length != 4
+                    || EditorApplication.isPlayingOrWillChangePlaymode))
+                {
+                    if (GUILayout.Button("Repaint from Height and Slope") && EditorUtility.DisplayDialog(
+                        "Repaint Scene Terrain?", "This replaces the current paint, including brush strokes. Sculpted heights are kept.",
+                        "Repaint", "Cancel"))
+                    {
+                        var data = assigned.terrainData;
+                        var weights = BuildPaint(data, world.SeaLevel, snowLine);
+                        const string undoName = "Repaint Scene Terrain";
+                        Undo.RegisterCompleteObjectUndo(data, undoName);
+                        Undo.RegisterCompleteObjectUndo(data.alphamapTextures, undoName);
+                        data.SetAlphamaps(0, 0, weights);
+                        EditorUtility.SetDirty(data);
+                        foreach (var texture in data.alphamapTextures) EditorUtility.SetDirty(texture);
+                        SceneView.RepaintAll();
+                    }
+                }
             }
 
             using (new EditorGUI.DisabledScope(world == null || EditorApplication.isPlayingOrWillChangePlaymode))
@@ -81,7 +107,10 @@ namespace GrandStrategy.WorldGeneration.Editor
                 AssetDatabase.CreateAsset(data, assetPath);
                 var ground = Resources.Load<Material>("PlayableMapGround");
                 if (ground != null)
+                {
                     AddLayers(data, ground);
+                    data.SetAlphamaps(0, 0, BuildPaint(data, world.SeaLevel, snowLine));
+                }
 
                 terrainObject = Terrain.CreateTerrainGameObject(data);
                 terrainObject.name = "Map Terrain (Authoring)";
@@ -120,12 +149,6 @@ namespace GrandStrategy.WorldGeneration.Editor
                 CreateLayer("Sparse Grass", "_SparseGrass", 16f)
             };
             data.terrainLayers = layers;
-            var resolution = data.alphamapResolution;
-            var weights = new float[resolution, resolution, layers.Length];
-            for (var y = 0; y < resolution; y++)
-                for (var x = 0; x < resolution; x++)
-                    weights[y, x, 0] = 1f;
-            data.SetAlphamaps(0, 0, weights);
 
             TerrainLayer CreateLayer(string label, string property, float tileSize)
             {
@@ -139,6 +162,53 @@ namespace GrandStrategy.WorldGeneration.Editor
                 AssetDatabase.AddObjectToAsset(layer, data);
                 return layer;
             }
+        }
+
+        private static float[,,] BuildPaint(TerrainData data, float seaLevel, float snowLine)
+        {
+            var resolution = data.alphamapResolution;
+            var weights = new float[resolution, resolution, 4];
+            var lastHeight = data.heightmapResolution - 1;
+            var height = data.GetHeights(0, 0, lastHeight + 1, lastHeight + 1);
+            var step = data.heightmapScale;
+
+            for (var y = 0; y < resolution; y++)
+                for (var x = 0; x < resolution; x++)
+                {
+                    var u = (float)x / (resolution - 1);
+                    var v = (float)y / (resolution - 1);
+                    var hx = Mathf.RoundToInt(u * lastHeight);
+                    var hy = Mathf.RoundToInt(v * lastHeight);
+                    var left = Mathf.Max(0, hx - 1);
+                    var right = Mathf.Min(lastHeight, hx + 1);
+                    var lower = Mathf.Max(0, hy - 1);
+                    var upper = Mathf.Min(lastHeight, hy + 1);
+                    var altitude = (height[hy, hx] - seaLevel) / Mathf.Max(.0001f, 1f - seaLevel);
+                    if (altitude <= 0f)
+                    {
+                        weights[y, x, 0] = 1f;
+                        continue;
+                    }
+
+                    var eastSlope = (height[hy, right] - height[hy, left]) * step.y / ((right - left) * step.x);
+                    var northSlope = (height[upper, hx] - height[lower, hx]) * step.y / ((upper - lower) * step.z);
+                    var slope = Mathf.Atan(Mathf.Sqrt(eastSlope * eastSlope + northSlope * northSlope)) * Mathf.Rad2Deg;
+                    var variation = Mathf.PerlinNoise(u * 46f + 12f, v * 46f + 31f) - .5f;
+                    var rock = Fade(slope + 14f * variation, 21f, 43f) * Fade(altitude, .025f, .13f);
+                    var snow = Fade(altitude + .15f * variation, snowLine - .06f, snowLine + .07f)
+                        * (1f - Fade(slope, 24f, 51f));
+                    var grass = Fade(slope + 9f * variation, 9f, 29f) * Fade(altitude, .05f, .25f) * .64f;
+                    var bare = 1f - snow;
+                    weights[y, x, 0] = bare * (1f - rock) * (1f - grass);
+                    weights[y, x, 1] = bare * rock;
+                    weights[y, x, 2] = snow;
+                    weights[y, x, 3] = bare * (1f - rock) * grass;
+                }
+
+            return weights;
+
+            static float Fade(float value, float start, float end)
+                => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(start, end, value));
         }
 
         private static float[,] Resample(HeightmapResult source, int resolution)
