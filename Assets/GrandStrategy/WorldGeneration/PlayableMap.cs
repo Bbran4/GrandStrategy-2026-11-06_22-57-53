@@ -435,6 +435,7 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label($"Subsistence harvest: +{campaign.SubsistenceFood(selected)} food / {CampaignState.ProductionInterval} days outside winter");
                 if (selected == campaign.Capital)
                 {
+                    GUILayout.Label($"Capital happiness: {campaign.CapitalHappiness}/100");
                     if (!CanBuildAtSelection)
                         GUILayout.Label("Select dry land within the gold city limits to unlock construction.");
                     DrawConstruction();
@@ -558,6 +559,12 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
                 GUILayout.Label("Treasury", hudHeading);
+                GUILayout.Label("Tax law");
+                GUILayout.BeginHorizontal();
+                DrawTaxPolicy(TaxPolicy.Relief);
+                DrawTaxPolicy(TaxPolicy.Standard);
+                DrawTaxPolicy(TaxPolicy.Heavy);
+                GUILayout.EndHorizontal();
                 GUILayout.Label($"Tax rate: +{campaign.TaxIncome:N0} coin every {CampaignState.TaxInterval} days");
                 GUILayout.Label($"Recorded taxes +{campaign.TaxCollected:N0} | Trade +{campaign.TradeReceipts:N0} / −{campaign.TradeSpending:N0}");
                 DrawTradeAgreements();
@@ -605,6 +612,14 @@ namespace GrandStrategy.WorldGeneration
                     break;
                 }
             }
+        }
+
+        private void DrawTaxPolicy(TaxPolicy policy)
+        {
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.Taxes != policy;
+            if (GUILayout.Button(policy.ToString())) campaign.SetTaxPolicy(policy);
+            GUI.enabled = wasEnabled;
         }
 
         private bool CanBuildAtSelection => clickedCell >= 0 && selected == campaign.Capital

@@ -472,6 +472,21 @@ internal static class Program
             "Integration must transfer ownership on the scheduled day.");
         Require(restored.TryStartIntegration(2), "A new border must open further integration.");
 
+        var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
+        var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);
+        heavyTaxes.SetTaxPolicy(TaxPolicy.Heavy);
+        Require(heavyTaxes.TaxIncome > standardTaxes.TaxIncome
+            && heavyTaxes.CapitalHappiness < standardTaxes.CapitalHappiness,
+            "Heavy taxes must trade capital happiness for coin.");
+        standardTaxes.Paused = heavyTaxes.Paused = false;
+        standardTaxes.Advance(14);
+        heavyTaxes.Advance(14);
+        Require(heavyTaxes.Population(0) < standardTaxes.Population(0),
+            "Heavy taxes must slow fed capital growth.");
+        var taxSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(heavyTaxes.ToSave(), json), json);
+        Require(CampaignState.Restore(map, key, taxSave, 5).Taxes == TaxPolicy.Heavy,
+            "Tax policy must survive save and load.");
+
         var granary = CampaignState.Found(map, key, 0, "Granary", 0);
         var initialWood = granary.Wood;
         Require(granary.TryBuildGranary() && !granary.TryBuildGranary() && !granary.TryRecruitWarband()

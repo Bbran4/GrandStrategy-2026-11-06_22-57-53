@@ -11,6 +11,8 @@ namespace GrandStrategy.WorldGeneration
     [Flags]
     internal enum SettlementBuilding { Farm = 1, LumberCamp = 2, IronMine = 4, Docks = 8 }
 
+    internal enum TaxPolicy { Standard, Relief, Heavy }
+
     internal enum TradeResource { Coin, Food, Wood, Iron }
 
     [Serializable]
@@ -56,6 +58,7 @@ namespace GrandStrategy.WorldGeneration
         public int Day;
         public int Speed;
         public int Coin;
+        public TaxPolicy Taxes;
         public bool[] Owned;
         public int[] Pop;
         public int IntegrationTarget;
@@ -146,7 +149,36 @@ namespace GrandStrategy.WorldGeneration
                 return total;
             }
         }
-        public long TaxIncome => (OwnedPopulation + 99) / 100;
+        public TaxPolicy Taxes => data.Taxes;
+        public long TaxIncome
+        {
+            get
+            {
+                var standard = (OwnedPopulation + 99) / 100;
+                return Taxes switch
+                {
+                    TaxPolicy.Relief => standard / 2,
+                    TaxPolicy.Heavy => (standard * 3 + 1) / 2,
+                    _ => standard
+                };
+            }
+        }
+
+        public void SetTaxPolicy(TaxPolicy policy)
+        {
+            if (!Enum.IsDefined(typeof(TaxPolicy), policy))
+                throw new ArgumentOutOfRangeException(nameof(policy));
+            data.Taxes = policy;
+        }
+
+        public int CapitalHappiness => Happiness(Food >= FoodUpkeep);
+
+        private int Happiness(bool fed)
+        {
+            var taxEffect = Taxes switch { TaxPolicy.Relief => 15, TaxPolicy.Heavy => -30, _ => 0 };
+            var buildings = (HasGranary ? 5 : 0) + (HasBuilding(Capital, SettlementBuilding.Farm) ? 5 : 0);
+            return 60 + taxEffect + buildings - (fed ? 0 : 25);
+        }
         public long TaxCollected => data.TaxCollected;
         public long TradeReceipts => data.TradeReceipts;
         public long TradeSpending => data.TradeSpending;
@@ -242,7 +274,7 @@ namespace GrandStrategy.WorldGeneration
             if (!IsLand(map, capital) || !IsValidName(save.TribeName) || save.Colour < 0 || save.Colour >= colourCount
                 || save.Day < 1 || !IsValidSpeed(save.Speed) || save.Coin < 0 || save.Coin > (save.Version < 3 ? StartingCoin : ResourceLimit)
                 || save.Owned?.Length != map.Provinces.Length || save.Pop?.Length != map.Provinces.Length
-                || !save.Owned[capital])
+                || !save.Owned[capital] || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes))
                 throw new ArgumentException("The save contains invalid campaign data.");
 
             for (var i = 0; i < save.Pop.Length; i++)
@@ -802,7 +834,10 @@ namespace GrandStrategy.WorldGeneration
             {
                 var population = data.Pop[province];
                 if (!Owns(province) || population == 0) continue;
-                var change = (int)Math.Ceiling(population * rate);
+                var growth = !starving && province == Capital
+                    ? rate * Math.Min(Taxes == TaxPolicy.Relief ? 1.25 : 1d, Happiness(true) / 60d)
+                    : rate;
+                var change = (int)Math.Ceiling(population * growth);
                 change = starving ? -change : Math.Min(change, int.MaxValue - population);
                 data.Pop[province] += change;
                 data.LastPopulationChange += change;
