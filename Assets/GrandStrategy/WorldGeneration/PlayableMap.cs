@@ -126,6 +126,7 @@ namespace GrandStrategy.WorldGeneration
                     OnProvinceJoined(hadExpanded);
             }
 
+            surface.RefreshInfluence();
             surface.SetCityLimitsVisible(campaign, selected);
 
             var keyboard = Keyboard.current;
@@ -666,11 +667,8 @@ namespace GrandStrategy.WorldGeneration
                 && campaign.TryFoundSettlement(clickedCell))
             {
                 surface.AddVillage(clickedCell);
-                if (claimed)
-                {
-                    surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
-                    showTrade = false;
-                }
+                surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
+                if (claimed) showTrade = false;
             }
             GUI.enabled = wasEnabled;
         }
@@ -897,12 +895,12 @@ namespace GrandStrategy.WorldGeneration
             DrawMapViewButton("Provinces", MapViewMode.Provinces, x + (slot + 4) * 2, y, slot);
             DrawMapViewButton("Territories", MapViewMode.Territories, x, y + 26, slot, surface.HasTerritories);
             DrawMapViewButton("Realm", MapViewMode.Realm, x + slot + 4, y + 26, slot);
-            DrawMapViewButton("Ownership", MapViewMode.Ownership, x + (slot + 4) * 2, y + 26, slot);
+            DrawMapViewButton("Influence", MapViewMode.Ownership, x + (slot + 4) * 2, y + 26, slot);
 
             var status = mapView switch
             {
                 MapViewMode.Realm => "Province and territory borders",
-                MapViewMode.Ownership => campaign == null ? "No provinces held" : "Your colour marks provinces held",
+                MapViewMode.Ownership => campaign == null ? "Found a settlement to see its influence" : "Settlement reach based on population and terrain",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
                     : "Click a province to inspect its biome",
                 MapViewMode.Territories => "Land, sea & navigable river territories",

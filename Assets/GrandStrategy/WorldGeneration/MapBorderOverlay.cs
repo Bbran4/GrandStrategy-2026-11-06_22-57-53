@@ -69,7 +69,7 @@ namespace GrandStrategy.WorldGeneration
                 || mode == MapViewMode.Territories || mode == MapViewMode.Realm);
             if (showTerritories && territories.Mesh == null)
                 territories.Mesh = CreateMesh(territoryRaster, "Territory outlines");
-            provinces.Visible = mode == MapViewMode.Provinces || mode == MapViewMode.Ownership
+            provinces.Visible = mode == MapViewMode.Provinces
                 || mode == MapViewMode.Realm;
             territories.Visible = showTerritories;
         }

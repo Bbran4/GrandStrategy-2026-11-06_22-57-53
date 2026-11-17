@@ -35,6 +35,9 @@ namespace GrandStrategy.WorldGeneration
         private GameObject surface;
         private WaterMap water;
         private byte[] rivers;
+        private float[] elevations;
+        private CampaignState influenceCampaign;
+        private int influenceFoodPeriod = -1;
 
         public ProvinceMap Map { get; }
         public bool HasTerritories => borders.HasTerritories;
@@ -50,6 +53,7 @@ namespace GrandStrategy.WorldGeneration
             var riverMap = world.ReadRivers();
             var terrain = riverMap?.Terrain ?? world.Read();
             ValidatePair(terrain, imported);
+            elevations = terrain.Elevations;
             water = WaterMap.Classify(terrain);
             rivers = riverMap?.BuildSurfaceDirections();
             var settings = world.ReadClimateSettings();
@@ -444,38 +448,85 @@ namespace GrandStrategy.WorldGeneration
         {
             borders.SetView(mode);
             viewMode = mode;
+            RefreshInfluence();
             UpdateOwnershipVisibility();
             material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain || mode == MapViewMode.Biomes ? 0f : 1f);
             material.SetFloat("_ShowBiomes", mode == MapViewMode.Biomes ? 1f : 0f);
         }
 
-        // Build a compact lookup indexed by province ID so the shader can colour owned land.
         public void SetOwnership(CampaignState campaign, Color colour)
         {
-            if (ownership == null)
+            influenceCampaign = campaign;
+            influenceFoodPeriod = -1;
+            material.SetVector("_OwnershipColour", QualitySettings.activeColorSpace == ColorSpace.Linear ? colour.linear : colour);
+            RefreshInfluence();
+        }
+
+        public void RefreshInfluence()
+        {
+            var campaign = influenceCampaign;
+            if (campaign == null || viewMode != MapViewMode.Ownership) return;
+            var foodPeriod = campaign.Day / CampaignState.FoodInterval;
+            if (foodPeriod == influenceFoodPeriod) return;
+
+            ownership ??= CreateTexture("Settlement influence", true, FilterMode.Bilinear, false);
+            var pixels = ownership.GetRawTextureData<Color32>();
+            for (var i = 0; i < pixels.Length; i++) pixels[i] = default;
+
+            var settlementsPerProvince = new Dictionary<int, int> { [campaign.Capital] = 1 };
+            foreach (var cell in campaign.SettlementCells)
             {
-                var size = Mathf.NextPowerOfTwo(Mathf.CeilToInt(Mathf.Sqrt(Map.Provinces.Length + 1)));
-                ownership = new Texture2D(size, size, TextureFormat.RGBA32, false, true)
-                {
-                    name = "Active campaign ownership", hideFlags = HideFlags.DontSave,
-                    filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp
-                };
+                var province = campaign.SettlementProvince(cell);
+                settlementsPerProvince.TryGetValue(province, out var count);
+                settlementsPerProvince[province] = count + 1;
             }
 
-            var pixels = ownership.GetRawTextureData<Color32>();
-            // Index zero is unassigned. Clear every entry before publishing a loaded or updated campaign.
-            for (var index = 0; index < pixels.Length; index++)
-            {
-                var province = index - 1;
-                pixels[index] = new Color32(campaign.Owns(province) && CampaignState.IsLand(Map, province)
-                    ? (byte)255 : (byte)0, 0, 0, 255);
-            }
+            Spread(campaign.CapitalCell);
+            foreach (var cell in campaign.SettlementCells) Spread(cell);
+
             ownership.Apply(false, false);
-            var width = ownership.width;
             material.SetTexture("_OwnershipMask", ownership);
-            material.SetVector("_OwnershipGrid", new Vector4(width, 1f / width, Map.Provinces.Length, 0f));
-            material.SetVector("_OwnershipColour", QualitySettings.activeColorSpace == ColorSpace.Linear ? colour.linear : colour);
+            influenceFoodPeriod = foodPeriod;
             UpdateOwnershipVisibility();
+
+            void Spread(int origin)
+            {
+                var province = campaign.SettlementProvince(origin);
+                var population = (double)campaign.Population(province) / settlementsPerProvince[province];
+                // Express the reach in map units so the same world has comparable reach at higher raster resolutions.
+                var budget = Map.Height * Mathf.Clamp(.014f + .0014f * Mathf.Sqrt((float)population), .014f, .085f);
+                var costs = new Dictionary<int, float> { [origin] = 0f };
+                var frontier = new SortedSet<(float Cost, int Cell)> { (0f, origin) };
+                while (frontier.Count > 0)
+                {
+                    var step = frontier.Min;
+                    frontier.Remove(step);
+                    var cell = step.Cell;
+                    if (!IsRiver(cell)) pixels[cell] = new Color32(255, 0, 0, 255);
+
+                    var x = cell % Map.Width;
+                    var y = cell / Map.Width;
+                    if (x > 0) Visit(cell - 1);
+                    if (x + 1 < Map.Width) Visit(cell + 1);
+                    if (y > 0) Visit(cell - Map.Width);
+                    if (y + 1 < Map.Height) Visit(cell + Map.Width);
+
+                    void Visit(int next)
+                    {
+                        if (water[next] != WaterKind.Land) return;
+                        var cost = step.Cost + 1f + Mathf.Abs(elevations[next] - elevations[cell]) * (.16f * Map.Height)
+                            + (IsRiver(next) ? 5f : 0f);
+                        if (cost > budget) return;
+                        if (costs.TryGetValue(next, out var previous))
+                        {
+                            if (previous <= cost) return;
+                            frontier.Remove((previous, next));
+                        }
+                        costs[next] = cost;
+                        frontier.Add((cost, next));
+                    }
+                }
+            }
         }
 
         private void UpdateOwnershipVisibility()
