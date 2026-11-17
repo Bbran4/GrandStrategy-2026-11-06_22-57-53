@@ -8,6 +8,10 @@ namespace GrandStrategy.WorldGeneration
     internal sealed class MapSettlement : IDisposable
     {
         public const float BuildRadius = .008f;
+        public const float GranaryHalfWidth = .00125f;
+        private static readonly Vector2 FirstHut = new Vector2(-.0019f, .0014f);
+        private static readonly Vector2 SecondHut = new Vector2(.0005f, -.0021f);
+        private static readonly Vector2 ThirdHut = new Vector2(-.0026f, -.0017f);
         private static readonly Vector2 GranaryOffset = new Vector2(.0020f, .0018f);
         private readonly MapTerrainGeometry terrain;
         private readonly Func<Vector2, bool> isDryLand;
@@ -63,10 +67,25 @@ namespace GrandStrategy.WorldGeneration
             boundary.enabled = false;
         }
 
+        public static bool FitsGranary(Vector3 capital, Vector3 site)
+        {
+            var offset = new Vector2(site.x - capital.x, site.z - capital.z);
+            const float clearance = GranaryHalfWidth * 1.42f;
+            return offset.magnitude + clearance <= BuildRadius
+                && ClearOf(Vector2.zero, .00108f)
+                && ClearOf(FirstHut, .00078f)
+                && ClearOf(SecondHut, .00078f)
+                && ClearOf(ThirdHut, .00078f);
+
+            bool ClearOf(Vector2 building, float halfWidth)
+                => Mathf.Abs(offset.x - building.x) >= GranaryHalfWidth + halfWidth
+                    || Mathf.Abs(offset.y - building.y) >= (GranaryHalfWidth + halfWidth) * .77f;
+        }
+
         public void SetBoundaryVisible(bool visible) => boundary.enabled = visible;
 
         // Place or refresh the capital model on the sampled terrain surface.
-        public void Show(Vector3 capital, bool granary, bool expanded)
+        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite)
         {
             const int segments = 96;
             boundary.positionCount = segments;
@@ -89,15 +108,20 @@ namespace GrandStrategy.WorldGeneration
             var storeRoof = new Color32(139, 71, 43, 255);
 
             var hasGranarySite = TryAnchor(GranaryOffset, out var store);
+            if (granarySite.HasValue)
+            {
+                store = granarySite.Value;
+                hasGranarySite = true;
+            }
             if (granary && !hasGranarySite)
                 House(capital, .00125f, storeWalls, storeRoof);
             else
                 House(capital, .00108f, timber, thatch);
-            if (granary && hasGranarySite) House(store, .00125f, storeWalls, storeRoof);
+            if (granary && hasGranarySite) House(store, GranaryHalfWidth, storeWalls, storeRoof);
 
-            AddHut(new Vector2(-.0019f, .0014f));
-            AddHut(new Vector2(.0005f, -.0021f));
-            if (expanded) AddHut(new Vector2(-.0026f, -.0017f));
+            AddHut(FirstHut);
+            AddHut(SecondHut);
+            if (expanded) AddHut(ThirdHut);
 
             var next = new Mesh { name = "Capital village", hideFlags = HideFlags.DontSave };
             try

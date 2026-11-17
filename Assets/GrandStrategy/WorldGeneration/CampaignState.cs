@@ -65,6 +65,7 @@ namespace GrandStrategy.WorldGeneration
         public int Iron;
         public int[] Buildings;
         public bool Granary;
+        public int GranarySite; // Cell index plus one. Zero uses the original automatic placement.
         public bool Warband;
         public bool IronWarband;
         public int FoodReserve;
@@ -153,6 +154,7 @@ namespace GrandStrategy.WorldGeneration
         public IReadOnlyList<TradeAgreement> TradeAgreements => data.Agreements;
         public int TradeCapacity => 1 + BuildingTotal(SettlementBuilding.Docks);
         public bool HasGranary => data.Granary;
+        public int GranaryCell => data.GranarySite - 1;
         public bool HasWarband => data.Warband;
         public bool HasIronWarband => data.IronWarband;
         public bool CanUpgradeWarband => HasWarband && !HasIronWarband
@@ -419,12 +421,14 @@ namespace GrandStrategy.WorldGeneration
             return total;
         }
 
-        public bool TryBuildGranary()
+        public bool TryBuildGranary(int cell = -1)
         {
-            if (!CanBuildGranary) return false;
+            if (!CanBuildGranary || cell < -1 || cell >= map.ProvinceAt.Length
+                || (cell >= 0 && !IsLand(map, ProvinceAt(map, cell)))) return false;
             data.Wood -= GranaryWood;
             data.Coin -= GranaryCoin;
             data.Granary = true;
+            data.GranarySite = cell + 1;
             return true;
         }
 

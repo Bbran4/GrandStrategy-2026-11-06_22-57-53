@@ -356,10 +356,38 @@ namespace GrandStrategy.WorldGeneration
             => IsDryLandAt(uv) && MapSettlement.Contains(capital,
                 new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f));
 
-        public void SetCapital(Vector3 point, bool granary, bool expanded)
+        public bool CanPlaceGranary(Vector3 capital, int cell)
+        {
+            if (cell < 0 || cell >= Map.ProvinceAt.Length || !IsDryLand(cell)) return false;
+            var uv = CellCentre(cell);
+            var site = geometry.Sample(uv, out _);
+            if (!MapSettlement.FitsGranary(capital, site)) return false;
+
+            var halfWidth = MapSettlement.GranaryHalfWidth / Aspect;
+            var halfDepth = MapSettlement.GranaryHalfWidth * .77f;
+            var min = uv - new Vector2(halfWidth, halfDepth);
+            var max = uv + new Vector2(halfWidth, halfDepth);
+            if (min.x < 0f || min.y < 0f || max.x >= 1f || max.y >= 1f) return false;
+
+            var first = CellAt(min);
+            var last = CellAt(max);
+            for (var y = first / Map.Width; y <= last / Map.Width; y++)
+                for (var x = first % Map.Width; x <= last % Map.Width; x++)
+                    if (!IsDryLand(y * Map.Width + x)) return false;
+            return true;
+        }
+
+        private Vector2 CellCentre(int cell) => new Vector2(
+            (cell % Map.Width + .5f) / Map.Width, (cell / Map.Width + .5f) / Map.Height);
+
+        public void SetCapital(Vector3 point, bool granary, bool expanded, int granaryCell)
         {
             settlement ??= new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
-            settlement.Show(point, granary, expanded);
+            Vector3? granarySite = null;
+            if (granary && granaryCell >= 0 && granaryCell < Map.ProvinceAt.Length
+                && CanPlaceGranary(point, granaryCell))
+                granarySite = geometry.Sample(CellCentre(granaryCell), out _);
+            settlement.Show(point, granary, expanded, granarySite);
             nature.SetCapital(point);
             material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));
         }

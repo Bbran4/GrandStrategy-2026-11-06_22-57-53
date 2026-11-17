@@ -294,7 +294,7 @@ namespace GrandStrategy.WorldGeneration
             if (!surface.IsDryLand(next.CapitalCell))
                 throw new InvalidOperationException("The capital must be on dry land.");
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
-            surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None);
+            surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None, next.GranaryCell);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
             showTrade = showTradeContacts = false;
@@ -641,11 +641,14 @@ namespace GrandStrategy.WorldGeneration
         private void DrawCapitalActions()
         {
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && CanBuildAtSelection && campaign.CanBuildGranary;
-            if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)"))
+            var fitsGranary = CanBuildAtSelection && surface.CanPlaceGranary(settlement, clickedCell);
+            if (!campaign.HasGranary && CanBuildAtSelection && !fitsGranary)
+                GUILayout.Label("Select open ground for the granary.");
+            GUI.enabled = wasEnabled && fitsGranary && campaign.CanBuildGranary;
+            if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)")
+                && campaign.TryBuildGranary(clickedCell))
             {
-                campaign.TryBuildGranary();
-                surface.SetCapital(settlement, true, campaign.FirstExpansion != ExpansionApproach.None);
+                surface.SetCapital(settlement, true, campaign.FirstExpansion != ExpansionApproach.None, campaign.GranaryCell);
                 saveStatus = "Granary built. Stored food is protected from winter spoilage.";
             }
             GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
@@ -856,7 +859,7 @@ namespace GrandStrategy.WorldGeneration
         private void OnProvinceJoined(bool hadExpanded)
         {
             surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
-            if (!hadExpanded) surface.SetCapital(settlement, campaign.HasGranary, true);
+            if (!hadExpanded) surface.SetCapital(settlement, campaign.HasGranary, true, campaign.GranaryCell);
         }
     }
 }
