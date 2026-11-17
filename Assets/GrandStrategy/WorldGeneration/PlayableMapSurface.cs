@@ -1,6 +1,7 @@
 // Builds and owns the runtime map mesh, collider, material textures, borders and scenery. It also maps
 // clicks and placements back to the province raster.
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace GrandStrategy.WorldGeneration
@@ -28,7 +29,7 @@ namespace GrandStrategy.WorldGeneration
         private MapNature nature;
         private MapTerrainGeometry geometry;
         private MapSettlement settlement;
-        private MapSettlement secondSettlement;
+        private readonly Dictionary<int, MapSettlement> villages = new Dictionary<int, MapSettlement>();
         private float groundDetail;
         private MapBorderOverlay borders;
         private GameObject surface;
@@ -351,30 +352,50 @@ namespace GrandStrategy.WorldGeneration
             nature.SetZoom(zoom);
         }
 
-        public void SetCityLimitsVisible(bool capital, bool second)
+        public void SetCityLimitsVisible(CampaignState campaign, int province)
         {
-            settlement?.SetBoundaryVisible(capital);
-            secondSettlement?.SetBoundaryVisible(second);
+            settlement?.SetBoundaryVisible(campaign != null && province == campaign.Capital);
+            foreach (var village in villages)
+                village.Value.SetBoundaryVisible(campaign != null && province == campaign.SettlementProvince(village.Key));
         }
 
-        public void SetSecondSettlement(int cell)
+        public void SetVillages(IReadOnlyList<int> cells)
         {
-            secondSettlement?.Dispose();
-            secondSettlement = null;
-            if (cell < 0 || !IsDryLand(cell)) return;
-            secondSettlement = new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
-            secondSettlement.Show(geometry.Sample(CellCentre(cell), out _), false, false, null);
+            ClearVillages();
+            foreach (var cell in cells) AddVillage(cell);
         }
 
-        public bool IsWithinSecondSettlementLimits(int cell, Vector2 uv)
+        private void ClearVillages()
+        {
+            foreach (var village in villages.Values) village.Dispose();
+            villages.Clear();
+        }
+
+        public void AddVillage(int cell)
+        {
+            var village = new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
+            villages.Add(cell, village);
+            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null);
+        }
+
+        public bool IsWithinVillageLimits(int cell, Vector2 uv)
             => IsWithinCityLimits(geometry.Sample(CellCentre(cell), out _), uv);
 
-        public bool CanSiteSecondSettlement(Vector3 capital, int cell)
+        public bool CanSiteVillage(Vector3 capital, int cell)
         {
             if (cell < 0 || !IsDryLand(cell)) return false;
-            var point = geometry.Sample(CellCentre(cell), out _);
-            var separation = new Vector2(point.x - capital.x, point.z - capital.z);
-            return separation.sqrMagnitude >= 4f * MapSettlement.BuildRadius * MapSettlement.BuildRadius;
+            var uv = CellCentre(cell);
+            var point = new Vector2(uv.x * Aspect, uv.y);
+            var diameter = 2f * MapSettlement.BuildRadius;
+            var capitalPoint = new Vector2(capital.x + Aspect * .5f, capital.z + .5f);
+            if ((point - capitalPoint).sqrMagnitude < diameter * diameter) return false;
+            foreach (var site in villages.Keys)
+            {
+                var other = CellCentre(site);
+                var separation = point - new Vector2(other.x * Aspect, other.y);
+                if (separation.sqrMagnitude < diameter * diameter) return false;
+            }
+            return true;
         }
 
         public bool IsWithinCityLimits(Vector3 capital, Vector2 uv)
@@ -479,7 +500,7 @@ namespace GrandStrategy.WorldGeneration
         public void Dispose()
         {
             settlement?.Dispose();
-            secondSettlement?.Dispose();
+            ClearVillages();
             nature?.Dispose();
             borders?.Dispose();
             UnityEngine.Object.Destroy(surface);

@@ -126,8 +126,7 @@ namespace GrandStrategy.WorldGeneration
                     OnProvinceJoined(hadExpanded);
             }
 
-            surface.SetCityLimitsVisible(campaign != null && selected == campaign.Capital,
-                campaign != null && campaign.SecondSettlementCell >= 0 && selected == campaign.SecondSettlementProvince);
+            surface.SetCityLimitsVisible(campaign, selected);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -296,7 +295,9 @@ namespace GrandStrategy.WorldGeneration
                 throw new InvalidOperationException("The capital must be on dry land.");
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
             surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None, next.GranaryCell);
-            surface.SetSecondSettlement(next.SecondSettlementCell);
+            foreach (var site in next.SettlementCells)
+                if (!surface.IsDryLand(site)) throw new InvalidOperationException("Settlements must be on dry land.");
+            surface.SetVillages(next.SettlementCells);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
             showTrade = showTradeContacts = false;
@@ -437,7 +438,7 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label($"Subsistence harvest: +{campaign.SubsistenceFood(selected)} food / {CampaignState.ProductionInterval} days outside winter");
                 if (selected == campaign.Capital)
                     GUILayout.Label($"Capital happiness: {campaign.CapitalHappiness}/100");
-                if (selected == campaign.Capital || HasSecondSettlementHere)
+                if (selected == campaign.Capital || HasVillageHere)
                 {
                     if (!CanBuildAtSelection)
                         GUILayout.Label("Select dry land within the gold city limits to unlock construction.");
@@ -447,7 +448,7 @@ namespace GrandStrategy.WorldGeneration
                 {
                     GUILayout.Label("Construction requires a settlement.");
                 }
-                if (campaign.SecondSettlementCell < 0) DrawFoundSettlement();
+                DrawFoundSettlement();
                 if (selected == campaign.Capital) DrawCapitalActions();
                 return;
             }
@@ -626,24 +627,41 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled;
         }
 
-        private bool HasSecondSettlementHere => campaign.SecondSettlementCell >= 0
-            && selected == campaign.SecondSettlementProvince;
+        private bool HasVillageHere
+        {
+            get
+            {
+                foreach (var site in campaign.SettlementCells)
+                    if (campaign.SettlementProvince(site) == selected) return true;
+                return false;
+            }
+        }
 
         private bool InCapitalLimits => clickedCell >= 0 && selected == campaign.Capital
             && surface.IsWithinCityLimits(settlement, clickedMapUv);
 
-        private bool CanBuildAtSelection => InCapitalLimits || (clickedCell >= 0 && HasSecondSettlementHere
-            && surface.IsWithinSecondSettlementLimits(campaign.SecondSettlementCell, clickedMapUv));
+        private bool CanBuildAtSelection
+        {
+            get
+            {
+                if (clickedCell < 0) return false;
+                if (InCapitalLimits) return true;
+                foreach (var site in campaign.SettlementCells)
+                    if (campaign.SettlementProvince(site) == selected && surface.IsWithinVillageLimits(site, clickedMapUv))
+                        return true;
+                return false;
+            }
+        }
 
         private void DrawFoundSettlement()
         {
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanFoundSecondSettlement(clickedCell)
+            GUI.enabled = wasEnabled && campaign.CanFoundSettlement(clickedCell)
                 && surface.Map.ProvinceAt[clickedCell] == selected
-                && surface.CanSiteSecondSettlement(settlement, clickedCell);
+                && surface.CanSiteVillage(settlement, clickedCell);
             if (GUILayout.Button($"Found settlement ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)")
-                && campaign.TryFoundSecondSettlement(clickedCell))
-                surface.SetSecondSettlement(campaign.SecondSettlementCell);
+                && campaign.TryFoundSettlement(clickedCell))
+                surface.AddVillage(clickedCell);
             GUI.enabled = wasEnabled;
         }
 

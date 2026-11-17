@@ -55,6 +55,7 @@ namespace GrandStrategy.WorldGeneration
         public string TribeName;
         public int Colour;
         public int CapitalCell;
+        public List<int> SettlementCells;
         public int SecondSettlementSite; // Cell index plus one. Zero means no second settlement.
         public int Day;
         public int Speed;
@@ -127,27 +128,33 @@ namespace GrandStrategy.WorldGeneration
         {
             this.map = map;
             this.data = data;
+            data.SettlementCells ??= new List<int>();
+            if (data.SecondSettlementSite > 0)
+            {
+                data.SettlementCells.Add(data.SecondSettlementSite - 1);
+                data.SecondSettlementSite = 0;
+            }
         }
 
         public string TribeName => data.TribeName;
         public int Colour => data.Colour;
         public int CapitalCell => data.CapitalCell;
-        public int SecondSettlementCell => data.SecondSettlementSite - 1;
-        public int SecondSettlementProvince => ProvinceAt(map, SecondSettlementCell);
+        public IReadOnlyList<int> SettlementCells => data.SettlementCells;
+        public int SettlementProvince(int cell) => ProvinceAt(map, cell);
 
-        public bool CanFoundSecondSettlement(int cell)
-            => SecondSettlementCell < 0 && cell != CapitalCell && Owns(ProvinceAt(map, cell))
-                && Coin >= SettlementCoin && Wood >= SettlementWood;
+        public bool CanFoundSettlement(int cell)
+            => cell != CapitalCell && Owns(SettlementProvince(cell))
+                && !data.SettlementCells.Contains(cell) && Coin >= SettlementCoin && Wood >= SettlementWood;
 
-        public bool TryFoundSecondSettlement(int cell)
+        public bool TryFoundSettlement(int cell)
         {
-            if (!CanFoundSecondSettlement(cell)) return false;
+            if (!CanFoundSettlement(cell)) return false;
             data.Coin -= SettlementCoin;
             data.Wood -= SettlementWood;
-            data.SecondSettlementSite = cell + 1;
+            data.SettlementCells.Add(cell);
             return true;
         }
-        public int Capital => map.ProvinceAt[CapitalCell];
+
         public int Day => data.Day;
         public int Speed => data.Speed;
         public int Coin => data.Coin;
@@ -298,6 +305,17 @@ namespace GrandStrategy.WorldGeneration
                     || save.SecondSettlementSite - 1 == save.CapitalCell))
                 || !save.Owned[capital] || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes))
                 throw new ArgumentException("The save contains invalid campaign data.");
+
+            var settlementSites = new HashSet<int>();
+            if (save.SecondSettlementSite > 0) settlementSites.Add(save.SecondSettlementSite - 1);
+            if (save.SettlementCells != null)
+                foreach (var site in save.SettlementCells)
+                {
+                    var province = ProvinceAt(map, site);
+                    if (!IsLand(map, province) || !save.Owned[province] || site == save.CapitalCell
+                        || !settlementSites.Add(site))
+                        throw new ArgumentException("The save contains an invalid settlement site.");
+                }
 
             for (var i = 0; i < save.Pop.Length; i++)
                 if (save.Pop[i] < 0 || (!IsLand(map, i) && (save.Pop[i] != 0 || save.Owned[i])))
