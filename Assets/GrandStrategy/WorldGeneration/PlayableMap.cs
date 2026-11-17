@@ -48,6 +48,7 @@ namespace GrandStrategy.WorldGeneration
         private int selected = -1;
         private int selectedCell = -1;
         private int clickedCell = -1;
+        private Vector2 clickedMapUv;
         private CampaignState campaign;
         private string mapKey;
         private string savePath;
@@ -124,6 +125,8 @@ namespace GrandStrategy.WorldGeneration
                 if (campaign.Advance(deltaTime * CampaignDaysPerSecond))
                     OnProvinceJoined(hadExpanded);
             }
+
+            surface.SetCityLimitsVisible(campaign != null && selected == campaign.Capital);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -218,7 +221,8 @@ namespace GrandStrategy.WorldGeneration
             var ray = mapCamera.ScreenPointToRay(position);
             if (surface.Collider.Raycast(ray, out var hit, mapCamera.farClipPlane))
             {
-                clickedCell = surface.CellAt(hit.textureCoord);
+                clickedMapUv = hit.textureCoord;
+                clickedCell = surface.CellAt(clickedMapUv);
                 selectedCell = surface.ProvinceCellAt(hit.textureCoord);
                 selected = surface.Map.ProvinceAt[selectedCell];
             }
@@ -429,7 +433,16 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label(selected == campaign.Capital
                     ? campaign.TribeName + " | Capital" : campaign.TribeName + " | Integrated province");
                 GUILayout.Label($"Subsistence harvest: +{campaign.SubsistenceFood(selected)} food / {CampaignState.ProductionInterval} days outside winter");
-                DrawConstruction();
+                if (selected == campaign.Capital)
+                {
+                    if (!CanBuildAtSelection)
+                        GUILayout.Label("Select dry land within the gold city limits to unlock construction.");
+                    DrawConstruction();
+                }
+                else
+                {
+                    GUILayout.Label("Construction requires a settlement.");
+                }
                 if (selected == campaign.Capital) DrawCapitalActions();
                 return;
             }
@@ -594,6 +607,9 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        private bool CanBuildAtSelection => clickedCell >= 0 && selected == campaign.Capital
+            && surface.IsWithinCityLimits(settlement, clickedMapUv);
+
         private void DrawConstruction()
         {
             GUILayout.Label("Buildings", hudHeading);
@@ -615,7 +631,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanBuild(selected, building);
+            GUI.enabled = wasEnabled && CanBuildAtSelection && campaign.CanBuild(selected, building);
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)"))
                 campaign.TryBuild(selected, building);
             GUI.enabled = wasEnabled;
@@ -625,7 +641,7 @@ namespace GrandStrategy.WorldGeneration
         private void DrawCapitalActions()
         {
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanBuildGranary;
+            GUI.enabled = wasEnabled && CanBuildAtSelection && campaign.CanBuildGranary;
             if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)"))
             {
                 campaign.TryBuildGranary();

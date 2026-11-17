@@ -7,6 +7,7 @@ namespace GrandStrategy.WorldGeneration
 {
     internal sealed class MapSettlement : IDisposable
     {
+        public const float BuildRadius = .008f;
         private static readonly Vector2 GranaryOffset = new Vector2(.0020f, .0018f);
         private readonly MapTerrainGeometry terrain;
         private readonly Func<Vector2, bool> isDryLand;
@@ -15,6 +16,15 @@ namespace GrandStrategy.WorldGeneration
         private readonly MeshFilter filter;
         private readonly Material material;
         private Mesh mesh;
+        private readonly LineRenderer boundary;
+        private readonly Material boundaryMaterial;
+
+        public static bool Contains(Vector3 capital, Vector3 point)
+        {
+            var x = point.x - capital.x;
+            var z = point.z - capital.z;
+            return x * x + z * z <= BuildRadius * BuildRadius;
+        }
 
         public MapSettlement(Transform parent, MapTerrainGeometry terrain, Texture2D shadow, float aspect,
             Func<Vector2, bool> isDryLand)
@@ -26,6 +36,10 @@ namespace GrandStrategy.WorldGeneration
             if (shader == null || !shader.isSupported)
                 throw new InvalidOperationException("The settlement requires the map nature shader.");
 
+            var boundaryShader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (boundaryShader == null || !boundaryShader.isSupported)
+                throw new InvalidOperationException("City limits require the URP Unlit shader.");
+
             settlement = new GameObject("Capital village", typeof(MeshFilter), typeof(MeshRenderer))
                 { hideFlags = HideFlags.DontSave };
             settlement.transform.SetParent(parent, false);
@@ -36,11 +50,35 @@ namespace GrandStrategy.WorldGeneration
             var sun = terrain.SunDirection;
             material.SetVector("_MapSun", new Vector4(sun.x, sun.y, sun.z, 1f / aspect));
             settlement.GetComponent<MeshRenderer>().sharedMaterial = material;
+            var outline = new GameObject("City limits", typeof(LineRenderer))
+                { hideFlags = HideFlags.DontSave };
+            outline.transform.SetParent(settlement.transform, false);
+            boundary = outline.GetComponent<LineRenderer>();
+            boundary.useWorldSpace = false;
+            boundary.loop = true;
+            boundary.widthMultiplier = .00027f;
+            boundaryMaterial = new Material(boundaryShader) { hideFlags = HideFlags.DontSave };
+            boundaryMaterial.SetColor("_BaseColor", new Color(1f, .8f, .35f));
+            boundary.sharedMaterial = boundaryMaterial;
+            boundary.enabled = false;
         }
+
+        public void SetBoundaryVisible(bool visible) => boundary.enabled = visible;
 
         // Place or refresh the capital model on the sampled terrain surface.
         public void Show(Vector3 capital, bool granary, bool expanded)
         {
+            const int segments = 96;
+            boundary.positionCount = segments;
+            for (var i = 0; i < segments; i++)
+            {
+                var angle = i * Mathf.PI * 2f / segments;
+                var x = capital.x + Mathf.Cos(angle) * BuildRadius;
+                var z = capital.z + Mathf.Sin(angle) * BuildRadius;
+                var uv = new Vector2(Mathf.Clamp01(x / aspect + .5f), Mathf.Clamp01(z + .5f));
+                boundary.SetPosition(i, terrain.Sample(uv, out _) + Vector3.up * .0007f);
+            }
+
             var vertices = new List<Vector3>();
             var anchors = new List<Vector3>();
             var colours = new List<Color32>();
@@ -148,6 +186,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(settlement);
             UnityEngine.Object.Destroy(mesh);
             UnityEngine.Object.Destroy(material);
+            UnityEngine.Object.Destroy(boundaryMaterial);
         }
     }
 }

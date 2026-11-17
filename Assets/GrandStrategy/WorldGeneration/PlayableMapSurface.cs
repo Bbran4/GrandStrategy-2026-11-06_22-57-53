@@ -350,6 +350,12 @@ namespace GrandStrategy.WorldGeneration
             nature.SetZoom(zoom);
         }
 
+        public void SetCityLimitsVisible(bool visible) => settlement?.SetBoundaryVisible(visible);
+
+        public bool IsWithinCityLimits(Vector3 capital, Vector2 uv)
+            => IsDryLandAt(uv) && MapSettlement.Contains(capital,
+                new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f));
+
         public void SetCapital(Vector3 point, bool granary, bool expanded)
         {
             settlement ??= new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
