@@ -444,6 +444,7 @@ namespace GrandStrategy.WorldGeneration
                         GUILayout.Label("Select dry land within a settlement's gold city limits to see its buildings.");
                     else
                     {
+                        GUILayout.Label($"Settlement population: {campaign.SettlementPopulation(site):N0}");
                         GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
                         DrawConstruction(site);
                     }

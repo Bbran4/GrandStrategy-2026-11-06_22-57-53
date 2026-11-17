@@ -64,6 +64,7 @@ namespace GrandStrategy.WorldGeneration
         public int CapitalCell;
         public List<int> SettlementCells;
         public List<int> SettlementProvinceRoots;
+        public List<int> SettlementPopulations; // Capital first, then villages in founding order.
         public int SecondSettlementSite; // Cell index plus one. Zero means no second settlement.
         public int Day;
         public int Speed;
@@ -155,6 +156,12 @@ namespace GrandStrategy.WorldGeneration
                     data.SettlementProvinceRoots.Add(root);
                 }
             }
+            if (data.SettlementPopulations == null)
+            {
+                data.SettlementPopulations = new List<int> { data.Pop[Capital] };
+                for (var i = 0; i < data.SettlementCells.Count; i++)
+                    AllocateSettlers(data.SettlementCells[i]);
+            }
         }
 
         public string TribeName => data.TribeName;
@@ -180,6 +187,7 @@ namespace GrandStrategy.WorldGeneration
             data.Wood -= SettlementWood;
             data.SettlementCells.Add(cell);
             data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
+            AllocateSettlers(cell);
             var province = SettlementProvince(cell);
             if (!Owns(province))
             {
@@ -187,6 +195,29 @@ namespace GrandStrategy.WorldGeneration
                 CancelTradeAgreement(province);
             }
             return true;
+        }
+
+        public int SettlementPopulation(int cell)
+        {
+            if (cell == CapitalCell) return data.SettlementPopulations[0];
+            var index = data.SettlementCells.IndexOf(cell);
+            return index < 0 ? 0 : data.SettlementPopulations[index + 1];
+        }
+
+        private int SettlementCellAt(int index) => index == 0 ? CapitalCell : data.SettlementCells[index - 1];
+
+        private void AllocateSettlers(int cell)
+        {
+            var province = SettlementProvince(cell);
+            var donor = -1;
+            for (var i = 0; i < data.SettlementPopulations.Count; i++)
+                if (SettlementProvince(SettlementCellAt(i)) == province
+                    && (donor < 0 || data.SettlementPopulations[i] > data.SettlementPopulations[donor]))
+                    donor = i;
+
+            var settlers = donor < 0 ? data.Pop[province] : data.SettlementPopulations[donor] / 2;
+            if (donor >= 0) data.SettlementPopulations[donor] -= settlers;
+            data.SettlementPopulations.Add(settlers);
         }
 
         public int Day => data.Day;
@@ -366,6 +397,24 @@ namespace GrandStrategy.WorldGeneration
                         || !settlementSites.Add(site))
                         throw new ArgumentException("The save contains an invalid settlement site.");
                 }
+
+            if (save.SettlementPopulations != null)
+            {
+                if (save.SecondSettlementSite != 0 || save.SettlementPopulations.Count != 1 + settlementSites.Count)
+                    throw new ArgumentException("The save contains mismatched settlement populations.");
+                var totals = new Dictionary<int, long>();
+                for (var i = 0; i < save.SettlementPopulations.Count; i++)
+                {
+                    var population = save.SettlementPopulations[i];
+                    var region = i == 0 ? capital : ProvinceAt(map, save.SettlementCells[i - 1]);
+                    totals.TryGetValue(region, out var total);
+                    totals[region] = total + population;
+                    if (population < 0) throw new ArgumentException("The save contains negative settlement population.");
+                }
+                foreach (var total in totals)
+                    if (total.Value != save.Pop[total.Key])
+                        throw new ArgumentException("Settlement populations do not match their region total.");
+            }
 
             if (save.Construction != null)
             {
@@ -983,31 +1032,27 @@ namespace GrandStrategy.WorldGeneration
                 data.WinterShortfall = (int)Math.Min(int.MaxValue, data.WinterShortfall - balance);
             var rate = (starving ? MaxStarvationRate : MaxGrowthRate)
                 * Math.Min(1d, Math.Abs((double)balance) / upkeep);
-            var settlementHappiness = new Dictionary<int, (long Total, int Count)>();
-            if (!starving)
+            var settledRegions = new HashSet<int>();
+            for (var i = 0; i < data.SettlementPopulations.Count; i++)
             {
-                AddHappiness(CapitalCell);
-                foreach (var site in SettlementCells) AddHappiness(site);
+                var site = SettlementCellAt(i);
+                var region = SettlementProvince(site);
+                settledRegions.Add(region);
+                var growth = starving ? rate : rate * Happiness(site, true) / 60d;
+                data.SettlementPopulations[i] += ApplyPopulationChange(region, data.SettlementPopulations[i], growth);
             }
 
-            for (var province = 0; province < data.Pop.Length; province++)
+            for (var region = 0; region < data.Pop.Length; region++)
+                if (Owns(region) && !settledRegions.Contains(region))
+                    ApplyPopulationChange(region, data.Pop[region], rate);
+
+            int ApplyPopulationChange(int region, int population, double growth)
             {
-                var population = data.Pop[province];
-                if (!Owns(province) || population == 0) continue;
-                var growth = settlementHappiness.TryGetValue(province, out var happiness)
-                    ? rate * happiness.Total / (60d * happiness.Count)
-                    : rate;
                 var change = (int)Math.Ceiling(population * growth);
-                change = starving ? -change : Math.Min(change, int.MaxValue - population);
-                data.Pop[province] += change;
+                change = starving ? -change : Math.Min(change, int.MaxValue - data.Pop[region]);
+                data.Pop[region] += change;
                 data.LastPopulationChange += change;
-            }
-
-            void AddHappiness(int site)
-            {
-                var province = SettlementProvince(site);
-                settlementHappiness.TryGetValue(province, out var happiness);
-                settlementHappiness[province] = (happiness.Total + Happiness(site, true), happiness.Count + 1);
+                return change;
             }
         }
 
@@ -1038,7 +1083,17 @@ namespace GrandStrategy.WorldGeneration
         private void AddFood(long amount) => data.Food = (int)Math.Min(ResourceLimit, Math.Max(0, Food + amount));
 
         private void LosePopulation(int province, int amount)
-            => data.Pop[province] = Math.Max(Math.Min(1, data.Pop[province]), data.Pop[province] - amount);
+        {
+            var loss = Math.Min(amount, Math.Max(0, data.Pop[province] - 1));
+            data.Pop[province] -= loss;
+            for (var i = 0; i < data.SettlementPopulations.Count && loss > 0; i++)
+            {
+                if (SettlementProvince(SettlementCellAt(i)) != province) continue;
+                var casualties = Math.Min(loss, data.SettlementPopulations[i]);
+                data.SettlementPopulations[i] -= casualties;
+                loss -= casualties;
+            }
+        }
 
         public static bool IsLand(ProvinceMap map, int province)
             => province >= 0 && province < map.Provinces.Length

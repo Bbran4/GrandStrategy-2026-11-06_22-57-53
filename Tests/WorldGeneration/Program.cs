@@ -503,6 +503,7 @@ internal static class Program
         var restoredSettlers = CampaignState.Restore(map, key, settlementSave, 5);
         Require(restoredSettlers.Owns(1) && restoredSettlers.SettlementCells.Contains(1)
             && restoredSettlers.SettlementProvinceRoots.Single() == 1
+            && restoredSettlers.SettlementPopulation(1) == restoredSettlers.Population(1)
             && restoredSettlers.HasSettlementBuilding(1, SettlementBuilding.Farm),
             "A founded settlement and its claim must survive save and load.");
 
@@ -526,7 +527,7 @@ internal static class Program
 
         var hungerSave = CampaignState.Found(map, key, 0, "Hungry", 0).ToSave();
         hungerSave.Day = 104;
-        hungerSave.Pop[0] = 250;
+        hungerSave.Pop[0] = hungerSave.SettlementPopulations[0] = 250;
         hungerSave.Food = 0;
         var hungry = CampaignState.Restore(map, key, hungerSave, 5);
         Require(hungry.FoodUpkeep == 2, "250 population must consume two food per cycle.");
@@ -542,7 +543,7 @@ internal static class Program
 
         var partialSave = CampaignState.Found(map, key, 0, "Short rations", 0).ToSave();
         partialSave.Day = 104;
-        partialSave.Pop[0] = 250;
+        partialSave.Pop[0] = partialSave.SettlementPopulations[0] = 250;
         partialSave.Food = 1;
         partialSave.Granary = true;
         var partial = CampaignState.Restore(map, key, partialSave, 5);

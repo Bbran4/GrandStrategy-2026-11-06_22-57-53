@@ -488,14 +488,6 @@ namespace GrandStrategy.WorldGeneration
             influenceCosts ??= new float[pixels.Length];
             Array.Clear(influenceRoots, 0, influenceRoots.Length);
 
-            var settlementsPerProvince = new Dictionary<int, int> { [campaign.Capital] = 1 };
-            foreach (var cell in campaign.SettlementCells)
-            {
-                var province = campaign.SettlementProvince(cell);
-                settlementsPerProvince.TryGetValue(province, out var count);
-                settlementsPerProvince[province] = count + 1;
-            }
-
             Spread(campaign.CapitalCell, campaign.CapitalCell);
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
                 Spread(campaign.SettlementCells[i], campaign.SettlementProvinceRoots[i]);
@@ -525,10 +517,9 @@ namespace GrandStrategy.WorldGeneration
 
             void Spread(int origin, int provinceRoot)
             {
-                var province = campaign.SettlementProvince(origin);
-                var population = (double)campaign.Population(province) / settlementsPerProvince[province];
+                var population = campaign.SettlementPopulation(origin);
                 // Express the reach in map units so the same world has comparable reach at higher raster resolutions.
-                var budget = Map.Height * Mathf.Clamp(.014f + .0014f * Mathf.Sqrt((float)population), .014f, .085f);
+                var budget = Map.Height * Mathf.Clamp(.014f + .0014f * Mathf.Sqrt(population), .014f, .085f);
                 var costs = new Dictionary<int, float> { [origin] = 0f };
                 var frontier = new SortedSet<(float Cost, int Cell)> { (0f, origin) };
                 while (frontier.Count > 0)
