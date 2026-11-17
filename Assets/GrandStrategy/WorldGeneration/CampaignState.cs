@@ -48,6 +48,13 @@ namespace GrandStrategy.WorldGeneration
     }
 
     [Serializable]
+    internal struct SettlementConstruction
+    {
+        public int Cell;
+        public int Buildings;
+    }
+
+    [Serializable]
     internal sealed class CampaignSave
     {
         public int Version;
@@ -70,6 +77,7 @@ namespace GrandStrategy.WorldGeneration
         public int Wood;
         public int Iron;
         public int[] Buildings;
+        public List<SettlementConstruction> Construction;
         public bool Granary;
         public int GranarySite; // Cell index plus one. Zero uses the original automatic placement.
         public bool Warband;
@@ -129,6 +137,7 @@ namespace GrandStrategy.WorldGeneration
         {
             this.map = map;
             this.data = data;
+            data.Construction ??= new List<SettlementConstruction>();
             data.SettlementCells ??= new List<int>();
             if (data.SecondSettlementSite > 0)
             {
@@ -226,7 +235,7 @@ namespace GrandStrategy.WorldGeneration
         private int Happiness(bool fed)
         {
             var taxEffect = Taxes switch { TaxPolicy.Relief => 15, TaxPolicy.Heavy => -30, _ => 0 };
-            var buildings = (HasGranary ? 5 : 0) + (HasBuilding(Capital, SettlementBuilding.Farm) ? 5 : 0);
+            var buildings = (HasGranary ? 5 : 0) + (HasSettlementBuilding(CapitalCell, SettlementBuilding.Farm) ? 5 : 0);
             return 60 + taxEffect + buildings - (fed ? 0 : 25);
         }
         public long TaxCollected => data.TaxCollected;
@@ -355,6 +364,15 @@ namespace GrandStrategy.WorldGeneration
                         || !settlementSites.Add(site))
                         throw new ArgumentException("The save contains an invalid settlement site.");
                 }
+
+            if (save.Construction != null)
+            {
+                var builtSites = new HashSet<int>();
+                foreach (var site in save.Construction)
+                    if ((site.Cell != save.CapitalCell && !settlementSites.Contains(site.Cell))
+                        || !builtSites.Add(site.Cell) || site.Buildings == 0 || (site.Buildings & ~(int)AllBuildings) != 0)
+                        throw new ArgumentException("The save contains invalid settlement construction.");
+            }
 
             for (var i = 0; i < save.Pop.Length; i++)
                 if (save.Pop[i] < 0 || (!IsLand(map, i) && (save.Pop[i] != 0 || save.Owned[i])))
@@ -524,11 +542,56 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        private int LegacyBuildingSite(int province)
+        {
+            if (province == Capital) return CapitalCell;
+            foreach (var cell in SettlementCells)
+                if (SettlementProvince(cell) == province) return cell;
+            return -1;
+        }
+
+        public bool HasSettlementBuilding(int cell, SettlementBuilding building)
+        {
+            var province = SettlementProvince(cell);
+            if (!Owns(province)) return false;
+            if (HasBuilding(province, building) && LegacyBuildingSite(province) == cell) return true;
+            foreach (var site in data.Construction)
+                if (site.Cell == cell) return (site.Buildings & (int)building) != 0;
+            return false;
+        }
+
+        public bool CanBuildAtSettlement(int cell, SettlementBuilding building)
+        {
+            if (cell != CapitalCell && !data.SettlementCells.Contains(cell)) return false;
+            var province = SettlementProvince(cell);
+            if (!Owns(province) || HasSettlementBuilding(cell, building)) return false;
+            var info = BuildingInfo(province, building);
+            return info.SiteIssue == null && Coin >= info.Coin && Wood >= info.Wood;
+        }
+
+        public bool TryBuildAtSettlement(int cell, SettlementBuilding building)
+        {
+            if (!CanBuildAtSettlement(cell, building)) return false;
+            var info = BuildingInfo(SettlementProvince(cell), building);
+            var index = data.Construction.FindIndex(site => site.Cell == cell);
+            var entry = index >= 0 ? data.Construction[index] : new SettlementConstruction { Cell = cell };
+            entry.Buildings |= (int)building;
+            if (index >= 0) data.Construction[index] = entry;
+            else data.Construction.Add(entry);
+            data.Coin -= info.Coin;
+            data.Wood -= info.Wood;
+            if (building == SettlementBuilding.Docks) dockWaterways = null;
+            return true;
+        }
+
         private int BuildingTotal(SettlementBuilding building)
         {
             var total = 0;
             for (var province = 0; province < data.Buildings.Length; province++)
                 if (HasBuilding(province, building)) total += BuildingInfo(province, building).Yield;
+            foreach (var site in data.Construction)
+                if ((site.Buildings & (int)building) != 0)
+                    total += BuildingInfo(SettlementProvince(site.Cell), building).Yield;
             return total;
         }
 
@@ -577,6 +640,12 @@ namespace GrandStrategy.WorldGeneration
                 for (var port = 0; port < map.Provinces.Length; port++)
                     if (HasBuilding(port, SettlementBuilding.Docks) && map.Provinces[port].TradeWaterways != null)
                         dockWaterways.UnionWith(map.Provinces[port].TradeWaterways);
+                foreach (var site in data.Construction)
+                {
+                    if ((site.Buildings & (int)SettlementBuilding.Docks) == 0) continue;
+                    var waterways = map.Provinces[SettlementProvince(site.Cell)].TradeWaterways;
+                    if (waterways != null) dockWaterways.UnionWith(waterways);
+                }
             }
             foreach (var route in waterways)
                 if (dockWaterways.Contains(route)) return true;

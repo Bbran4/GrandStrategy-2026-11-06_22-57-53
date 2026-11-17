@@ -441,9 +441,11 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label($"Capital happiness: {campaign.CapitalHappiness}/100");
                 if (selected == campaign.Capital || HasVillageHere)
                 {
-                    if (!CanBuildAtSelection)
-                        GUILayout.Label("Select dry land within the gold city limits to unlock construction.");
-                    DrawConstruction();
+                    var site = SelectedConstructionSite;
+                    if (site < 0)
+                        GUILayout.Label("Select dry land within a settlement's gold city limits to see its buildings.");
+                    else
+                        DrawConstruction(site);
                 }
                 else
                 {
@@ -642,16 +644,16 @@ namespace GrandStrategy.WorldGeneration
         private bool InCapitalLimits => clickedCell >= 0 && selected == campaign.Capital
             && surface.IsWithinCityLimits(settlement, clickedMapUv);
 
-        private bool CanBuildAtSelection
+        private int SelectedConstructionSite
         {
             get
             {
-                if (clickedCell < 0) return false;
-                if (InCapitalLimits) return true;
+                if (clickedCell < 0) return -1;
+                if (InCapitalLimits) return campaign.CapitalCell;
                 foreach (var site in campaign.SettlementCells)
                     if (campaign.SettlementProvince(site) == selected && surface.IsWithinVillageLimits(site, clickedMapUv))
-                        return true;
-                return false;
+                        return site;
+                return -1;
             }
         }
 
@@ -677,30 +679,30 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled;
         }
 
-        private void DrawConstruction()
+        private void DrawConstruction(int site)
         {
-            GUILayout.Label("Buildings", hudHeading);
-            DrawBuilding(SettlementBuilding.Farm);
-            DrawBuilding(SettlementBuilding.LumberCamp);
-            DrawBuilding(SettlementBuilding.IronMine);
-            DrawBuilding(SettlementBuilding.Docks);
+            GUILayout.Label(site == campaign.CapitalCell ? "Capital buildings" : "Village buildings", hudHeading);
+            DrawBuilding(site, SettlementBuilding.Farm);
+            DrawBuilding(site, SettlementBuilding.LumberCamp);
+            DrawBuilding(site, SettlementBuilding.IronMine);
+            DrawBuilding(site, SettlementBuilding.Docks);
         }
 
-        private void DrawBuilding(SettlementBuilding building)
+        private void DrawBuilding(int site, SettlementBuilding building)
         {
             var info = campaign.BuildingInfo(selected, building);
             var output = building == SettlementBuilding.Docks ? "Water trade access and +1 agreement slot"
                 : $"+{info.Yield} {info.Resource} / {CampaignState.ProductionInterval} days";
-            if (campaign.HasBuilding(selected, building))
+            if (campaign.HasSettlementBuilding(site, building))
             {
                 GUILayout.Label($"{info.Name} | {output}");
                 return;
             }
 
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && CanBuildAtSelection && campaign.CanBuild(selected, building);
+            GUI.enabled = wasEnabled && campaign.CanBuildAtSettlement(site, building);
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)"))
-                campaign.TryBuild(selected, building);
+                campaign.TryBuildAtSettlement(site, building);
             GUI.enabled = wasEnabled;
             GUILayout.Label(info.SiteIssue ?? output);
         }
