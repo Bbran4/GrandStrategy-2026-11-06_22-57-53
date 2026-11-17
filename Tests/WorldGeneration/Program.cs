@@ -495,7 +495,8 @@ internal static class Program
             "Founding on independent land must register the settlement and claim its region.");
         Require(settlers.TryBuildAtSettlement(1, SettlementBuilding.Farm)
             && settlers.HasSettlementBuilding(1, SettlementBuilding.Farm)
-            && !settlers.HasSettlementBuilding(0, SettlementBuilding.Farm),
+            && !settlers.HasSettlementBuilding(0, SettlementBuilding.Farm)
+            && settlers.SettlementHappiness(1) == settlers.CapitalHappiness + 5,
             "Production construction must belong to the settlement where it was built.");
         var settlementSave = JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(settlers.ToSave(), json), json);

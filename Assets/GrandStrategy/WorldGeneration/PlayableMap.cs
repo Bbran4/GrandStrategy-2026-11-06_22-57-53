@@ -437,15 +437,16 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label(selected == campaign.Capital
                     ? campaign.TribeName + " | Capital" : campaign.TribeName + " | Integrated province");
                 GUILayout.Label($"Subsistence harvest: +{campaign.SubsistenceFood(selected)} food / {CampaignState.ProductionInterval} days outside winter");
-                if (selected == campaign.Capital)
-                    GUILayout.Label($"Capital happiness: {campaign.CapitalHappiness}/100");
                 if (selected == campaign.Capital || HasVillageHere)
                 {
                     var site = SelectedConstructionSite;
                     if (site < 0)
                         GUILayout.Label("Select dry land within a settlement's gold city limits to see its buildings.");
                     else
+                    {
+                        GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
                         DrawConstruction(site);
+                    }
                 }
                 else
                 {

@@ -230,12 +230,14 @@ namespace GrandStrategy.WorldGeneration
             data.Taxes = policy;
         }
 
-        public int CapitalHappiness => Happiness(Food >= FoodUpkeep);
+        public int CapitalHappiness => SettlementHappiness(CapitalCell);
+        public int SettlementHappiness(int cell) => Happiness(cell, Food >= FoodUpkeep);
 
-        private int Happiness(bool fed)
+        private int Happiness(int cell, bool fed)
         {
             var taxEffect = Taxes switch { TaxPolicy.Relief => 15, TaxPolicy.Heavy => -30, _ => 0 };
-            var buildings = (HasGranary ? 5 : 0) + (HasSettlementBuilding(CapitalCell, SettlementBuilding.Farm) ? 5 : 0);
+            var buildings = (cell == CapitalCell && HasGranary ? 5 : 0)
+                + (HasSettlementBuilding(cell, SettlementBuilding.Farm) ? 5 : 0);
             return 60 + taxEffect + buildings - (fed ? 0 : 25);
         }
         public long TaxCollected => data.TaxCollected;
@@ -981,17 +983,31 @@ namespace GrandStrategy.WorldGeneration
                 data.WinterShortfall = (int)Math.Min(int.MaxValue, data.WinterShortfall - balance);
             var rate = (starving ? MaxStarvationRate : MaxGrowthRate)
                 * Math.Min(1d, Math.Abs((double)balance) / upkeep);
+            var settlementHappiness = new Dictionary<int, (long Total, int Count)>();
+            if (!starving)
+            {
+                AddHappiness(CapitalCell);
+                foreach (var site in SettlementCells) AddHappiness(site);
+            }
+
             for (var province = 0; province < data.Pop.Length; province++)
             {
                 var population = data.Pop[province];
                 if (!Owns(province) || population == 0) continue;
-                var growth = !starving && province == Capital
-                    ? rate * Math.Min(Taxes == TaxPolicy.Relief ? 1.25 : 1d, Happiness(true) / 60d)
+                var growth = settlementHappiness.TryGetValue(province, out var happiness)
+                    ? rate * happiness.Total / (60d * happiness.Count)
                     : rate;
                 var change = (int)Math.Ceiling(population * growth);
                 change = starving ? -change : Math.Min(change, int.MaxValue - population);
                 data.Pop[province] += change;
                 data.LastPopulationChange += change;
+            }
+
+            void AddHappiness(int site)
+            {
+                var province = SettlementProvince(site);
+                settlementHappiness.TryGetValue(province, out var happiness);
+                settlementHappiness[province] = (happiness.Total + Happiness(site, true), happiness.Count + 1);
             }
         }
 
