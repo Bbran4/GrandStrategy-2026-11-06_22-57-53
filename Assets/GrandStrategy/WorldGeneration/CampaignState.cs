@@ -550,15 +550,18 @@ namespace GrandStrategy.WorldGeneration
             return -1;
         }
 
-        public bool HasSettlementBuilding(int cell, SettlementBuilding building)
+        public SettlementBuilding SettlementBuildings(int cell)
         {
             var province = SettlementProvince(cell);
-            if (!Owns(province)) return false;
-            if (HasBuilding(province, building) && LegacyBuildingSite(province) == cell) return true;
+            if (!Owns(province)) return 0;
+            var buildings = LegacyBuildingSite(province) == cell ? data.Buildings[province] : 0;
             foreach (var site in data.Construction)
-                if (site.Cell == cell) return (site.Buildings & (int)building) != 0;
-            return false;
+                if (site.Cell == cell) return (SettlementBuilding)(buildings | site.Buildings);
+            return (SettlementBuilding)buildings;
         }
+
+        public bool HasSettlementBuilding(int cell, SettlementBuilding building)
+            => (SettlementBuildings(cell) & building) != 0;
 
         public bool CanBuildAtSettlement(int cell, SettlementBuilding building)
         {

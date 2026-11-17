@@ -84,8 +84,8 @@ namespace GrandStrategy.WorldGeneration
 
         public void SetBoundaryVisible(bool visible) => boundary.enabled = visible;
 
-        // Place or refresh the capital model on the sampled terrain surface.
-        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite)
+        // Place or refresh settlement models on the sampled terrain surface.
+        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production)
         {
             const int segments = 96;
             boundary.positionCount = segments;
@@ -102,6 +102,7 @@ namespace GrandStrategy.WorldGeneration
             var anchors = new List<Vector3>();
             var colours = new List<Color32>();
             var indices = new List<int>();
+            var occupied = new List<Vector3> { capital };
             var timber = new Color32(158, 111, 71, 255);
             var thatch = new Color32(184, 145, 76, 255);
             var storeWalls = new Color32(171, 136, 94, 255);
@@ -117,11 +118,20 @@ namespace GrandStrategy.WorldGeneration
                 House(capital, .00125f, storeWalls, storeRoof);
             else
                 House(capital, .00108f, timber, thatch);
-            if (granary && hasGranarySite) House(store, GranaryHalfWidth, storeWalls, storeRoof);
+            if (granary && hasGranarySite)
+            {
+                House(store, GranaryHalfWidth, storeWalls, storeRoof);
+                occupied.Add(store);
+            }
 
             AddHut(FirstHut);
             AddHut(SecondHut);
             if (expanded) AddHut(ThirdHut);
+
+            AddProduction(SettlementBuilding.Farm, new Color32(110, 126, 53, 255), thatch);
+            AddProduction(SettlementBuilding.LumberCamp, timber, new Color32(92, 65, 42, 255));
+            AddProduction(SettlementBuilding.IronMine, new Color32(107, 104, 101, 255), new Color32(66, 61, 59, 255));
+            AddProduction(SettlementBuilding.Docks, storeWalls, new Color32(81, 104, 119, 255));
 
             var next = new Mesh { name = "Capital village", hideFlags = HideFlags.DontSave };
             try
@@ -145,7 +155,40 @@ namespace GrandStrategy.WorldGeneration
             // Check the site and add a small building to the settlement mesh.
             void AddHut(Vector2 offset)
             {
-                if (TryAnchor(offset, out var anchor)) House(anchor, .00078f, timber, thatch);
+                if (!TryAnchor(offset, out var anchor)) return;
+                House(anchor, .00078f, timber, thatch);
+                occupied.Add(anchor);
+            }
+
+            void AddProduction(SettlementBuilding building, Color32 walls, Color32 roof)
+            {
+                if ((production & building) == 0) return;
+                const int sites = 24;
+                const float halfWidth = .0010f;
+                for (var i = 0; i < sites; i++)
+                {
+                    var angle = i * (2f * Mathf.PI / sites);
+                    var offset = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * .0059f;
+                    if (!TryAnchor(offset, out var anchor)
+                        || !TryAnchor(offset + new Vector2(-halfWidth, -halfWidth * .77f), out _)
+                        || !TryAnchor(offset + new Vector2(-halfWidth, halfWidth * .77f), out _)
+                        || !TryAnchor(offset + new Vector2(halfWidth, -halfWidth * .77f), out _)
+                        || !TryAnchor(offset + new Vector2(halfWidth, halfWidth * .77f), out _)) continue;
+
+                    var blocked = false;
+                    foreach (var other in occupied)
+                        if (Mathf.Abs(other.x - anchor.x) < halfWidth + GranaryHalfWidth
+                            && Mathf.Abs(other.z - anchor.z) < (halfWidth + GranaryHalfWidth) * .77f)
+                        {
+                            blocked = true;
+                            break;
+                        }
+
+                    if (blocked) continue;
+                    House(anchor, halfWidth, walls, roof);
+                    occupied.Add(anchor);
+                    return;
+                }
             }
 
             bool TryAnchor(Vector2 offset, out Vector3 anchor)

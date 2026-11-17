@@ -295,10 +295,10 @@ namespace GrandStrategy.WorldGeneration
             if (!surface.IsDryLand(next.CapitalCell))
                 throw new InvalidOperationException("The capital must be on dry land.");
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
-            surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None, next.GranaryCell);
+            surface.SetCapital(capitalPoint, next);
             foreach (var site in next.SettlementCells)
                 if (!surface.IsDryLand(site)) throw new InvalidOperationException("Settlements must be on dry land.");
-            surface.SetVillages(next.SettlementCells);
+            surface.SetVillages(next);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
             showTrade = showTradeContacts = false;
@@ -670,7 +670,7 @@ namespace GrandStrategy.WorldGeneration
                 var provinceRoot = surface.InfluenceProvinceAt(clickedCell);
                 if (campaign.TryFoundSettlement(clickedCell, provinceRoot))
                 {
-                    surface.AddVillage(clickedCell);
+                    surface.RefreshVillage(campaign, clickedCell);
                     surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
                     if (claimed) showTrade = false;
                     saveStatus = provinceRoot < 0 ? "Settlement founded a new province." : "Settlement joined an existing province.";
@@ -701,8 +701,12 @@ namespace GrandStrategy.WorldGeneration
 
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && campaign.CanBuildAtSettlement(site, building);
-            if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)"))
-                campaign.TryBuildAtSettlement(site, building);
+            if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)")
+                && campaign.TryBuildAtSettlement(site, building))
+            {
+                if (site == campaign.CapitalCell) surface.SetCapital(settlement, campaign);
+                else surface.RefreshVillage(campaign, site);
+            }
             GUI.enabled = wasEnabled;
             GUILayout.Label(info.SiteIssue ?? output);
         }
@@ -717,7 +721,7 @@ namespace GrandStrategy.WorldGeneration
             if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)")
                 && campaign.TryBuildGranary(clickedCell))
             {
-                surface.SetCapital(settlement, true, campaign.FirstExpansion != ExpansionApproach.None, campaign.GranaryCell);
+                surface.SetCapital(settlement, campaign);
                 saveStatus = "Granary built. Stored food is protected from winter spoilage.";
             }
             GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
@@ -928,7 +932,7 @@ namespace GrandStrategy.WorldGeneration
         private void OnProvinceJoined(bool hadExpanded)
         {
             surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
-            if (!hadExpanded) surface.SetCapital(settlement, campaign.HasGranary, true, campaign.GranaryCell);
+            if (!hadExpanded) surface.SetCapital(settlement, campaign);
         }
     }
 }

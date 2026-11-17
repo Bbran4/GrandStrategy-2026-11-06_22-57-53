@@ -365,10 +365,10 @@ namespace GrandStrategy.WorldGeneration
                 village.Value.SetBoundaryVisible(campaign != null && province == campaign.SettlementProvince(village.Key));
         }
 
-        public void SetVillages(IReadOnlyList<int> cells)
+        public void SetVillages(CampaignState campaign)
         {
             ClearVillages();
-            foreach (var cell in cells) AddVillage(cell);
+            foreach (var cell in campaign.SettlementCells) RefreshVillage(campaign, cell);
         }
 
         private void ClearVillages()
@@ -377,11 +377,15 @@ namespace GrandStrategy.WorldGeneration
             villages.Clear();
         }
 
-        public void AddVillage(int cell)
+        public void RefreshVillage(CampaignState campaign, int cell)
         {
-            var village = new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
-            villages.Add(cell, village);
-            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null);
+            if (!villages.TryGetValue(cell, out var village))
+            {
+                village = new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
+                villages.Add(cell, village);
+            }
+
+            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell));
         }
 
         public bool IsWithinVillageLimits(int cell, Vector2 uv)
@@ -432,14 +436,14 @@ namespace GrandStrategy.WorldGeneration
         private Vector2 CellCentre(int cell) => new Vector2(
             (cell % Map.Width + .5f) / Map.Width, (cell / Map.Width + .5f) / Map.Height);
 
-        public void SetCapital(Vector3 point, bool granary, bool expanded, int granaryCell)
+        public void SetCapital(Vector3 point, CampaignState campaign)
         {
             settlement ??= new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
             Vector3? granarySite = null;
-            if (granary && granaryCell >= 0 && granaryCell < Map.ProvinceAt.Length
-                && CanPlaceGranary(point, granaryCell))
-                granarySite = geometry.Sample(CellCentre(granaryCell), out _);
-            settlement.Show(point, granary, expanded, granarySite);
+            if (campaign.HasGranary && CanPlaceGranary(point, campaign.GranaryCell))
+                granarySite = geometry.Sample(CellCentre(campaign.GranaryCell), out _);
+            settlement.Show(point, campaign.HasGranary, campaign.FirstExpansion != ExpansionApproach.None,
+                granarySite, campaign.SettlementBuildings(campaign.CapitalCell));
             nature.SetCapital(point);
             material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));
         }
