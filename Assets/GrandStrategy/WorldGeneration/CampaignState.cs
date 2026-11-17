@@ -143,8 +143,11 @@ namespace GrandStrategy.WorldGeneration
         public int SettlementProvince(int cell) => ProvinceAt(map, cell);
 
         public bool CanFoundSettlement(int cell)
-            => cell != CapitalCell && Owns(SettlementProvince(cell))
+        {
+            var province = SettlementProvince(cell);
+            return cell != CapitalCell && IsLand(map, province) && province != IntegrationTarget
                 && !data.SettlementCells.Contains(cell) && Coin >= SettlementCoin && Wood >= SettlementWood;
+        }
 
         public bool TryFoundSettlement(int cell)
         {
@@ -152,6 +155,12 @@ namespace GrandStrategy.WorldGeneration
             data.Coin -= SettlementCoin;
             data.Wood -= SettlementWood;
             data.SettlementCells.Add(cell);
+            var province = SettlementProvince(cell);
+            if (!Owns(province))
+            {
+                data.Owned[province] = true;
+                CancelTradeAgreement(province);
+            }
             return true;
         }
 

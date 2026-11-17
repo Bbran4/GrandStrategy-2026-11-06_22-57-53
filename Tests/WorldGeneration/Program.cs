@@ -487,6 +487,18 @@ internal static class Program
         Require(CampaignState.Restore(map, key, taxSave, 5).Taxes == TaxPolicy.Heavy,
             "Tax policy must survive save and load.");
 
+        var settlers = CampaignState.Found(map, key, 0, "Settlers", 0);
+        Require(!settlers.TryFoundSettlement(recipe.Width) && settlers.Coin == CampaignState.StartingCoin,
+            "Founding on water must leave resources untouched.");
+        Require(settlers.TryFoundSettlement(1) && settlers.Owns(1) && settlers.SettlementCells.Contains(1)
+            && settlers.Coin == CampaignState.StartingCoin - CampaignState.SettlementCoin,
+            "Founding on independent land must register the settlement and claim its region.");
+        var settlementSave = JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(settlers.ToSave(), json), json);
+        var restoredSettlers = CampaignState.Restore(map, key, settlementSave, 5);
+        Require(restoredSettlers.Owns(1) && restoredSettlers.SettlementCells.Contains(1),
+            "A founded settlement and its claim must survive save and load.");
+
         var granary = CampaignState.Found(map, key, 0, "Granary", 0);
         var initialWood = granary.Wood;
         Require(granary.TryBuildGranary() && !granary.TryBuildGranary() && !granary.TryRecruitWarband()

@@ -454,6 +454,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             GUILayout.Label("Unclaimed | Independent community");
+            DrawFoundSettlement();
             if (campaign.CanTradeWith(selected))
             {
                 showTrade = GUILayout.Toggle(showTrade, "Trade with this community");
@@ -659,9 +660,18 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled && campaign.CanFoundSettlement(clickedCell)
                 && surface.Map.ProvinceAt[clickedCell] == selected
                 && surface.CanSiteVillage(settlement, clickedCell);
-            if (GUILayout.Button($"Found settlement ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)")
+            var claimed = !campaign.Owns(selected);
+            var action = claimed ? "Found and claim region" : "Found settlement";
+            if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)")
                 && campaign.TryFoundSettlement(clickedCell))
+            {
                 surface.AddVillage(clickedCell);
+                if (claimed)
+                {
+                    surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
+                    showTrade = false;
+                }
+            }
             GUI.enabled = wasEnabled;
         }
 
