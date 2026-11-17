@@ -38,6 +38,7 @@ namespace GrandStrategy.WorldGeneration
         private float[] elevations;
         private CampaignState influenceCampaign;
         private int[] influenceRoots;
+        private int highlightedInfluenceRoot;
         private float[] influenceCosts;
         private int influenceFoodPeriod = -1;
 
@@ -475,6 +476,25 @@ namespace GrandStrategy.WorldGeneration
             return influenceRoots == null ? -1 : influenceRoots[cell] - 1;
         }
 
+        public void HighlightInfluenceAt(int cell)
+        {
+            if (viewMode != MapViewMode.Ownership || influenceRoots == null) return;
+            var root = cell >= 0 && cell < influenceRoots.Length ? influenceRoots[cell] : 0;
+            if (root == highlightedInfluenceRoot) return;
+
+            var pixels = ownership.GetRawTextureData<Color32>();
+            for (var i = 0; i < pixels.Length; i++)
+            {
+                if (influenceRoots[i] == 0
+                    || (influenceRoots[i] != highlightedInfluenceRoot && influenceRoots[i] != root)) continue;
+                var pixel = pixels[i];
+                pixel.b = influenceRoots[i] == root ? (byte)255 : (byte)0;
+                pixels[i] = pixel;
+            }
+            highlightedInfluenceRoot = root;
+            ownership.Apply(false, false);
+        }
+
         public void RefreshInfluence(bool force = false)
         {
             var campaign = influenceCampaign;
@@ -505,7 +525,8 @@ namespace GrandStrategy.WorldGeneration
                     || (x + 1 < Map.Width && IsOtherProvince(cell + 1))
                     || (cell >= Map.Width && IsOtherProvince(cell - Map.Width))
                     || (cell + Map.Width < pixels.Length && IsOtherProvince(cell + Map.Width));
-                pixels[cell] = new Color32(255, boundary ? (byte)255 : (byte)0, 0, 255);
+                pixels[cell] = new Color32(255, boundary ? (byte)255 : (byte)0,
+                    root == highlightedInfluenceRoot ? (byte)255 : (byte)0, 255);
 
                 bool IsOtherProvince(int next) => influenceRoots[next] != 0 && influenceRoots[next] != root;
             }

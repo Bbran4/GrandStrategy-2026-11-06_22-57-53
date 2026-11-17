@@ -127,6 +127,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             surface.RefreshInfluence();
+            surface.HighlightInfluenceAt(clickedCell);
             surface.SetCityLimitsVisible(campaign, selected);
 
             var keyboard = Keyboard.current;
@@ -228,13 +229,14 @@ namespace GrandStrategy.WorldGeneration
                 selected = surface.Map.ProvinceAt[selectedCell];
             }
 
-            if (selected != previous)
+            if (selected != previous || mapView == MapViewMode.Ownership)
             {
                 provinceScroll = Vector2.zero;
                 showProvinceDetails = showTrade = false;
                 provinceDetails = selected < 0 ? null : Describe(surface.Map.Provinces[selected]);
             }
             surface.SetSelection(selected);
+            surface.HighlightInfluenceAt(clickedCell);
         }
 
         private string SelectedTerritoryId()
@@ -363,11 +365,16 @@ namespace GrandStrategy.WorldGeneration
             DrawPanelFrame(panel);
             GUILayout.BeginArea(new Rect(panel.x + 9, panel.y + 7, Mathf.Max(1, panel.width - 18), Mathf.Max(1, panel.height - 14)));
             provinceScroll = GUILayout.BeginScrollView(provinceScroll);
-            GUILayout.Label(selected >= 0 ? "Province " + surface.Map.Provinces[selected].Id : "Province", hudHeading);
-            if (selectedCell >= 0)
+            if (mapView == MapViewMode.Ownership && campaign != null)
+                DrawInfluenceProvince();
+            else
             {
-                var territory = SelectedTerritoryId();
-                GUILayout.Label("Territory: " + (string.IsNullOrEmpty(territory) ? "None" : territory));
+                GUILayout.Label(selected >= 0 ? "Province " + surface.Map.Provinces[selected].Id : "Province", hudHeading);
+                if (selectedCell >= 0)
+                {
+                    var territory = SelectedTerritoryId();
+                    GUILayout.Label("Territory: " + (string.IsNullOrEmpty(territory) ? "None" : territory));
+                }
             }
             if (selected >= 0)
                 DrawProvince(surface.Map.Provinces[selected]);
@@ -380,6 +387,45 @@ namespace GrandStrategy.WorldGeneration
             }
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawInfluenceProvince()
+        {
+            var root = surface.InfluenceProvinceAt(clickedCell);
+            if (root < 0)
+            {
+                GUILayout.Label(clickedCell < 0 ? "Select a province" : "Outside settlement influence", hudHeading);
+                return;
+            }
+
+            var number = 1;
+            var count = 0;
+            long population = 0;
+            if (root == campaign.CapitalCell)
+            {
+                count++;
+                population += campaign.SettlementPopulation(root);
+            }
+
+            var nextNumber = 1;
+            for (var i = 0; i < campaign.SettlementCells.Count; i++)
+            {
+                var site = campaign.SettlementCells[i];
+                var province = campaign.SettlementProvinceRoots[i];
+                if (site == province)
+                {
+                    nextNumber++;
+                    if (root == site) number = nextNumber;
+                }
+                if (province != root) continue;
+                count++;
+                population += campaign.SettlementPopulation(site);
+            }
+
+            GUILayout.Label(root == campaign.CapitalCell ? "Capital province" : $"Province {number}", hudHeading);
+            GUILayout.Label($"{campaign.TribeName} | {count} {(count == 1 ? "settlement" : "settlements")} | {population:N0} people");
+            if (selected >= 0)
+                GUILayout.Label($"Local economy region: {surface.Map.Provinces[selected].Id}");
         }
 
         private void DrawProvince(ProvinceInfo province)
@@ -928,6 +974,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 surface.SetView(mode);
                 mapView = mode;
+                surface.HighlightInfluenceAt(clickedCell);
             }
         }
 
