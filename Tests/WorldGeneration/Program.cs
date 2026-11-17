@@ -496,7 +496,8 @@ internal static class Program
         var settlementSave = JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(settlers.ToSave(), json), json);
         var restoredSettlers = CampaignState.Restore(map, key, settlementSave, 5);
-        Require(restoredSettlers.Owns(1) && restoredSettlers.SettlementCells.Contains(1),
+        Require(restoredSettlers.Owns(1) && restoredSettlers.SettlementCells.Contains(1)
+            && restoredSettlers.SettlementProvinceRoots.Single() == 1,
             "A founded settlement and its claim must survive save and load.");
 
         var granary = CampaignState.Found(map, key, 0, "Granary", 0);

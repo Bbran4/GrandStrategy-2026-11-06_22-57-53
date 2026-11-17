@@ -663,12 +663,16 @@ namespace GrandStrategy.WorldGeneration
                 && surface.CanSiteVillage(settlement, clickedCell);
             var claimed = !campaign.Owns(selected);
             var action = claimed ? "Found and claim region" : "Found settlement";
-            if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)")
-                && campaign.TryFoundSettlement(clickedCell))
+            if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)"))
             {
-                surface.AddVillage(clickedCell);
-                surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
-                if (claimed) showTrade = false;
+                var provinceRoot = surface.InfluenceProvinceAt(clickedCell);
+                if (campaign.TryFoundSettlement(clickedCell, provinceRoot))
+                {
+                    surface.AddVillage(clickedCell);
+                    surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
+                    if (claimed) showTrade = false;
+                    saveStatus = provinceRoot < 0 ? "Settlement founded a new province." : "Settlement joined an existing province.";
+                }
             }
             GUI.enabled = wasEnabled;
         }

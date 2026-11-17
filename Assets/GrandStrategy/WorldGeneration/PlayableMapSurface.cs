@@ -37,6 +37,8 @@ namespace GrandStrategy.WorldGeneration
         private byte[] rivers;
         private float[] elevations;
         private CampaignState influenceCampaign;
+        private int[] influenceRoots;
+        private float[] influenceCosts;
         private int influenceFoodPeriod = -1;
 
         public ProvinceMap Map { get; }
@@ -462,16 +464,25 @@ namespace GrandStrategy.WorldGeneration
             RefreshInfluence();
         }
 
-        public void RefreshInfluence()
+        public int InfluenceProvinceAt(int cell)
+        {
+            if (cell < 0 || cell >= Map.ProvinceAt.Length) return -1;
+            RefreshInfluence(true);
+            return influenceRoots == null ? -1 : influenceRoots[cell] - 1;
+        }
+
+        public void RefreshInfluence(bool force = false)
         {
             var campaign = influenceCampaign;
-            if (campaign == null || viewMode != MapViewMode.Ownership) return;
+            if (campaign == null || (!force && viewMode != MapViewMode.Ownership)) return;
             var foodPeriod = campaign.Day / CampaignState.FoodInterval;
             if (foodPeriod == influenceFoodPeriod) return;
 
             ownership ??= CreateTexture("Settlement influence", true, FilterMode.Bilinear, false);
             var pixels = ownership.GetRawTextureData<Color32>();
-            for (var i = 0; i < pixels.Length; i++) pixels[i] = default;
+            influenceRoots ??= new int[pixels.Length];
+            influenceCosts ??= new float[pixels.Length];
+            Array.Clear(influenceRoots, 0, influenceRoots.Length);
 
             var settlementsPerProvince = new Dictionary<int, int> { [campaign.Capital] = 1 };
             foreach (var cell in campaign.SettlementCells)
@@ -481,15 +492,34 @@ namespace GrandStrategy.WorldGeneration
                 settlementsPerProvince[province] = count + 1;
             }
 
-            Spread(campaign.CapitalCell);
-            foreach (var cell in campaign.SettlementCells) Spread(cell);
+            Spread(campaign.CapitalCell, campaign.CapitalCell);
+            for (var i = 0; i < campaign.SettlementCells.Count; i++)
+                Spread(campaign.SettlementCells[i], campaign.SettlementProvinceRoots[i]);
+
+            for (var cell = 0; cell < pixels.Length; cell++)
+            {
+                var root = influenceRoots[cell];
+                if (root == 0)
+                {
+                    pixels[cell] = default;
+                    continue;
+                }
+                var x = cell % Map.Width;
+                var boundary = (x > 0 && IsOtherProvince(cell - 1))
+                    || (x + 1 < Map.Width && IsOtherProvince(cell + 1))
+                    || (cell >= Map.Width && IsOtherProvince(cell - Map.Width))
+                    || (cell + Map.Width < pixels.Length && IsOtherProvince(cell + Map.Width));
+                pixels[cell] = new Color32(255, boundary ? (byte)255 : (byte)0, 0, 255);
+
+                bool IsOtherProvince(int next) => influenceRoots[next] != 0 && influenceRoots[next] != root;
+            }
 
             ownership.Apply(false, false);
             material.SetTexture("_OwnershipMask", ownership);
             influenceFoodPeriod = foodPeriod;
             UpdateOwnershipVisibility();
 
-            void Spread(int origin)
+            void Spread(int origin, int provinceRoot)
             {
                 var province = campaign.SettlementProvince(origin);
                 var population = (double)campaign.Population(province) / settlementsPerProvince[province];
@@ -502,7 +532,12 @@ namespace GrandStrategy.WorldGeneration
                     var step = frontier.Min;
                     frontier.Remove(step);
                     var cell = step.Cell;
-                    if (!IsRiver(cell)) pixels[cell] = new Color32(255, 0, 0, 255);
+                    var distance = step.Cost / budget;
+                    if (!IsRiver(cell) && (influenceRoots[cell] == 0 || distance < influenceCosts[cell]))
+                    {
+                        influenceRoots[cell] = provinceRoot + 1;
+                        influenceCosts[cell] = distance;
+                    }
 
                     var x = cell % Map.Width;
                     var y = cell / Map.Width;
