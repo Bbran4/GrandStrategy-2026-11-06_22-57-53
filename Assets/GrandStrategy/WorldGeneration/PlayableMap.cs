@@ -126,7 +126,8 @@ namespace GrandStrategy.WorldGeneration
                     OnProvinceJoined(hadExpanded);
             }
 
-            surface.SetCityLimitsVisible(campaign != null && selected == campaign.Capital);
+            surface.SetCityLimitsVisible(campaign != null && selected == campaign.Capital,
+                campaign != null && campaign.SecondSettlementCell >= 0 && selected == campaign.SecondSettlementProvince);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -295,6 +296,7 @@ namespace GrandStrategy.WorldGeneration
                 throw new InvalidOperationException("The capital must be on dry land.");
             var capitalPoint = surface.PointAtCell(next.CapitalCell);
             surface.SetCapital(capitalPoint, next.HasGranary, next.FirstExpansion != ExpansionApproach.None, next.GranaryCell);
+            surface.SetSecondSettlement(next.SecondSettlementCell);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
             showTrade = showTradeContacts = false;
@@ -434,8 +436,9 @@ namespace GrandStrategy.WorldGeneration
                     ? campaign.TribeName + " | Capital" : campaign.TribeName + " | Integrated province");
                 GUILayout.Label($"Subsistence harvest: +{campaign.SubsistenceFood(selected)} food / {CampaignState.ProductionInterval} days outside winter");
                 if (selected == campaign.Capital)
-                {
                     GUILayout.Label($"Capital happiness: {campaign.CapitalHappiness}/100");
+                if (selected == campaign.Capital || HasSecondSettlementHere)
+                {
                     if (!CanBuildAtSelection)
                         GUILayout.Label("Select dry land within the gold city limits to unlock construction.");
                     DrawConstruction();
@@ -444,6 +447,7 @@ namespace GrandStrategy.WorldGeneration
                 {
                     GUILayout.Label("Construction requires a settlement.");
                 }
+                if (campaign.SecondSettlementCell < 0) DrawFoundSettlement();
                 if (selected == campaign.Capital) DrawCapitalActions();
                 return;
             }
@@ -622,8 +626,26 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled;
         }
 
-        private bool CanBuildAtSelection => clickedCell >= 0 && selected == campaign.Capital
+        private bool HasSecondSettlementHere => campaign.SecondSettlementCell >= 0
+            && selected == campaign.SecondSettlementProvince;
+
+        private bool InCapitalLimits => clickedCell >= 0 && selected == campaign.Capital
             && surface.IsWithinCityLimits(settlement, clickedMapUv);
+
+        private bool CanBuildAtSelection => InCapitalLimits || (clickedCell >= 0 && HasSecondSettlementHere
+            && surface.IsWithinSecondSettlementLimits(campaign.SecondSettlementCell, clickedMapUv));
+
+        private void DrawFoundSettlement()
+        {
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanFoundSecondSettlement(clickedCell)
+                && surface.Map.ProvinceAt[clickedCell] == selected
+                && surface.CanSiteSecondSettlement(settlement, clickedCell);
+            if (GUILayout.Button($"Found settlement ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)")
+                && campaign.TryFoundSecondSettlement(clickedCell))
+                surface.SetSecondSettlement(campaign.SecondSettlementCell);
+            GUI.enabled = wasEnabled;
+        }
 
         private void DrawConstruction()
         {
@@ -656,8 +678,8 @@ namespace GrandStrategy.WorldGeneration
         private void DrawCapitalActions()
         {
             var wasEnabled = GUI.enabled;
-            var fitsGranary = CanBuildAtSelection && surface.CanPlaceGranary(settlement, clickedCell);
-            if (!campaign.HasGranary && CanBuildAtSelection && !fitsGranary)
+            var fitsGranary = InCapitalLimits && surface.CanPlaceGranary(settlement, clickedCell);
+            if (!campaign.HasGranary && InCapitalLimits && !fitsGranary)
                 GUILayout.Label("Select open ground for the granary.");
             GUI.enabled = wasEnabled && fitsGranary && campaign.CanBuildGranary;
             if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)")

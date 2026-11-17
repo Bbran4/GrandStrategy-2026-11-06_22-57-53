@@ -55,6 +55,7 @@ namespace GrandStrategy.WorldGeneration
         public string TribeName;
         public int Colour;
         public int CapitalCell;
+        public int SecondSettlementSite; // Cell index plus one. Zero means no second settlement.
         public int Day;
         public int Speed;
         public int Coin;
@@ -84,6 +85,8 @@ namespace GrandStrategy.WorldGeneration
 
     internal sealed class CampaignState
     {
+        public const int SettlementCoin = 40;
+        public const int SettlementWood = 25;
         public const int StartingCoin = 100;
         public const int IntegrationCost = 25;
         public const int IntegrationDuration = 30;
@@ -129,6 +132,21 @@ namespace GrandStrategy.WorldGeneration
         public string TribeName => data.TribeName;
         public int Colour => data.Colour;
         public int CapitalCell => data.CapitalCell;
+        public int SecondSettlementCell => data.SecondSettlementSite - 1;
+        public int SecondSettlementProvince => ProvinceAt(map, SecondSettlementCell);
+
+        public bool CanFoundSecondSettlement(int cell)
+            => SecondSettlementCell < 0 && cell != CapitalCell && Owns(ProvinceAt(map, cell))
+                && Coin >= SettlementCoin && Wood >= SettlementWood;
+
+        public bool TryFoundSecondSettlement(int cell)
+        {
+            if (!CanFoundSecondSettlement(cell)) return false;
+            data.Coin -= SettlementCoin;
+            data.Wood -= SettlementWood;
+            data.SecondSettlementSite = cell + 1;
+            return true;
+        }
         public int Capital => map.ProvinceAt[CapitalCell];
         public int Day => data.Day;
         public int Speed => data.Speed;
@@ -274,6 +292,10 @@ namespace GrandStrategy.WorldGeneration
             if (!IsLand(map, capital) || !IsValidName(save.TribeName) || save.Colour < 0 || save.Colour >= colourCount
                 || save.Day < 1 || !IsValidSpeed(save.Speed) || save.Coin < 0 || save.Coin > (save.Version < 3 ? StartingCoin : ResourceLimit)
                 || save.Owned?.Length != map.Provinces.Length || save.Pop?.Length != map.Provinces.Length
+                || save.SecondSettlementSite < 0 || save.SecondSettlementSite > map.ProvinceAt.Length
+                || (save.SecondSettlementSite > 0 && (!IsLand(map, ProvinceAt(map, save.SecondSettlementSite - 1))
+                    || !save.Owned[ProvinceAt(map, save.SecondSettlementSite - 1)]
+                    || save.SecondSettlementSite - 1 == save.CapitalCell))
                 || !save.Owned[capital] || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes))
                 throw new ArgumentException("The save contains invalid campaign data.");
 
