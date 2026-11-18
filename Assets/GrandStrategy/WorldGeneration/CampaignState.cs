@@ -119,6 +119,7 @@ namespace GrandStrategy.WorldGeneration
         public int Food;
         public int Target;
         public int LastShortfall;
+        public int LastReserveUsed;
         public int InTransit;
         public int DepartureDay, ArrivalDay, HoldDay;
         public int[] OverlandPath;
@@ -1248,23 +1249,71 @@ namespace GrandStrategy.WorldGeneration
             return 0;
         }
 
+        public int LocalFoodUsedLastMeal(int cell)
+        {
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.Cell == cell) return reserve.LastReserveUsed;
+            return 0;
+        }
+
         private bool HasFoodForUpkeep(int cell)
-            => IsFoodIsolated(cell) ? LocalFoodStock(cell) >= LocalFoodUpkeep(cell) : Food >= FoodUpkeep;
+        {
+            var meal = SettlementMealOutlook(cell);
+            return meal.Food >= meal.Need;
+        }
+
+        public (long Food, long Need, bool DrawsLocalReserve) SettlementMealOutlook(int cell)
+        {
+            if (IsFoodIsolated(cell)) return (LocalFoodStock(cell), LocalFoodUpkeep(cell), true);
+            var plan = PlanFoodUpkeep();
+            if (plan.ReserveMeals?.Contains(cell) != true) return (Food, plan.SharedNeed, false);
+            var need = LocalFoodUpkeep(cell);
+            return (Math.Min(need, LocalFoodStock(cell)), need, true);
+        }
 
         public long FoodUpkeep
         {
             get
             {
-                var people = OwnedPopulation;
-                var guards = data.Garrisons.Count;
-                foreach (var cell in SettlementCells)
-                {
-                    if (!IsFoodIsolated(cell)) continue;
-                    people -= SettlementPopulation(cell);
-                    if (HasGarrison(cell)) guards--;
-                }
-                return (people + PeoplePerFood - 1) / PeoplePerFood + guards;
+                var demand = SharedFoodDemand();
+                return FoodFor(demand.People, demand.Guards);
             }
+        }
+
+        private (long People, int Guards) SharedFoodDemand()
+        {
+            var people = OwnedPopulation;
+            var guards = data.Garrisons.Count;
+            foreach (var cell in SettlementCells)
+            {
+                if (!IsFoodIsolated(cell)) continue;
+                people -= SettlementPopulation(cell);
+                if (HasGarrison(cell)) guards--;
+            }
+            return (people, guards);
+        }
+
+        private static long FoodFor(long people, int guards) => (people + PeoplePerFood - 1) / PeoplePerFood + guards;
+
+        private (long SharedNeed, HashSet<int> ReserveMeals) PlanFoodUpkeep()
+        {
+            var (people, guards) = SharedFoodDemand();
+            var need = FoodFor(people, guards);
+            HashSet<int> reserveMeals = null;
+            foreach (var reserve in data.SettlementFood)
+            {
+                if (Food >= need) break;
+                if (reserve.Food == 0 || IsFoodIsolated(reserve.Cell)) continue;
+                var villageNeed = LocalFoodUpkeep(reserve.Cell);
+                if (villageNeed == 0 || (long)reserve.Food * need <= (long)Food * villageNeed) continue;
+
+                // Feed this village locally and leave its share of the pooled food for other settlements.
+                (reserveMeals ??= new HashSet<int>()).Add(reserve.Cell);
+                people -= SettlementPopulation(reserve.Cell);
+                if (HasGarrison(reserve.Cell)) guards--;
+                need = FoodFor(people, guards);
+            }
+            return (need, reserveMeals);
         }
 
         public long LastPopulationChange => data.LastPopulationChange;
@@ -1547,7 +1596,7 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var reserve in save.SettlementFood)
                 {
                     if (!settlementSites.Contains(reserve.Cell) || !foodSites.Add(reserve.Cell)
-                        || !ValidStock(reserve.Food) || reserve.LastShortfall < 0
+                        || !ValidStock(reserve.Food) || !ValidStock(reserve.LastReserveUsed) || reserve.LastShortfall < 0
                         || reserve.Target < 0 || reserve.Target > MaxLocalFoodTarget)
                         throw new ArgumentException("The save contains an invalid local food reserve.");
                     var path = reserve.OverlandPath;
@@ -2755,8 +2804,8 @@ namespace GrandStrategy.WorldGeneration
                     }
                     else if (reserve.Food < reserve.Target && reserve.InTransit == 0)
                         DispatchFoodShipment(ref reserve);
-                    reserve.LastShortfall = 0;
-                    if (reserve.Food == 0 && reserve.Target == 0 && reserve.InTransit == 0)
+                    if (reserve.Food == 0 && reserve.Target == 0 && reserve.InTransit == 0
+                        && reserve.LastShortfall == 0 && reserve.LastReserveUsed == 0)
                         data.SettlementFood.RemoveAt(index);
                     else data.SettlementFood[index] = reserve;
                     continue;
@@ -2840,15 +2889,14 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        // Connected settlements share clan reserves. Isolated villages feed themselves from local harvests.
+        // Isolated villages always eat locally. Connected villages can draw on their reserves during shortages.
         private void FeedPopulation()
         {
-            var upkeep = FoodUpkeep;
+            var (upkeep, reserveMeals) = PlanFoodUpkeep();
             var balance = Food - upkeep;
+            var missedFood = Math.Max(0, -balance);
             AddFood(-upkeep);
             data.LastPopulationChange = 0;
-            if (balance < 0 && Day > WinterStart && Day <= WinterEnd)
-                data.WinterShortfall = (int)Math.Min(int.MaxValue, data.WinterShortfall - balance);
 
             var settledRegions = new HashSet<int>();
             for (var i = 0; i < data.SettlementPopulations.Count; i++)
@@ -2858,16 +2906,30 @@ namespace GrandStrategy.WorldGeneration
                 settledRegions.Add(region);
                 var siteUpkeep = upkeep;
                 var siteBalance = balance;
-                if (IsFoodIsolated(site))
+                if (site != CapitalCell)
                 {
+                    var isolated = IsFoodIsolated(site);
                     var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == site);
-                    var local = index >= 0 ? data.SettlementFood[index] : new SettlementFoodReserve { Cell = site };
-                    siteUpkeep = LocalFoodUpkeep(site);
-                    siteBalance = local.Food - siteUpkeep;
-                    local.Food = (int)Math.Max(0, siteBalance);
-                    local.LastShortfall = (int)Math.Max(0, -siteBalance);
-                    if (index >= 0) data.SettlementFood[index] = local;
-                    else data.SettlementFood.Add(local);
+                    if (isolated || reserveMeals?.Contains(site) == true)
+                    {
+                        var local = index >= 0 ? data.SettlementFood[index] : new SettlementFoodReserve { Cell = site };
+                        siteUpkeep = LocalFoodUpkeep(site);
+                        siteBalance = local.Food - siteUpkeep;
+                        local.LastReserveUsed = (int)Math.Min(local.Food, siteUpkeep);
+                        local.Food -= local.LastReserveUsed;
+                        local.LastShortfall = (int)Math.Max(0, -siteBalance);
+                        missedFood += local.LastShortfall;
+                        if (!isolated) siteBalance = Math.Min(0, siteBalance);
+                        if (index >= 0) data.SettlementFood[index] = local;
+                        else data.SettlementFood.Add(local);
+                    }
+                    else if (index >= 0)
+                    {
+                        var local = data.SettlementFood[index];
+                        local.LastReserveUsed = 0;
+                        local.LastShortfall = 0;
+                        data.SettlementFood[index] = local;
+                    }
                 }
 
                 data.SettlementPopulations[i] += ApplyPopulationChange(region, data.SettlementPopulations[i],
@@ -2877,6 +2939,9 @@ namespace GrandStrategy.WorldGeneration
             for (var region = 0; region < data.Pop.Length; region++)
                 if (Owns(region) && !settledRegions.Contains(region))
                     ApplyPopulationChange(region, data.Pop[region], upkeep, balance, -1);
+
+            if (Day > WinterStart && Day <= WinterEnd)
+                data.WinterShortfall = (int)Math.Min(int.MaxValue, data.WinterShortfall + missedFood);
 
             int ApplyPopulationChange(int region, int population, long need, long surplus, int site)
             {

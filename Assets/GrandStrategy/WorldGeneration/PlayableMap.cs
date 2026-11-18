@@ -601,12 +601,10 @@ namespace GrandStrategy.WorldGeneration
                 if (factors.Farm != 0) GUILayout.Label($"Local farm +{factors.Farm}");
                 if (factors.Granary != 0) GUILayout.Label($"Capital granary +{factors.Granary}");
                 if (factors.Food != 0) GUILayout.Label($"Food shortage {factors.Food}");
-                var isolated = campaign.IsFoodIsolated(site);
-                var food = isolated ? campaign.LocalFoodStock(site) : campaign.Food;
-                var upkeep = isolated ? campaign.LocalFoodUpkeep(site) : campaign.FoodUpkeep;
-                GUILayout.Label($"{(isolated ? "Isolated village food stock" : "Clan food stock")} {food:N0} | Next upkeep {upkeep:N0}");
-                if (isolated && campaign.LocalFoodShortfall(site) > 0)
-                    GUILayout.Label($"Last meal shortfall: {campaign.LocalFoodShortfall(site):N0} food");
+                var (food, upkeep, drawsLocalReserve) = campaign.SettlementMealOutlook(site);
+                var stockLabel = campaign.IsFoodIsolated(site) ? "Isolated village food stock"
+                    : drawsLocalReserve ? "Village reserve ration" : "Clan food stock";
+                GUILayout.Label($"{stockLabel} {food:N0} | Next upkeep {upkeep:N0}");
                 GUILayout.Label(food > upkeep ? "Surplus food supports growth at current stock."
                     : food == upkeep ? "Current stock covers upkeep with no surplus for growth."
                     : "Current stock falls short of upkeep. Population may decline.");
@@ -624,6 +622,10 @@ namespace GrandStrategy.WorldGeneration
             const int step = 5;
             var target = campaign.LocalFoodTarget(site);
             GUILayout.Label($"Local reserve {campaign.LocalFoodStock(site):N0}/{target:N0}");
+            var used = campaign.LocalFoodUsedLastMeal(site);
+            var shortfall = campaign.LocalFoodShortfall(site);
+            if (used > 0) GUILayout.Label($"Last meal used {used:N0} food from the reserve.");
+            if (shortfall > 0) GUILayout.Label($"Last meal fell short by {shortfall:N0} food.");
             var shipment = campaign.LocalFoodShipment(site);
             if (shipment.Amount > 0)
                 DrawShipmentStatus(site, TradeResource.Food, shipment.Amount, shipment.Days, shipment.Held);

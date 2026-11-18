@@ -1042,6 +1042,56 @@ internal static class Program
         stocked.Advance(foodCargo.Days);
         Require(stocked.LocalFoodStock(mineSite) == 10 && stocked.LocalFoodShipment(mineSite).Amount == 0,
             "The released cargo must reach the reserve exactly once.");
+        var emergencySave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(stocked.ToSave(), json), json);
+        emergencySave.Day = 104;
+        emergencySave.Granary = true;
+        emergencySave.WarbandSupply = WarbandSupplyPolicy.Forage;
+        emergencySave.Food = 0;
+        emergencySave.Pop[0] = 500;
+        emergencySave.SettlementPopulations = new List<int> { 250, 250 };
+        var savedEmergency = JsonSerializer.Serialize(emergencySave, json);
+        var shortage = CampaignState.Restore(supplyMap, "stocked", emergencySave, 5);
+        Require(!shortage.IsFoodIsolated(mineSite) && shortage.SettlementMealOutlook(mineSite) == (2L, 2L, true)
+            && shortage.SettlementMealOutlook(shortage.CapitalCell) == (0L, 2L, false)
+            && shortage.SettlementHappinessBreakdown(mineSite).Food == 0,
+            "A stocked village must forecast a local ration during a clan shortage.");
+        shortage.Paused = false;
+        shortage.Advance(1);
+        Require(shortage.SettlementPopulation(mineSite) == 250 && shortage.SettlementPopulation(shortage.CapitalCell) == 225
+            && shortage.LocalFoodStock(mineSite) == 8 && shortage.LocalFoodUsedLastMeal(mineSite) == 2
+            && shortage.LocalFoodShortfall(mineSite) == 0 && shortage.WinterShortfall == 2,
+            "A village must eat only its own reserve and avoid starvation without feeding the capital.");
+        var shortageReload = CampaignState.Restore(supplyMap, "stocked", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(shortage.ToSave(), json), json), 5);
+        Require(shortageReload.LocalFoodStock(mineSite) == 8 && shortageReload.LocalFoodUsedLastMeal(mineSite) == 2,
+            "The reserve balance and last-meal usage must survive save and load.");
+
+        var partialReserveSave = JsonSerializer.Deserialize<CampaignSave>(savedEmergency, json);
+        var partialReserve = partialReserveSave.SettlementFood.Single();
+        partialReserve.Food = 1;
+        partialReserveSave.SettlementFood[0] = partialReserve;
+        var partialReserveCampaign = CampaignState.Restore(supplyMap, "stocked", partialReserveSave, 5);
+        partialReserveCampaign.Paused = false;
+        partialReserveCampaign.Advance(1);
+        Require(partialReserveCampaign.SettlementPopulation(mineSite) == 237
+            && partialReserveCampaign.LocalFoodStock(mineSite) == 0
+            && partialReserveCampaign.LocalFoodUsedLastMeal(mineSite) == 1
+            && partialReserveCampaign.LocalFoodShortfall(mineSite) == 1
+            && partialReserveCampaign.WinterShortfall == 3,
+            "A partial reserve ration must reduce population loss and account for the remaining shortfall.");
+
+        var pooledRationsSave = JsonSerializer.Deserialize<CampaignSave>(savedEmergency, json);
+        pooledRationsSave.SettlementFood[0] = partialReserve;
+        pooledRationsSave.Food = 3;
+        var pooledRations = CampaignState.Restore(supplyMap, "stocked", pooledRationsSave, 5);
+        Require(pooledRations.SettlementMealOutlook(mineSite) == (3L, 4L, false),
+            "The outlook must retain the shared ration when it offers more food than local stores.");
+        pooledRations.Paused = false;
+        pooledRations.Advance(1);
+        Require(pooledRations.SettlementPopulation(mineSite) == 243 && pooledRations.LocalFoodStock(mineSite) == 1
+            && pooledRations.LocalFoodUsedLastMeal(mineSite) == 0 && pooledRations.WinterShortfall == 1,
+            "A better shared ration must leave local stores intact.");
+
         Require(stocked.TryChangeFordAccess(fordCell) && stocked.IsFoodIsolated(mineSite),
             "The reserve fixture needs loss of supply access.");
         var blockedStock = stocked.ToSave();
