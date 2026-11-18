@@ -898,7 +898,7 @@ namespace GrandStrategy.WorldGeneration
 
                 var positionDay = shipment.IronHoldDay > 0 ? shipment.IronHoldDay : Day;
                 if (positionDay >= shipment.IronTravelEndDay) continue;
-                var blocked = BlockingFord(shipment, positionDay) >= 0;
+                var blocked = WaitingAtFord(path, positionDay, shipment.IronDepartureDay, shipment.IronTravelEndDay) >= 0;
 
                 if (blocked && shipment.IronHoldDay == 0)
                     shipment.IronHoldDay = Day;
@@ -914,23 +914,56 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        private int BlockingFord(SettlementConstruction shipment, int positionDay)
-        {
-            var path = shipment.IronTravelPath;
-            if (shipment.IronTransport != IronSupplyRoute.Overland || path == null) return -1;
+        private bool HasPotentialFordClosures => data.ClosedFords.Count > 0 || data.RivalHeldFords.Count > 0
+            || (WarbandCommitted && data.PassageFords.Count > 0);
 
-            return BlockingFord(path, positionDay, shipment.IronDepartureDay, shipment.IronTravelEndDay);
+        private (int Ford, int ApproachDay) NextClosedFord(int[] path, int positionDay, int departureDay, int arrivalDay)
+        {
+            if (path == null || path.Length < 3 || positionDay >= arrivalDay || !HasPotentialFordClosures)
+                return (-1, int.MaxValue);
+
+            var legs = path.Length - 1;
+            var duration = arrivalDay - departureDay;
+            var elapsed = (long)(positionDay - departureDay) * legs;
+            var first = (int)Math.Max(1, (elapsed + duration - 1) / duration);
+            for (var step = first; step < legs; step++)
+            {
+                if (!IsFordClosed(path[step])) continue;
+
+                // Stop at the last whole campaign day on or before the near bank.
+                var approach = departureDay + (int)((long)(step - 1) * duration / legs);
+                return (path[step], approach);
+            }
+            return (-1, int.MaxValue);
         }
 
-        private int BlockingFord(int[] path, int positionDay, int departureDay, int arrivalDay)
+        private int WaitingAtFord(int[] path, int positionDay, int departureDay, int arrivalDay)
         {
-            var elapsed = positionDay - departureDay;
-            var duration = arrivalDay - departureDay;
-            for (var step = 1; step < path.Length - 1; step++)
-                if ((long)step * duration >= (long)elapsed * (path.Length - 1) && IsFordClosed(path[step]))
-                    return path[step];
+            var next = NextClosedFord(path, positionDay, departureDay, arrivalDay);
+            return next.ApproachDay <= positionDay ? next.Ford : -1;
+        }
+
+        public int DaysUntilShipmentWait(int village, TradeResource resource)
+        {
+            if (resource == TradeResource.Food)
+            {
+                foreach (var reserve in data.SettlementFood)
+                    if (reserve.Cell == village && reserve.InTransit > 0 && reserve.HoldDay == 0)
+                        return DaysUntilShipmentWait(NextClosedFord(reserve.OverlandPath, Day, reserve.DepartureDay, reserve.ArrivalDay));
+            }
+            else if (resource == TradeResource.Iron)
+            {
+                foreach (var shipment in data.Construction)
+                    if (shipment.Cell == village && shipment.IronInTransit > 0 && shipment.IronHoldDay == 0
+                        && shipment.IronTransport == IronSupplyRoute.Overland)
+                        return DaysUntilShipmentWait(NextClosedFord(shipment.IronTravelPath, Day,
+                            shipment.IronDepartureDay, shipment.IronTravelEndDay));
+            }
             return -1;
         }
+
+        private int DaysUntilShipmentWait((int Ford, int ApproachDay) next)
+            => next.Ford >= 0 ? Math.Max(0, next.ApproachDay - Day) : -1;
 
         public IEnumerable<(int Origin, int Destination, TradeResource Resource, int Amount)> HeldShipmentsAtFord(int ford)
         {
@@ -938,12 +971,14 @@ namespace GrandStrategy.WorldGeneration
 
             foreach (var reserve in data.SettlementFood)
                 if (reserve.InTransit > 0 && reserve.HoldDay > 0
-                    && BlockingFord(reserve.OverlandPath, reserve.HoldDay, reserve.DepartureDay, reserve.ArrivalDay) == ford)
+                    && WaitingAtFord(reserve.OverlandPath, reserve.HoldDay, reserve.DepartureDay, reserve.ArrivalDay) == ford)
                     yield return (CapitalCell, reserve.Cell, TradeResource.Food, reserve.InTransit);
 
             foreach (var shipment in data.Construction)
                 if (shipment.IronInTransit > 0 && shipment.IronHoldDay > 0
-                    && BlockingFord(shipment, shipment.IronHoldDay) == ford)
+                    && shipment.IronTransport == IronSupplyRoute.Overland
+                    && WaitingAtFord(shipment.IronTravelPath, shipment.IronHoldDay, shipment.IronDepartureDay,
+                        shipment.IronTravelEndDay) == ford)
                     yield return (shipment.Cell, CapitalCell, TradeResource.Iron, shipment.IronInTransit);
         }
 
@@ -970,7 +1005,7 @@ namespace GrandStrategy.WorldGeneration
                 var reserve = data.SettlementFood[i];
                 if (reserve.OverlandPath == null || (reserve.HoldDay == 0 && Day >= reserve.ArrivalDay)) continue;
                 var positionDay = reserve.HoldDay > 0 ? reserve.HoldDay : Day;
-                var blocked = BlockingFord(reserve.OverlandPath, positionDay, reserve.DepartureDay, reserve.ArrivalDay) >= 0;
+                var blocked = WaitingAtFord(reserve.OverlandPath, positionDay, reserve.DepartureDay, reserve.ArrivalDay) >= 0;
                 if (blocked && reserve.HoldDay == 0)
                     reserve.HoldDay = Day;
                 else if (!blocked && reserve.HoldDay > 0)
@@ -989,6 +1024,11 @@ namespace GrandStrategy.WorldGeneration
             ironSupplyRoutes.Clear();
             InfluenceRevision++;
             FordAccessRevision++;
+            UpdateSupplyWaits();
+        }
+
+        private void UpdateSupplyWaits()
+        {
             UpdateHeldShipments();
             UpdateHeldFoodShipments();
         }
@@ -1698,6 +1738,7 @@ namespace GrandStrategy.WorldGeneration
             }
             else
                 state.ValidateTradeAgreements();
+            if (state.Day < int.MaxValue) state.UpdateSupplyWaits();
             return state;
         }
 
@@ -2498,14 +2539,20 @@ namespace GrandStrategy.WorldGeneration
                 {
                     if (site.Cell == CapitalCell || (site.Buildings & (int)SettlementBuilding.IronMine) == 0) continue;
                     span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
-                    if (site.IronInTransit > 0 && site.IronHoldDay == 0) span = Math.Min(span, site.IronArrivalDay - Day);
+                    if (site.IronInTransit > 0 && site.IronHoldDay == 0)
+                    {
+                        span = Math.Min(span, site.IronArrivalDay - Day);
+                        if (site.IronTransport == IronSupplyRoute.Overland)
+                            span = LimitToFordApproach(span, site.IronTravelPath, site.IronDepartureDay, site.IronTravelEndDay);
+                    }
                 }
                 foreach (var reserve in data.SettlementFood)
                 {
                     if (reserve.Target > reserve.Food && reserve.InTransit == 0)
                         span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
                     if (reserve.InTransit > 0 && reserve.HoldDay == 0)
-                        span = Math.Min(span, reserve.ArrivalDay - Day);
+                        span = LimitToFordApproach(Math.Min(span, reserve.ArrivalDay - Day), reserve.OverlandPath,
+                            reserve.DepartureDay, reserve.ArrivalDay);
                 }
                 if (MilitaryObjectiveCell >= 0) span = Math.Min(span, 1);
                 if (WarbandCommitted && IntegrationDaysLeft > ForceDuration - RivalFordResponseDays
@@ -2516,11 +2563,18 @@ namespace GrandStrategy.WorldGeneration
                 data.Day += span;
                 AdvanceWarband(span);
                 expanded |= AdvanceIntegration(span);
+                if (HasPotentialFordClosures) UpdateSupplyWaits();
                 ApplyEconomy(previousDay);
             }
 
             if (days != 0 && (Day == WinterStart || Day == WinterEnd)) Paused = true;
             return expanded;
+        }
+
+        private int LimitToFordApproach(int span, int[] path, int departureDay, int arrivalDay)
+        {
+            var next = NextClosedFord(path, Day, departureDay, arrivalDay);
+            return next.Ford < 0 ? span : Math.Min(span, Math.Max(1, next.ApproachDay - Day));
         }
 
         // Apply production, deliveries, upkeep and taxes in that order. Taxes use the population remaining

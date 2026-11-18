@@ -814,6 +814,83 @@ internal static class Program
         Require(supply.Iron == cargo.Amount && !supply.IsIronShipmentHeld(mineSite),
             "The capital must receive cargo once travel finishes.");
 
+        var farCapital = fordCell - 1 + 6 * recipe.Width;
+        var farVillage = fordCell + 8;
+        var roadSupply = CampaignState.Found(supplyMap, "long-supply", farCapital, "Long supply", 0);
+        Require(roadSupply.TryFoundSettlement(farVillage)
+            && roadSupply.TryBuildAtSettlement(farVillage, SettlementBuilding.IronMine, farVillage)
+            && roadSupply.TrySetLocalFoodTarget(farVillage, 5),
+            "The long route needs a mine and a village reserve across the river.");
+        var roadSupplySave = roadSupply.ToSave();
+        roadSupplySave.SecuredFords.Add(fordCell);
+        roadSupplySave.Warband = true;
+        roadSupplySave.WarbandRoute = new List<int> { fordCell - 1 };
+        roadSupply = CampaignState.Restore(supplyMap, "long-supply", roadSupplySave, 5);
+        roadSupply.Paused = false;
+        roadSupply.Advance(4);
+        var initialFood = roadSupply.FoodShipmentJourney(farVillage);
+        var initialIron = roadSupply.IronShipmentJourney(farVillage);
+        var initialIronCargo = roadSupply.IronShipment(farVillage);
+        var openRoadSave = JsonSerializer.Serialize(roadSupply.ToSave(), json);
+        Require(roadSupply.TryChangeFordAccess(fordCell), "The guard must be able to close the ford.");
+        var foodApproach = roadSupply.DaysUntilShipmentWait(farVillage, TradeResource.Food);
+        var ironApproach = roadSupply.DaysUntilShipmentWait(farVillage, TradeResource.Iron);
+        Require(foodApproach > 1 && ironApproach > 1 && !roadSupply.HeldShipmentsAtFord(fordCell).Any(),
+            "Closing a distant ford must warn approaching convoys without immediately stopping them.");
+        roadSupply.Advance(1);
+        Require(roadSupply.FoodShipmentJourney(farVillage).Progress > initialFood.Progress
+            && roadSupply.IronShipmentJourney(farVillage).Progress > initialIron.Progress
+            && !roadSupply.HeldShipmentsAtFord(fordCell).Any(),
+            "Both convoys must keep moving on the open stretch before the bank.");
+        var approachSave = JsonSerializer.Serialize(roadSupply.ToSave(), json);
+        var formerlyHeldSave = JsonSerializer.Deserialize<CampaignSave>(approachSave, json);
+        var formerlyHeldFood = formerlyHeldSave.SettlementFood.Single();
+        formerlyHeldFood.HoldDay = formerlyHeldSave.Day;
+        formerlyHeldSave.SettlementFood[0] = formerlyHeldFood;
+        var formerlyHeldIron = formerlyHeldSave.Construction.Single();
+        formerlyHeldIron.IronHoldDay = formerlyHeldSave.Day;
+        formerlyHeldSave.Construction[0] = formerlyHeldIron;
+        var migratedSupply = CampaignState.Restore(supplyMap, "long-supply", formerlyHeldSave, 5);
+        Require(!migratedSupply.HeldShipmentsAtFord(fordCell).Any()
+            && migratedSupply.DaysUntilShipmentWait(farVillage, TradeResource.Food) == foodApproach - 1
+            && migratedSupply.DaysUntilShipmentWait(farVillage, TradeResource.Iron) == ironApproach - 1
+            && migratedSupply.LocalFoodShipment(farVillage).Amount == formerlyHeldFood.InTransit
+            && migratedSupply.IronShipment(farVillage).Amount == formerlyHeldIron.IronInTransit,
+            "Older saves with convoys stopped far from a ford must resume the approach with their cargo.");
+
+        var reopenedEarly = CampaignState.Restore(supplyMap, "long-supply",
+            JsonSerializer.Deserialize<CampaignSave>(approachSave, json), 5);
+        Require(reopenedEarly.TryChangeFordAccess(fordCell)
+            && reopenedEarly.DaysUntilShipmentWait(farVillage, TradeResource.Food) == -1
+            && reopenedEarly.IronShipment(farVillage).Days == initialIronCargo.Days - 1,
+            "Reopening before a convoy reaches the bank must preserve its arrival schedule.");
+
+        roadSupply = CampaignState.Restore(supplyMap, "long-supply",
+            JsonSerializer.Deserialize<CampaignSave>(approachSave, json), 5);
+        roadSupply.Paused = false;
+        roadSupply.Advance(initialIronCargo.Days + 2);
+        var waitingFood = roadSupply.FoodShipmentJourney(farVillage);
+        var waitingIron = roadSupply.IronShipmentJourney(farVillage);
+        var foodBank = waitingFood.Path.ToList().IndexOf(fordCell) - 1;
+        var ironBank = waitingIron.Path.ToList().IndexOf(fordCell) - 1;
+        Require(waitingFood.Held && roadSupply.IsIronShipmentHeld(farVillage)
+            && Math.Abs(waitingFood.Progress * (waitingFood.Path.Count - 1) - foodBank) < 0.001f
+            && Math.Abs(waitingIron.Progress * (waitingIron.Path.Count - 1) - ironBank) < 0.001f
+            && roadSupply.HeldShipmentsAtFord(fordCell).Count() == 2 && roadSupply.Iron == 0,
+            "Fast-forward after loading must stop both convoys at their respective banks.");
+
+        var crossed = CampaignState.Restore(supplyMap, "long-supply",
+            JsonSerializer.Deserialize<CampaignSave>(openRoadSave, json), 5);
+        crossed.Paused = false;
+        crossed.Advance(Math.Max(foodBank, ironBank) + 2);
+        Require(crossed.TryChangeFordAccess(fordCell)
+            && crossed.DaysUntilShipmentWait(farVillage, TradeResource.Food) == -1
+            && crossed.DaysUntilShipmentWait(farVillage, TradeResource.Iron) == -1,
+            "A closed ford behind the convoys must not stop them.");
+        crossed.Advance(crossed.IronShipment(farVillage).Days);
+        Require(crossed.Iron == initialIronCargo.Amount && !crossed.HeldShipmentsAtFord(fordCell).Any(),
+            "Cargo that crossed before closure must arrive on schedule.");
+
         var valley = CampaignState.Found(supplyMap, "valley", fordCell - 1, "Valley", 0, localCapitalClaim: true);
         Require(valley.TryFoundSettlement(mineSite) && valley.TryBuildAtSettlement(mineSite, SettlementBuilding.IronMine, mineSite),
             "The valley needs a mine across the river from the capital.");

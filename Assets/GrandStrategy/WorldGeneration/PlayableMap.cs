@@ -575,6 +575,15 @@ namespace GrandStrategy.WorldGeneration
             saveStatus = rerouted ? "Delivery rerouted overland." : "No alternate overland route is open.";
         }
 
+        private void DrawShipmentStatus(int village, TradeResource resource, int amount, int days, bool held)
+        {
+            var goods = resource == TradeResource.Food ? "food" : "iron";
+            var approach = held ? -1 : campaign.DaysUntilShipmentWait(village, resource);
+            GUILayout.Label(held ? $"{amount:N0} {goods} waiting at a closed ford."
+                : approach >= 0 ? $"{amount:N0} {goods} approaching a closed ford | {approach:N0}d"
+                : $"{amount:N0} {goods} due in {days:N0}d.");
+        }
+
         private void DrawSettlement(int site)
         {
             GUILayout.Label($"Settlement population: {campaign.SettlementPopulation(site):N0}");
@@ -612,8 +621,7 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label($"Local reserve {campaign.LocalFoodStock(site):N0}/{target:N0}");
             var shipment = campaign.LocalFoodShipment(site);
             if (shipment.Amount > 0)
-                GUILayout.Label(shipment.Held ? $"{shipment.Amount:N0} food waiting at a closed crossing."
-                    : $"{shipment.Amount:N0} food due in {shipment.Days:N0}d.");
+                DrawShipmentStatus(site, TradeResource.Food, shipment.Amount, shipment.Days, shipment.Held);
             var following = followedFoodSite == site;
             if (shipment.Amount > 0 && campaign.FoodShipmentJourney(site).Path != null
                 && GUILayout.Button(following ? "Stop following food convoy" : "Follow food convoy"))
@@ -1450,9 +1458,8 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | {route}");
                     var shipment = campaign.IronShipment(site);
                     if (shipment.Amount > 0)
-                        GUILayout.Label(campaign.IsIronShipmentHeld(site)
-                            ? $"{shipment.Amount:N0} iron held by a ford closure"
-                            : $"{shipment.Amount:N0} iron in transit | Next unload in {shipment.Days} days");
+                        DrawShipmentStatus(site, TradeResource.Iron, shipment.Amount, shipment.Days,
+                            campaign.IsIronShipmentHeld(site));
                     if (campaign.IsIronShipmentHeld(site) && GUILayout.Button("Reroute held shipment"))
                         RerouteHeldShipment(site, food: false);
                     if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway || shipment.Amount > 0)
