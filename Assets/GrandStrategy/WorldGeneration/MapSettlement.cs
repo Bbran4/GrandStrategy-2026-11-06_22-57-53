@@ -105,6 +105,7 @@ namespace GrandStrategy.WorldGeneration
             var indices = new List<int>();
             var occupied = new List<Vector3> { capital };
             Vector3? farmSite = null;
+            var productionAnchors = new List<Vector3>();
             var timber = new Color32(158, 111, 71, 255);
             var thatch = new Color32(184, 145, 76, 255);
             var storeWalls = new Color32(171, 136, 94, 255);
@@ -141,6 +142,7 @@ namespace GrandStrategy.WorldGeneration
             AddProduction(SettlementBuilding.LumberCamp, timber, new Color32(92, 65, 42, 255));
             AddProduction(SettlementBuilding.IronMine, new Color32(107, 104, 101, 255), new Color32(66, 61, 59, 255));
             AddProduction(SettlementBuilding.Docks, storeWalls, new Color32(81, 104, 119, 255));
+            foreach (var anchor in productionAnchors) AddPath(anchor);
             if (farmSite.HasValue) AddFields(farmSite.Value);
 
             var next = new Mesh { name = "Capital village", hideFlags = HideFlags.DontSave };
@@ -211,7 +213,65 @@ namespace GrandStrategy.WorldGeneration
                 void AddProductionModel(Vector3 anchor)
                 {
                     House(anchor, halfWidth, walls, roof);
+                    productionAnchors.Add(anchor);
                     if (building == SettlementBuilding.Farm) farmSite = anchor;
+                }
+            }
+
+            void AddPath(Vector3 destination)
+            {
+                var endOffset = new Vector2(destination.x - capital.x, destination.z - capital.z);
+                var length = endOffset.magnitude;
+                const float setback = .0011f;
+                if (length <= setback * 2f) return;
+
+                var along = endOffset / length;
+                var across = new Vector2(-along.y, along.x);
+                const int steps = 24;
+                const float pathHalfWidth = .00017f;
+                var left = new Vector3[steps + 1];
+                var right = new Vector3[steps + 1];
+                for (var attempt = 0; attempt < 5; attempt++)
+                {
+                    var bend = (attempt + 1) / 2 * .0011f * (attempt % 2 == 0 ? 1f : -1f);
+                    var fits = true;
+                    for (var i = 0; i <= steps; i++)
+                    {
+                        var t = i / (float)steps;
+                        var offset = along * Mathf.Lerp(setback, length - setback, t)
+                            + across * (Mathf.Sin(t * Mathf.PI) * bend);
+                        if (!SamplePath(offset + across * pathHalfWidth, out left[i])
+                            || !SamplePath(offset - across * pathHalfWidth, out right[i]))
+                        {
+                            fits = false;
+                            break;
+                        }
+                    }
+
+                    if (!fits) continue;
+                    var dirt = new Color32(126, 100, 73, 255);
+                    for (var i = 0; i < steps; i++)
+                    {
+                        AddTriangle(right[i], left[i], left[i + 1], capital, dirt);
+                        AddTriangle(right[i], left[i + 1], right[i + 1], capital, dirt);
+                    }
+                    return;
+                }
+
+                bool SamplePath(Vector2 offset, out Vector3 point)
+                {
+                    point = default;
+                    if (offset.sqrMagnitude > BuildRadius * BuildRadius || !TryAnchor(offset, out point))
+                        return false;
+                    foreach (var building in occupied)
+                    {
+                        if (building == capital || building == destination) continue;
+                        if (Mathf.Abs(point.x - building.x) < GranaryHalfWidth
+                            && Mathf.Abs(point.z - building.z) < GranaryHalfWidth * .77f)
+                            return false;
+                    }
+                    point += Vector3.up * .00012f;
+                    return true;
                 }
             }
 
