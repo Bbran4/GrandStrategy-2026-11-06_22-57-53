@@ -46,6 +46,7 @@ namespace GrandStrategy.WorldGeneration
         private SettlementBuilding resourceFilter = SettlementBuilding.Farm;
         private MapViewMode mapView = MapViewMode.Provinces;
         private bool editingName;
+        private bool showProvinceSettlements;
         private int selected = -1;
         private int selectedCell = -1;
         private int clickedCell = -1;
@@ -453,6 +454,29 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label($"{campaign.TribeName} | {count} {(count == 1 ? "settlement" : "settlements")} | {population:N0} people");
             if (selected >= 0)
                 GUILayout.Label($"Local economy region: {surface.Map.Provinces[selected].Id}");
+
+            showProvinceSettlements = GUILayout.Toggle(showProvinceSettlements, "Show settlements");
+            if (!showProvinceSettlements) return;
+            if (root == campaign.CapitalCell) DrawSettlementLink(root, "Capital");
+            for (var i = 0; i < campaign.SettlementCells.Count; i++)
+                if (campaign.SettlementProvinceRoots[i] == root)
+                    DrawSettlementLink(campaign.SettlementCells[i], $"Village {i + 1}");
+        }
+
+        private void DrawSettlementLink(int cell, string label)
+        {
+            if (!GUILayout.Button($"{label} | {campaign.SettlementPopulation(cell):N0} people")) return;
+
+            var map = surface.Map;
+            clickedCell = selectedCell = cell;
+            clickedMapUv = new Vector2((cell % map.Width + .5f) / map.Width, (cell / map.Width + .5f) / map.Height);
+            selected = map.ProvinceAt[cell];
+            focus = surface.PointAtCell(cell);
+            targetZoom = MinimumZoom;
+            showProvinceDetails = showTrade = false;
+            provinceDetails = Describe(map.Provinces[selected]);
+            surface.SetSelection(selected);
+            surface.HighlightInfluenceAt(cell);
         }
 
         private void DrawProvince(ProvinceInfo province)
@@ -1084,7 +1108,7 @@ namespace GrandStrategy.WorldGeneration
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",
-                MapViewMode.Ownership => campaign == null ? "Found a settlement to see its influence" : "Settlement reach based on population and terrain",
+                MapViewMode.Ownership => campaign == null ? "Found a settlement to see its influence" : "Dark frontier | Lighter internal province borders",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
                     : "Click a province to inspect its biome",
                 MapViewMode.Territories => "Land, sea & navigable river territories",

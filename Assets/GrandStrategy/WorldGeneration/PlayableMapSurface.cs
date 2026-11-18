@@ -903,14 +903,14 @@ namespace GrandStrategy.WorldGeneration
                     continue;
                 }
                 var x = cell % Map.Width;
-                var boundary = (x > 0 && IsOtherProvince(cell - 1))
-                    || (x + 1 < Map.Width && IsOtherProvince(cell + 1))
-                    || (cell >= Map.Width && IsOtherProvince(cell - Map.Width))
-                    || (cell + Map.Width < pixels.Length && IsOtherProvince(cell + Map.Width));
-                pixels[cell] = new Color32(255, boundary ? (byte)255 : (byte)0,
-                    root == highlightedInfluenceRoot ? (byte)255 : (byte)0, 0);
-
-                bool IsOtherProvince(int next) => influenceRoots[next] != 0 && influenceRoots[next] != root;
+                var west = x > 0 ? influenceRoots[cell - 1] : 0;
+                var east = x + 1 < Map.Width ? influenceRoots[cell + 1] : 0;
+                var south = cell >= Map.Width ? influenceRoots[cell - Map.Width] : 0;
+                var north = cell + Map.Width < pixels.Length ? influenceRoots[cell + Map.Width] : 0;
+                var frontier = west == 0 || east == 0 || south == 0 || north == 0;
+                var internalBorder = west != root || east != root || south != root || north != root;
+                var border = frontier ? (byte)255 : internalBorder ? (byte)115 : (byte)0;
+                pixels[cell] = new Color32(255, border, root == highlightedInfluenceRoot ? (byte)255 : (byte)0, 0);
             }
 
             if (pressure > 0f && campaign.WarbandCell >= 0
