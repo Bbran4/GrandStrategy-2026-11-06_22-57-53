@@ -104,6 +104,7 @@ namespace GrandStrategy.WorldGeneration
             var colours = new List<Color32>();
             var indices = new List<int>();
             var occupied = new List<Vector3> { capital };
+            Vector3? farmSite = null;
             var timber = new Color32(158, 111, 71, 255);
             var thatch = new Color32(184, 145, 76, 255);
             var storeWalls = new Color32(171, 136, 94, 255);
@@ -140,6 +141,7 @@ namespace GrandStrategy.WorldGeneration
             AddProduction(SettlementBuilding.LumberCamp, timber, new Color32(92, 65, 42, 255));
             AddProduction(SettlementBuilding.IronMine, new Color32(107, 104, 101, 255), new Color32(66, 61, 59, 255));
             AddProduction(SettlementBuilding.Docks, storeWalls, new Color32(81, 104, 119, 255));
+            if (farmSite.HasValue) AddFields(farmSite.Value);
 
             var next = new Mesh { name = "Capital village", hideFlags = HideFlags.DontSave };
             try
@@ -176,7 +178,7 @@ namespace GrandStrategy.WorldGeneration
                 var fixedSite = placement(building);
                 if (fixedSite.HasValue)
                 {
-                    House(fixedSite.Value, halfWidth, walls, roof);
+                    AddProductionModel(fixedSite.Value);
                     if (building == SettlementBuilding.Docks && dockWater.HasValue)
                         Pier(fixedSite.Value, dockWater.Value);
                     return;
@@ -201,9 +203,77 @@ namespace GrandStrategy.WorldGeneration
                         }
 
                     if (blocked) continue;
-                    House(anchor, halfWidth, walls, roof);
+                    AddProductionModel(anchor);
                     occupied.Add(anchor);
                     return;
+                }
+
+                void AddProductionModel(Vector3 anchor)
+                {
+                    House(anchor, halfWidth, walls, roof);
+                    if (building == SettlementBuilding.Farm) farmSite = anchor;
+                }
+            }
+
+            void AddFields(Vector3 farm)
+            {
+                const int rows = 6;
+                const int intervals = 4;
+                const float halfWidth = .00115f;
+                const float halfLength = .0010f;
+                var farmOffset = new Vector2(farm.x - capital.x, farm.z - capital.z);
+                var field = new Vector3[rows + 1, intervals + 1];
+                var soil = new Color32(101, 72, 43, 255);
+                var cropA = new Color32(126, 139, 61, 255);
+                var cropB = new Color32(150, 151, 68, 255);
+
+                for (var direction = 0; direction < 8; direction++)
+                {
+                    var angle = direction * Mathf.PI / 4f;
+                    var along = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+                    var across = new Vector2(-along.y, along.x);
+                    var centre = farmOffset + along * .00245f;
+                    if (!SampleField()) continue;
+
+                    for (var row = 0; row < rows; row++)
+                        for (var interval = 0; interval < intervals; interval++)
+                        {
+                            var a = field[row, interval];
+                            var b = field[row + 1, interval];
+                            var c = field[row + 1, interval + 1];
+                            var d = field[row, interval + 1];
+                            AddTriangle(a, b, c, farm, soil);
+                            AddTriangle(a, c, d, farm, soil);
+
+                            var rise = Vector3.up * .00010f;
+                            var nearLeft = Vector3.Lerp(a, b, .22f) + rise;
+                            var nearRight = Vector3.Lerp(a, b, .73f) + rise;
+                            var farLeft = Vector3.Lerp(d, c, .22f) + rise;
+                            var farRight = Vector3.Lerp(d, c, .73f) + rise;
+                            var crop = row % 2 == 0 ? cropA : cropB;
+                            AddTriangle(nearLeft, nearRight, farRight, farm, crop);
+                            AddTriangle(nearLeft, farRight, farLeft, farm, crop);
+                        }
+                    return;
+
+                    bool SampleField()
+                    {
+                        for (var row = 0; row <= rows; row++)
+                            for (var interval = 0; interval <= intervals; interval++)
+                            {
+                                var width = Mathf.Lerp(-halfWidth, halfWidth, row / (float)rows);
+                                var length = Mathf.Lerp(-halfLength, halfLength, interval / (float)intervals);
+                                var offset = centre + across * width + along * length;
+                                if (offset.sqrMagnitude > BuildRadius * BuildRadius || !TryAnchor(offset, out var point))
+                                    return false;
+                                foreach (var building in occupied)
+                                    if (Mathf.Abs(building.x - point.x) < GranaryHalfWidth
+                                        && Mathf.Abs(building.z - point.z) < GranaryHalfWidth * .77f)
+                                        return false;
+                                field[row, interval] = point + Vector3.up * .00018f;
+                            }
+                        return true;
+                    }
                 }
             }
 
