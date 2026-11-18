@@ -18,6 +18,9 @@ namespace GrandStrategy.WorldGeneration
     [Flags]
     internal enum CampaignTechnology { Agronomy = 1, MarchLogistics = 2 }
 
+    [Flags]
+    internal enum CampaignPerk { Stewardship = 1, TownPlanning = 2, Envoys = 4 }
+
     internal enum ClanTradition { Standard, River, Highland }
 
     internal enum TaxPolicy { Standard, Relief, Heavy }
@@ -153,6 +156,7 @@ namespace GrandStrategy.WorldGeneration
         public bool RegionalCouncil;
         public int ResearchPoints;
         public CampaignTechnology Technologies;
+        public CampaignPerk Perks;
     }
 
     internal sealed class CampaignState
@@ -170,6 +174,9 @@ namespace GrandStrategy.WorldGeneration
         public const int SettlementWood = 25;
         public const int StartingCoin = 100;
         public const int IntegrationCost = 25;
+        public int SettlementWoodCost => HasPerk(CampaignPerk.Stewardship) ? SettlementWood - 5 : SettlementWood;
+        public int TownWoodCost => HasPerk(CampaignPerk.TownPlanning) ? TownWood - 5 : TownWood;
+        public int NegotiationCoinCost => HasPerk(CampaignPerk.Envoys) ? IntegrationCost - 5 : IntegrationCost;
         public const int IntegrationDuration = 30;
         public const int MaxNameLength = 32;
         public const int WinterStart = 90;
@@ -271,7 +278,7 @@ namespace GrandStrategy.WorldGeneration
         {
             var province = SettlementProvince(cell);
             return cell != CapitalCell && IsLand(map, province) && province != IntegrationTarget
-                && !data.SettlementCells.Contains(cell) && Coin >= SettlementCoin && Wood >= SettlementWood;
+                && !data.SettlementCells.Contains(cell) && Coin >= SettlementCoin && Wood >= SettlementWoodCost;
         }
 
         public bool TryFoundSettlement(int cell, int provinceRoot = -1)
@@ -282,7 +289,7 @@ namespace GrandStrategy.WorldGeneration
             var party = PlanFoundingParty(cell, provinceRoot);
             if (party.People == 0) return false;
             data.Coin -= SettlementCoin;
-            data.Wood -= SettlementWood;
+            data.Wood -= SettlementWoodCost;
             data.SettlementCells.Add(cell);
             data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
             AllocateSettlers(cell, party.Donor, party.People, Owns(SettlementProvince(cell)));
@@ -310,10 +317,10 @@ namespace GrandStrategy.WorldGeneration
 
         public bool TryUpgradeTown(int cell)
         {
-            if (IsTown(cell) || SettlementPopulation(cell) < TownPopulation || Coin < TownCoin || Wood < TownWood)
+            if (IsTown(cell) || SettlementPopulation(cell) < TownPopulation || Coin < TownCoin || Wood < TownWoodCost)
                 return false;
             data.Coin -= TownCoin;
-            data.Wood -= TownWood;
+            data.Wood -= TownWoodCost;
             data.Towns.Add(cell);
             return true;
         }
@@ -654,6 +661,24 @@ namespace GrandStrategy.WorldGeneration
         public bool TradeMilestoneComplete => CompletedTradeDeliveries >= TradeMilestoneDeliveries;
         public bool DiplomacyMilestoneComplete => NegotiatedIntegrations >= DiplomacyMilestoneIntegrations;
         public bool MilitaryMilestoneComplete => SuccessfulOperations >= MilitaryMilestoneOperations && SecuredFordCount > 0;
+        private int EarnedSkillPoints => (TradeMilestoneComplete ? 1 : 0)
+            + (DiplomacyMilestoneComplete ? 1 : 0) + (MilitaryMilestoneComplete ? 1 : 0);
+        private int SpentSkillPoints => (HasPerk(CampaignPerk.Stewardship) ? 1 : 0)
+            + (HasPerk(CampaignPerk.TownPlanning) ? 1 : 0) + (HasPerk(CampaignPerk.Envoys) ? 1 : 0);
+        public int SkillPoints => EarnedSkillPoints - SpentSkillPoints;
+        public bool HasPerk(CampaignPerk perk) => (data.Perks & perk) != 0;
+
+        public bool CanUnlockPerk(CampaignPerk perk) => SkillPoints > 0
+            && Enum.IsDefined(typeof(CampaignPerk), perk) && !HasPerk(perk)
+            && (perk == CampaignPerk.Stewardship || HasPerk(CampaignPerk.Stewardship));
+
+        public bool TryUnlockPerk(CampaignPerk perk)
+        {
+            if (!CanUnlockPerk(perk)) return false;
+            data.Perks |= perk;
+            return true;
+        }
+
         public bool HasRegionalCouncil => data.RegionalCouncil;
         public int ResearchPoints => data.ResearchPoints;
         public bool HasTechnology(CampaignTechnology technology) => (data.Technologies & technology) != 0;
@@ -920,6 +945,9 @@ namespace GrandStrategy.WorldGeneration
             }
 
             var state = new CampaignState(map, save);
+            if ((save.Perks & ~(CampaignPerk.Stewardship | CampaignPerk.TownPlanning | CampaignPerk.Envoys)) != 0
+                || (save.Perks != 0 && !state.HasPerk(CampaignPerk.Stewardship)) || state.SkillPoints < 0)
+                throw new ArgumentException("The save contains invalid clan skills.");
             var target = save.IntegrationTarget;
             var legacy = save.Version == 1;
             var pending = legacy && target >= 0 ? ExpansionApproach.Diplomacy : save.PendingApproach;
@@ -1572,7 +1600,7 @@ namespace GrandStrategy.WorldGeneration
             if (IntegrationTarget != -1 || !CanReachIndependentProvince(province)) return false;
             return approach switch
             {
-                ExpansionApproach.Diplomacy => Coin >= IntegrationCost,
+                ExpansionApproach.Diplomacy => Coin >= NegotiationCoinCost,
                 ExpansionApproach.Trade => HasTradedWith(province) && Coin >= PactCost,
                 ExpansionApproach.Force => WarbandAt(province) && Food >= ForceFood,
                 _ => false
@@ -1600,7 +1628,7 @@ namespace GrandStrategy.WorldGeneration
                 data.IntegrationProvinceRoot = provinceRoot + 1;
             }
             if (approach == ExpansionApproach.Force) data.Food -= ForceFood;
-            else data.Coin -= approach == ExpansionApproach.Trade ? PactCost : IntegrationCost;
+            else data.Coin -= approach == ExpansionApproach.Trade ? PactCost : NegotiationCoinCost;
             data.IntegrationTarget = province;
             data.IntegrationDaysLeft = DaysFor(approach);
             data.PendingApproach = approach;

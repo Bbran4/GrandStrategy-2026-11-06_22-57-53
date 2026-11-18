@@ -700,6 +700,19 @@ internal static class Program
             JsonSerializer.Serialize(council.ToSave(), json), json), 5).HasTechnology(CampaignTechnology.Agronomy),
             "Researched technology must survive saves.");
 
+        Require(council.SkillPoints == 1 && !council.TryUnlockPerk(CampaignPerk.Envoys)
+            && council.TryUnlockPerk(CampaignPerk.Stewardship) && council.SkillPoints == 0
+            && council.SettlementWoodCost == CampaignState.SettlementWood - 5,
+            "A milestone point must unlock the root perk before either specialisation.");
+        var skillsSave = council.ToSave();
+        skillsSave.NegotiatedIntegrations = CampaignState.DiplomacyMilestoneIntegrations;
+        var skilled = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(skillsSave, json), json), 5);
+        Require(skilled.HasPerk(CampaignPerk.Stewardship) && skilled.SkillPoints == 1
+            && skilled.TryUnlockPerk(CampaignPerk.Envoys) && skilled.NegotiationCoinCost == CampaignState.IntegrationCost - 5
+            && !skilled.TryUnlockPerk(CampaignPerk.TownPlanning),
+            "Saved perks must count against earned points and apply their campaign costs.");
+
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);
         heavyTaxes.SetTaxPolicy(TaxPolicy.Heavy);

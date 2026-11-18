@@ -50,6 +50,7 @@ namespace GrandStrategy.WorldGeneration
         private bool showProvinceSettlements;
         private bool showHappinessDetails;
         private bool showCampaignMilestones;
+        private bool showClanSkills;
         private bool showIronSupplyRoute;
         private System.Collections.Generic.List<int> plannedMarch;
         private int plannedMarchDestination = -1;
@@ -475,8 +476,8 @@ namespace GrandStrategy.WorldGeneration
             else if (!hasRoom) GUILayout.Label("A nearby settlement limits expansion.");
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && enoughPeople && hasRoom
-                && campaign.Coin >= CampaignState.TownCoin && campaign.Wood >= CampaignState.TownWood;
-            if (GUILayout.Button($"Upgrade to town ({CampaignState.TownCoin} coin, {CampaignState.TownWood} wood)")
+                && campaign.Coin >= CampaignState.TownCoin && campaign.Wood >= campaign.TownWoodCost;
+            if (GUILayout.Button($"Upgrade to town ({CampaignState.TownCoin} coin, {campaign.TownWoodCost} wood)")
                 && campaign.TryUpgradeTown(site))
             {
                 if (site == campaign.CapitalCell) surface.SetCapital(settlement, campaign);
@@ -684,7 +685,7 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label($"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
                 return;
             }
-            DrawExpansionButton(ExpansionApproach.Diplomacy, $"Negotiate ({CampaignState.IntegrationCost} coin)");
+            DrawExpansionButton(ExpansionApproach.Diplomacy, $"Negotiate ({campaign.NegotiationCoinCost} coin)");
             if (campaign.HasTradedWith(selected))
                 DrawExpansionButton(ExpansionApproach.Trade, $"Sign trade pact ({CampaignState.PactCost} coin)");
             if (campaign.HasWarband)
@@ -808,6 +809,16 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label($"Recorded taxes +{campaign.TaxCollected:N0} | Trade +{campaign.TradeReceipts:N0} / −{campaign.TradeSpending:N0}");
                 showCampaignMilestones = GUILayout.Toggle(showCampaignMilestones, "Show campaign milestones");
                 if (showCampaignMilestones) DrawCampaignMilestones();
+                showClanSkills = GUILayout.Toggle(showClanSkills, $"Clan skills | {campaign.SkillPoints} points");
+                if (showClanSkills)
+                {
+                    GUILayout.Label("Earn one point for each completed campaign milestone.");
+                    DrawClanPerk(CampaignPerk.Stewardship, "Stewardship | Villages cost 5 less wood");
+                    DrawClanPerk(CampaignPerk.TownPlanning, "Town planning | Upgrades cost 5 less wood");
+                    DrawClanPerk(CampaignPerk.Envoys, "Envoys | Negotiation costs 5 less coin");
+                    if (!campaign.HasPerk(CampaignPerk.Stewardship))
+                        GUILayout.Label("Town planning and Envoys require Stewardship.");
+                }
                 DrawGovernment();
                 DrawTradeAgreements();
                 DrawNearbyCommunities();
@@ -844,6 +855,19 @@ namespace GrandStrategy.WorldGeneration
             var target = CampaignState.MilitaryMilestoneOperations;
             GUILayout.Label(campaign.MilitaryMilestoneComplete ? "Military foothold complete"
                 : $"Military foothold | {Math.Min(operations, target)}/{target} operations, {Math.Min(fords, 1)}/1 secured ford");
+        }
+
+        private void DrawClanPerk(CampaignPerk perk, string label)
+        {
+            if (campaign.HasPerk(perk))
+            {
+                GUILayout.Label(label + " | Unlocked");
+                return;
+            }
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanUnlockPerk(perk);
+            if (GUILayout.Button(label)) campaign.TryUnlockPerk(perk);
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawGovernment()
@@ -1044,7 +1068,7 @@ namespace GrandStrategy.WorldGeneration
             }
             GUI.enabled = wasEnabled && validSite && party.People > 0 && campaign.CanFoundSettlement(clickedCell);
             var action = provinceRoot < 0 ? "Found new province" : "Found village";
-            if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)"))
+            if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {campaign.SettlementWoodCost} wood)"))
             {
                 if (campaign.TryFoundSettlement(clickedCell, provinceRoot))
                 {
