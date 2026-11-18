@@ -114,6 +114,7 @@ namespace GrandStrategy.WorldGeneration
     {
         public int Cell;
         public int Food;
+        public int Target;
         public int LastShortfall;
     }
 
@@ -193,6 +194,7 @@ namespace GrandStrategy.WorldGeneration
     {
         public const int ResearchCost = 2;
         private const int ResearchLimit = 99;
+        public const int MaxLocalFoodTarget = 30;
         public const int RoadWood = 25;
         public const int RoadCoin = 20;
         public const int BridgeWood = 20;
@@ -995,6 +997,24 @@ namespace GrandStrategy.WorldGeneration
             return 0;
         }
 
+        public int LocalFoodTarget(int cell)
+        {
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.Cell == cell) return reserve.Target;
+            return 0;
+        }
+
+        public bool TrySetLocalFoodTarget(int cell, int target)
+        {
+            if (target < 0 || target > MaxLocalFoodTarget || !data.SettlementCells.Contains(cell)) return false;
+            var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == cell);
+            var reserve = index >= 0 ? data.SettlementFood[index] : new SettlementFoodReserve { Cell = cell };
+            reserve.Target = target;
+            if (index >= 0) data.SettlementFood[index] = reserve;
+            else if (target > 0) data.SettlementFood.Add(reserve);
+            return true;
+        }
+
         public int LocalFoodShortfall(int cell)
         {
             foreach (var reserve in data.SettlementFood)
@@ -1299,7 +1319,8 @@ namespace GrandStrategy.WorldGeneration
                 var foodSites = new HashSet<int>();
                 foreach (var reserve in save.SettlementFood)
                     if (!settlementSites.Contains(reserve.Cell) || !foodSites.Add(reserve.Cell)
-                        || !ValidStock(reserve.Food) || reserve.LastShortfall < 0)
+                        || !ValidStock(reserve.Food) || reserve.LastShortfall < 0
+                        || reserve.Target < 0 || reserve.Target > MaxLocalFoodTarget)
                         throw new ArgumentException("The save contains an invalid local food reserve.");
             }
 
@@ -2297,11 +2318,22 @@ namespace GrandStrategy.WorldGeneration
                 {
                     if (index < 0) continue;
                     var reserve = data.SettlementFood[index];
-                    var transferred = Math.Min(ResourceLimit - Food, reserve.Food);
-                    AddFood(transferred);
-                    reserve.Food -= transferred;
+                    if (reserve.Food > reserve.Target)
+                    {
+                        var returned = Math.Min(ResourceLimit - Food, reserve.Food - reserve.Target);
+                        AddFood(returned);
+                        reserve.Food -= returned;
+                    }
+                    else if (reserve.Food < reserve.Target)
+                    {
+                        // Only set aside food the clan can spare after its next meal and protected reserve.
+                        var surplus = Math.Max(0, Food - FoodUpkeep - FoodReserve);
+                        var stored = (int)Math.Min(surplus, reserve.Target - reserve.Food);
+                        AddFood(-stored);
+                        reserve.Food += stored;
+                    }
                     reserve.LastShortfall = 0;
-                    if (reserve.Food == 0) data.SettlementFood.RemoveAt(index);
+                    if (reserve.Food == 0 && reserve.Target == 0) data.SettlementFood.RemoveAt(index);
                     else data.SettlementFood[index] = reserve;
                     continue;
                 }

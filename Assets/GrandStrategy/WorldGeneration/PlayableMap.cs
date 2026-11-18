@@ -510,12 +510,32 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label(food > upkeep ? "Surplus food supports growth at current stock."
                     : food == upkeep ? "Current stock covers upkeep with no surplus for growth."
                     : "Current stock falls short of upkeep. Population may decline.");
+                if (site != campaign.CapitalCell) DrawLocalFoodReserve(site, isolated);
             }
             DrawTownUpgrade(site);
             DrawSettlementGarrison(site);
             DrawSettlementRoad(site);
             DrawConstruction(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
+        }
+
+        private void DrawLocalFoodReserve(int site, bool isolated)
+        {
+            const int step = 5;
+            var target = campaign.LocalFoodTarget(site);
+            GUILayout.Label($"Local reserve {campaign.LocalFoodStock(site):N0}/{target:N0}");
+            GUILayout.BeginHorizontal();
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && target > 0;
+            if (GUILayout.Button("Reserve −5")) campaign.TrySetLocalFoodTarget(site, Math.Max(0, target - step));
+            GUI.enabled = wasEnabled && target < CampaignState.MaxLocalFoodTarget;
+            if (GUILayout.Button("Reserve +5"))
+                campaign.TrySetLocalFoodTarget(site, Math.Min(CampaignState.MaxLocalFoodTarget, target + step));
+            GUI.enabled = wasEnabled;
+            GUILayout.EndHorizontal();
+            if (target > 0)
+                GUILayout.Label(isolated ? "Reserve replenishment waits for an open route."
+                    : "Filled from clan food after upkeep and protected reserves.");
         }
 
         private void DrawSettlementRoad(int site)

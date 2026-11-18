@@ -761,6 +761,31 @@ internal static class Program
             JsonSerializer.Serialize(provisionedVillage.ToSave(), json), json), 5);
         Require(provisionedVillage.LocalFoodStock(mineSite) > 0, "Local food stocks must survive save and load.");
 
+        var stocked = CampaignState.Found(supplyMap, "stocked", fordCell - 1, "Stocked", 0);
+        Require(stocked.TryFoundSettlement(mineSite), "The reserve fixture requires a second village.");
+        var stockedSave = stocked.ToSave();
+        stockedSave.Food = 100;
+        stockedSave.Warband = true;
+        stockedSave.SecuredFords.Add(fordCell);
+        stocked = CampaignState.Restore(supplyMap, "stocked", stockedSave, 5);
+        Require(stocked.TrySetLocalFoodTarget(mineSite, 10) && !stocked.TrySetLocalFoodTarget(mineSite, 31),
+            "Only valid reserve targets may be set.");
+        stocked.Paused = false;
+        stocked.Advance(4);
+        Require(stocked.LocalFoodTarget(mineSite) == 10 && stocked.LocalFoodStock(mineSite) == 10,
+            "A connected village must receive surplus food for its reserve.");
+        Require(stocked.TryChangeFordAccess(fordCell) && stocked.IsFoodIsolated(mineSite),
+            "The reserve fixture needs loss of supply access.");
+        var blockedStock = stocked.ToSave();
+        blockedStock.Day = CampaignState.WinterStart;
+        stocked = CampaignState.Restore(supplyMap, "stocked", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(blockedStock, json), json), 5);
+        stocked.Paused = false;
+        stocked.Advance(15);
+        Require(stocked.LocalFoodTarget(mineSite) == 10 && stocked.LocalFoodStock(mineSite) < 10
+            && stocked.LocalFoodStock(mineSite) > 0 && stocked.LocalFoodShortfall(mineSite) == 0,
+            "An isolated village must survive from its saved food reserve.");
+
         var portsRaster = Enumerable.Repeat(1, raster.Length).ToArray();
         for (var row = 0; row < recipe.Height; row++) portsRaster[row * recipe.Width + 1] = 2;
         var supplyWater = WaterMap.Classify(new HeightmapResult(recipe, fordTerrain));
