@@ -147,10 +147,15 @@ namespace GrandStrategy.WorldGeneration
         public int CompletedTradeDeliveries;
         public int NegotiatedIntegrations;
         public int SuccessfulOperations;
+        public bool RegionalCouncil;
     }
 
     internal sealed class CampaignState
     {
+        public const int RegionalCouncilCoin = 60;
+        public const int TradeMilestoneDeliveries = 3;
+        public const int DiplomacyMilestoneIntegrations = 2;
+        public const int MilitaryMilestoneOperations = 2;
         public const int TownPopulation = 150;
         public const int TownCoin = 40;
         public const int TownWood = 20;
@@ -466,7 +471,7 @@ namespace GrandStrategy.WorldGeneration
         public long TradeSpending => data.TradeSpending;
         public int FoodReserve => data.FoodReserve;
         public IReadOnlyList<TradeAgreement> TradeAgreements => data.Agreements;
-        public int TradeCapacity => 1 + BuildingTotal(SettlementBuilding.Docks);
+        public int TradeCapacity => 1 + (HasRegionalCouncil ? 1 : 0) + BuildingTotal(SettlementBuilding.Docks);
         public bool HasGranary => data.Granary;
         public int GranaryCell => data.GranarySite - 1;
         public bool HasWarband => data.Warband;
@@ -638,6 +643,31 @@ namespace GrandStrategy.WorldGeneration
         public int NegotiatedIntegrations => Math.Max(data.NegotiatedIntegrations, FirstExpansion == ExpansionApproach.Diplomacy ? 1 : 0);
         public int SuccessfulOperations => Math.Max(data.SuccessfulOperations, FirstExpansion == ExpansionApproach.Force ? 1 : 0);
         public int SecuredFordCount => data.SecuredFords.Count;
+        public bool TradeMilestoneComplete => CompletedTradeDeliveries >= TradeMilestoneDeliveries;
+        public bool DiplomacyMilestoneComplete => NegotiatedIntegrations >= DiplomacyMilestoneIntegrations;
+        public bool MilitaryMilestoneComplete => SuccessfulOperations >= MilitaryMilestoneOperations && SecuredFordCount > 0;
+        public bool HasRegionalCouncil => data.RegionalCouncil;
+
+        public string RegionalCouncilIssue
+        {
+            get
+            {
+                if (!IsTown(CapitalCell)) return "Upgrade the capital to a town.";
+                if (SettlementCells.Count == 0) return "Establish a second settlement.";
+                if (!TradeMilestoneComplete && !DiplomacyMilestoneComplete && !MilitaryMilestoneComplete)
+                    return "Complete a campaign milestone.";
+                if (Coin < RegionalCouncilCoin) return $"Requires {RegionalCouncilCoin} coin.";
+                return null;
+            }
+        }
+
+        public bool TryEstablishRegionalCouncil()
+        {
+            if (HasRegionalCouncil || RegionalCouncilIssue != null) return false;
+            data.Coin -= RegionalCouncilCoin;
+            data.RegionalCouncil = true;
+            return true;
+        }
         public ExpansionApproach PendingApproach => data.PendingApproach;
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
         public int WarbandRecruitWood => Tradition == ClanTradition.Highland ? WarbandWood - 10 : WarbandWood;
@@ -770,6 +800,9 @@ namespace GrandStrategy.WorldGeneration
                     if ((cell != save.CapitalCell && !settlementSites.Contains(cell)) || !towns.Add(cell))
                         throw new ArgumentException("The save contains an invalid town.");
             }
+
+            if (save.RegionalCouncil && (save.Towns?.Contains(save.CapitalCell) != true || settlementSites.Count == 0))
+                throw new ArgumentException("The save contains an invalid regional council.");
 
             if (save.TownSpecialisations != null)
             {

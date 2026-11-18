@@ -675,6 +675,20 @@ internal static class Program
                 .TownSpeciality(0) == SettlementBuilding.Farm,
             "Town specialisation must survive save and load.");
 
+        Require(!town.TryEstablishRegionalCouncil(), "A town alone must not qualify for a regional council.");
+        var councilSave = town.ToSave();
+        councilSave.Coin = councilSave.Wood = 200;
+        councilSave.CompletedTradeDeliveries = CampaignState.TradeMilestoneDeliveries;
+        var council = CampaignState.Restore(map, key, councilSave, 5);
+        Require(council.TryFoundSettlement(1) && council.TryEstablishRegionalCouncil()
+            && !council.TryEstablishRegionalCouncil() && council.TradeCapacity == 2
+            && council.Coin == 200 - CampaignState.SettlementCoin - CampaignState.RegionalCouncilCoin,
+            "A qualifying clan must pay once to establish a council and unlock a trade agreement.");
+        council = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(council.ToSave(), json), json), 5);
+        Require(council.HasRegionalCouncil && council.TradeCapacity == 2,
+            "The regional council and its agreement slot must survive save and load.");
+
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);
         heavyTaxes.SetTaxPolicy(TaxPolicy.Heavy);

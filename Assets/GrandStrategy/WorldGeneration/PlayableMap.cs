@@ -808,6 +808,7 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label($"Recorded taxes +{campaign.TaxCollected:N0} | Trade +{campaign.TradeReceipts:N0} / −{campaign.TradeSpending:N0}");
                 showCampaignMilestones = GUILayout.Toggle(showCampaignMilestones, "Show campaign milestones");
                 if (showCampaignMilestones) DrawCampaignMilestones();
+                DrawGovernment();
                 DrawTradeAgreements();
                 DrawNearbyCommunities();
                 showTradeContacts = GUILayout.Toggle(showTradeContacts, "Show all trade contacts");
@@ -836,12 +837,27 @@ namespace GrandStrategy.WorldGeneration
             var negotiations = campaign.NegotiatedIntegrations;
             var operations = campaign.SuccessfulOperations;
             var fords = campaign.SecuredFordCount;
-            GUILayout.Label(deliveries >= 3 ? "Trade network complete"
-                : $"Trade network | {deliveries}/3 recurring deliveries");
-            GUILayout.Label(negotiations >= 2 ? "Regional diplomacy complete"
-                : $"Regional diplomacy | {negotiations}/2 negotiated integrations");
-            GUILayout.Label(operations >= 2 && fords >= 1 ? "Military foothold complete"
-                : $"Military foothold | {Math.Min(operations, 2)}/2 operations, {Math.Min(fords, 1)}/1 secured ford");
+            GUILayout.Label(campaign.TradeMilestoneComplete ? "Trade network complete"
+                : $"Trade network | {deliveries}/{CampaignState.TradeMilestoneDeliveries} recurring deliveries");
+            GUILayout.Label(campaign.DiplomacyMilestoneComplete ? "Regional diplomacy complete"
+                : $"Regional diplomacy | {negotiations}/{CampaignState.DiplomacyMilestoneIntegrations} negotiated integrations");
+            var target = CampaignState.MilitaryMilestoneOperations;
+            GUILayout.Label(campaign.MilitaryMilestoneComplete ? "Military foothold complete"
+                : $"Military foothold | {Math.Min(operations, target)}/{target} operations, {Math.Min(fords, 1)}/1 secured ford");
+        }
+
+        private void DrawGovernment()
+        {
+            GUILayout.Label(campaign.HasRegionalCouncil ? "Regional council | +1 trade agreement slot" : "Founding clan");
+            if (campaign.HasRegionalCouncil) return;
+            var issue = campaign.RegionalCouncilIssue;
+            if (issue != null) GUILayout.Label(issue);
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && issue == null;
+            if (GUILayout.Button($"Establish regional council ({CampaignState.RegionalCouncilCoin} coin)")
+                && campaign.TryEstablishRegionalCouncil())
+                saveStatus = "Regional council established. One additional trade agreement is available.";
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawTradeAgreements()
