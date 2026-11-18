@@ -392,7 +392,7 @@ namespace GrandStrategy.WorldGeneration
                 long total = 0;
                 for (var i = 0; i < data.Pop.Length; i++)
                     if (Owns(i)) total += data.Pop[i];
-                for (var i = 1; i < data.SettlementPopulations.Count; i++)
+                for (var i = 0; i < data.SettlementPopulations.Count; i++)
                     if (!Owns(SettlementProvince(SettlementCellAt(i)))) total += data.SettlementPopulations[i];
                 return total;
             }
@@ -619,6 +619,7 @@ namespace GrandStrategy.WorldGeneration
 
         private bool HasSettlementInRegion(int region)
         {
+            if (region == Capital) return true;
             foreach (var cell in SettlementCells)
                 if (SettlementProvince(cell) == region) return true;
             return false;
@@ -628,7 +629,7 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!IsLand(map, region) || Owns(region)) return 0;
             var independent = Population(region);
-            for (var i = 1; i < data.SettlementPopulations.Count; i++)
+            for (var i = 0; i < data.SettlementPopulations.Count; i++)
                 if (SettlementProvince(SettlementCellAt(i)) == region) independent -= data.SettlementPopulations[i];
             return independent;
         }
@@ -639,14 +640,15 @@ namespace GrandStrategy.WorldGeneration
 
         // Seed the capital and initial resources, while also creating population entries for independent
         // land provinces.
-        public static CampaignState Found(ProvinceMap map, string mapKey, int capitalCell, string name, int colour)
+        public static CampaignState Found(ProvinceMap map, string mapKey, int capitalCell, string name, int colour,
+            bool localCapitalClaim = false)
         {
             var capital = ProvinceAt(map, capitalCell);
             if (!IsLand(map, capital) || !IsValidName(name) || colour < 0)
                 throw new ArgumentException("Founding requires a land province, a tribe name, and a colour.");
             var owned = new bool[map.Provinces.Length];
             var pop = new int[owned.Length];
-            owned[capital] = true;
+            owned[capital] = !localCapitalClaim;
             for (var i = 0; i < pop.Length; i++)
                 if (IsLand(map, i))
                     pop[i] = 100 + Math.Min(900, map.Provinces[i].PixelCount / 4);
@@ -657,6 +659,7 @@ namespace GrandStrategy.WorldGeneration
                 TribeName = name.Trim(),
                 Colour = colour,
                 CapitalCell = capitalCell,
+                SettlementPopulations = localCapitalClaim ? new List<int> { 100 } : null,
                 Day = 1,
                 Speed = 1,
                 Coin = StartingCoin,
@@ -687,7 +690,8 @@ namespace GrandStrategy.WorldGeneration
                 || (save.SecondSettlementSite > 0 && (!IsLand(map, ProvinceAt(map, save.SecondSettlementSite - 1))
                     || !save.Owned[ProvinceAt(map, save.SecondSettlementSite - 1)]
                     || save.SecondSettlementSite - 1 == save.CapitalCell))
-                || !save.Owned[capital] || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes)
+                || (!save.Owned[capital] && save.SettlementPopulations == null)
+                || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes)
                 || !Enum.IsDefined(typeof(WarbandSupplyPolicy), save.WarbandSupply))
                 throw new ArgumentException("The save contains invalid campaign data.");
 
@@ -876,7 +880,7 @@ namespace GrandStrategy.WorldGeneration
 
         public bool CanReachIndependentProvince(int province)
         {
-            if (!IsLand(map, province) || Owns(province)) return false;
+            if (IndependentPopulation(province) == 0) return false;
             if (LandContactResolver != null) return LandContactResolver(province);
             if (HasSettlementInRegion(province)) return true;
             var neighbours = map.Provinces[province].Neighbours;
@@ -1201,7 +1205,7 @@ namespace GrandStrategy.WorldGeneration
             if (!CanRecruitWarband) return false;
             data.Wood -= WarbandWood;
             data.Coin -= WarbandCoin;
-            LosePopulation(Capital, WarbandRecruits);
+            LoseCapitalPopulation(WarbandRecruits);
             data.Warband = true;
             return true;
         }
@@ -1221,7 +1225,7 @@ namespace GrandStrategy.WorldGeneration
         public bool CanTradeWith(int province)
         {
             if (CanReachIndependentProvince(province)) return true;
-            if (!IsLand(map, province) || Owns(province)) return false;
+            if (IndependentPopulation(province) == 0) return false;
             var waterways = map.Provinces[province].TradeWaterways;
             if (waterways == null || waterways.Length == 0) return false;
 
@@ -1623,13 +1627,13 @@ namespace GrandStrategy.WorldGeneration
             if (PendingApproach == ExpansionApproach.Force)
             {
                 var losses = IsDefensible(map.Provinces[target]) ? 18 : 8;
-                LosePopulation(Capital, HasIronWarband ? losses / 2 : losses);
+                LoseCapitalPopulation(HasIronWarband ? losses / 2 : losses);
                 LosePopulation(target, 12);
                 AddFood(38);
             }
             if (FirstExpansion == ExpansionApproach.None) data.FirstExpansion = PendingApproach;
             var remainingResidents = IndependentPopulation(target);
-            for (var i = 1; i < data.SettlementPopulations.Count; i++)
+            for (var i = 0; i < data.SettlementPopulations.Count; i++)
                 if (SettlementProvince(SettlementCellAt(i)) == target)
                 {
                     data.SettlementPopulations[i] += remainingResidents;
@@ -1650,6 +1654,14 @@ namespace GrandStrategy.WorldGeneration
         }
 
         private void AddFood(long amount) => data.Food = (int)Math.Min(ResourceLimit, Math.Max(0, Food + amount));
+
+        private void LoseCapitalPopulation(int amount)
+        {
+            var loss = Math.Min(amount, Math.Max(0, data.SettlementPopulations[0] - 1));
+            data.SettlementPopulations[0] -= loss;
+            data.Pop[Capital] -= loss;
+            if (loss > 0) InfluenceRevision++;
+        }
 
         private void LosePopulation(int province, int amount)
         {

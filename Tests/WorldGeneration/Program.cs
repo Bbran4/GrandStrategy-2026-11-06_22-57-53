@@ -479,6 +479,20 @@ internal static class Program
         var fordMap = ProvinceMap.Build(recipe, Enumerable.Repeat(1, raster.Length).ToArray(),
             new[] { new ProvinceInfo { Id = "Banks", Rgb = 1, Type = "land" } });
         fordMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, fordTerrain)), fordRivers, fordTerrain);
+        var localStart = CampaignState.Found(fordMap, "local-start", fordCell - 1, "Local start", 0, localCapitalClaim: true);
+        var originalIndependents = localStart.IndependentPopulation(localStart.Capital);
+        Require(!localStart.Owns(localStart.Capital) && originalIndependents > 0 && localStart.OwnedPopulation == 100
+            && localStart.TryRecruitWarband() && localStart.OwnedPopulation == 100 - CampaignState.WarbandRecruits
+            && localStart.IndependentPopulation(localStart.Capital) == originalIndependents,
+            "A local start must leave the region independent and recruit only from the capital.");
+        var localStartSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(localStart.ToSave(), json), json);
+        localStart = CampaignState.Restore(fordMap, "local-start", localStartSave, 5);
+        Require(!localStart.Owns(localStart.Capital) && localStart.TryStartIntegration(localStart.Capital)
+            && localStart.AdvanceToNextDecision() && localStart.Owns(localStart.Capital)
+            && localStart.IndependentPopulation(localStart.Capital) == 0
+            && localStart.SettlementPopulation(localStart.CapitalCell) == localStart.Population(localStart.Capital),
+            "A local capital claim must reload and only incorporate the region following integration.");
+
         var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
         Require(fordMap.IsFord(fordCell) && !fordCampaign.TrySecureFord(fordCell)
             && fordCampaign.TryRecruitWarband() && fordCampaign.TrySecureFord(fordCell)

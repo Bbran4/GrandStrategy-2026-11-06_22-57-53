@@ -612,7 +612,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 try
                 {
-                    ApplyCampaign(CampaignState.Found(surface.Map, mapKey, selectedCell, tribeName, colourIndex));
+                    ApplyCampaign(CampaignState.Found(surface.Map, mapKey, selectedCell, tribeName, colourIndex, localCapitalClaim: true));
                     saveStatus = "Tribe founded. The campaign is paused.";
                 }
                 catch (Exception error)
@@ -645,9 +645,11 @@ namespace GrandStrategy.WorldGeneration
                 return;
             }
 
-            GUILayout.Label(HasVillageHere ? "Clan settlement nearby | Independent community"
+            GUILayout.Label(population == 0 ? "No independent community here"
+                : selected == campaign.Capital || HasVillageHere ? "Clan settlement nearby | Independent community"
                 : "Independent community");
             DrawFoundSettlement();
+            if (population == 0) return;
             if (campaign.CanTradeWith(selected))
             {
                 showTrade = GUILayout.Toggle(showTrade, "Trade with this community");
