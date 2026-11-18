@@ -630,6 +630,7 @@ namespace GrandStrategy.WorldGeneration
             DrawConstruction(site);
             DrawGranary(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
+            else DrawWarbandRecruitment(site);
         }
 
         private void DrawDetachedProvinceAction(int site)
@@ -1338,6 +1339,7 @@ namespace GrandStrategy.WorldGeneration
         private void DrawWarbandOrders()
         {
             if (!campaign.HasWarband) return;
+            GUILayout.Label($"Warband raised at {SettlementLabel(campaign.WarbandHomeCell)}");
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(followingWarband ? "Stop following" : "Follow warband"))
             {
@@ -1388,11 +1390,12 @@ namespace GrandStrategy.WorldGeneration
                     saveStatus = campaign.TryRepositionWarband(destination) ? "Warband repositioning. The operation continues."
                         : "No route within the operation region.";
                 GUI.enabled = orderEnabled;
-                if (GUILayout.Button("Withdraw and return to capital") && campaign.TryWithdrawWarband())
+                var home = campaign.WarbandHomeCell;
+                if (GUILayout.Button("Withdraw and return home") && campaign.TryWithdrawWarband())
                 {
-                    var route = campaign.PlanWarbandRoute(campaign.CapitalCell);
+                    var route = campaign.PlanWarbandRoute(home);
                     saveStatus = campaign.TryMarchWarband(route)
-                        ? "Operation ended. Warband returning to the capital."
+                        ? $"Operation ended. Warband returning to {SettlementLabel(home)}."
                         : "Operation ended. Warband holding position.";
                 }
                 return;
@@ -1657,15 +1660,21 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        private void DrawWarbandRecruitment(int site)
+        {
+            if (campaign.HasWarband) return;
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanRecruitWarbandAt(site);
+            if (GUILayout.Button($"Recruit warband here ({campaign.WarbandRecruitWood} wood, {campaign.WarbandRecruitCoin} coin, {CampaignState.WarbandRecruits} people)")
+                && campaign.TryRecruitWarbandAt(site))
+                saveStatus = $"{CampaignState.WarbandRecruits} people recruited at {SettlementLabel(site)}.";
+            GUI.enabled = wasEnabled;
+        }
+
         private void DrawCapitalActions()
         {
+            DrawWarbandRecruitment(campaign.CapitalCell);
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
-            if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({campaign.WarbandRecruitWood} wood, {campaign.WarbandRecruitCoin} coin, {CampaignState.WarbandRecruits} people)"))
-            {
-                campaign.TryRecruitWarband();
-                saveStatus = $"{CampaignState.WarbandRecruits} people recruited from the capital.";
-            }
             GUI.enabled = wasEnabled && campaign.CanUpgradeWarband;
             if (campaign.HasWarband && !campaign.HasIronWarband && GUILayout.Button(
                 $"Equip with iron ({CampaignState.IronWarbandIron} iron, {CampaignState.IronWarbandWood} wood, {CampaignState.IronWarbandCoin} coin)"))

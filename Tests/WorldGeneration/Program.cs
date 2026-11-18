@@ -518,6 +518,38 @@ internal static class Program
         Require(!frontierClaim.TryFoundSettlement(1) && frontierClaim.Coin == CampaignState.StartingCoin
             && frontierClaim.TryFoundSettlement(2), "Independent claims must prevent founding without charging resources.");
 
+        var frontierRecruitSave = CampaignState.Found(map, key, 0, "Frontier recruits", 0, localCapitalClaim: true).ToSave();
+        frontierRecruitSave.Wood = frontierRecruitSave.Coin = 180;
+        var frontierRecruits = CampaignState.Restore(map, key, frontierRecruitSave, 5);
+        Require(!frontierRecruits.TryRecruitWarbandAt(1) && frontierRecruits.TryFoundSettlement(1),
+            "A recruitment order requires an existing settlement.");
+        var capitalBeforeDraft = frontierRecruits.SettlementPopulation(0);
+        var villageBeforeDraft = frontierRecruits.SettlementPopulation(1);
+        var beforeDraftCoin = frontierRecruits.Coin;
+        var beforeDraftWood = frontierRecruits.Wood;
+        Require(frontierRecruits.TryRecruitWarbandAt(1) && !frontierRecruits.TryRecruitWarband()
+            && frontierRecruits.WarbandHomeCell == 1 && frontierRecruits.WarbandCell == 1
+            && frontierRecruits.SettlementPopulation(0) == capitalBeforeDraft
+            && frontierRecruits.SettlementPopulation(1) == villageBeforeDraft - CampaignState.WarbandRecruits
+            && frontierRecruits.Coin == beforeDraftCoin - frontierRecruits.WarbandRecruitCoin
+            && frontierRecruits.Wood == beforeDraftWood - frontierRecruits.WarbandRecruitWood,
+            "Village recruitment must charge one warband and draw population and its initial position from that village.");
+        Require(frontierRecruits.TryMarchWarband(new List<int> { 1, 2 }), "Village recruits must be able to march.");
+        frontierRecruits.AdvanceToNextDecision();
+        var draftedSave = JsonSerializer.Serialize(frontierRecruits.ToSave(), json);
+        var legacyDraft = JsonSerializer.Deserialize<CampaignSave>(draftedSave, json);
+        legacyDraft.WarbandHomeSite = 0;
+        var restoredLegacyDraft = CampaignState.Restore(map, key, legacyDraft, 5);
+        Require(restoredLegacyDraft.WarbandHomeCell == 0 && restoredLegacyDraft.WarbandCell == 2,
+            "An older army save must use the capital as its home and preserve its marching position.");
+        frontierRecruits = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(draftedSave, json), 5);
+        Require(frontierRecruits.WarbandHomeCell == 1 && frontierRecruits.WarbandCell == 2
+            && frontierRecruits.TryStartIntegration(2, ExpansionApproach.Force, settlementCell: 2)
+            && frontierRecruits.AdvanceToNextDecision() && frontierRecruits.SettlementCells.Contains(2)
+            && frontierRecruits.SettlementPopulation(0) == capitalBeforeDraft
+            && frontierRecruits.SettlementPopulation(1) == villageBeforeDraft - CampaignState.WarbandRecruits - 8,
+            "A saved warband's operation losses must be charged to its recruiting settlement.");
+
         var localIntegration = CampaignState.Found(map, key, 0, "Local integration", 0, localCapitalClaim: true);
         Require(!localIntegration.TryStartIntegration(1)
             && localIntegration.TryStartIntegration(1, ExpansionApproach.Diplomacy, settlementCell: 1),

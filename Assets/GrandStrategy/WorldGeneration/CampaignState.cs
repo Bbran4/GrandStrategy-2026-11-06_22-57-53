@@ -184,6 +184,7 @@ namespace GrandStrategy.WorldGeneration
         public bool Granary;
         public int GranarySite; // Cell index plus one. Zero uses the original automatic placement.
         public bool Warband;
+        public int WarbandHomeSite; // Cell index plus one. Older campaigns default to the capital.
         public int WarbandRouteIndex;
         public int WarbandMarchCredit;
         public List<int> WarbandRoute;
@@ -1222,8 +1223,9 @@ namespace GrandStrategy.WorldGeneration
         public float MilitaryPressure => WarbandCommitted ? (ForceDuration - IntegrationDaysLeft + 1f) / ForceDuration : 0f;
         public bool WarbandAt(int province) => HasWarband && WarbandTravelDays == 0
             && province >= 0 && ProvinceAt(map, WarbandCell) == province;
+        public int WarbandHomeCell => data.WarbandHomeSite > 0 ? data.WarbandHomeSite - 1 : CapitalCell;
         public int WarbandCell => !HasWarband ? -1
-            : data.WarbandRoute == null ? CapitalCell : data.WarbandRoute[data.WarbandRouteIndex];
+            : data.WarbandRoute == null ? WarbandHomeCell : data.WarbandRoute[data.WarbandRouteIndex];
         public IReadOnlyList<int> WarbandRoute => data.WarbandRoute;
         public int WarbandRouteIndex => data.WarbandRouteIndex;
         private int MarchBudgetPerDay => WarbandCellsPerDay * ProvinceMap.BaseMarchCost;
@@ -1618,8 +1620,11 @@ namespace GrandStrategy.WorldGeneration
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
         public int WarbandRecruitWood => Tradition == ClanTradition.Highland ? WarbandWood - 10 : WarbandWood;
         public int WarbandRecruitCoin => Tradition == ClanTradition.Highland ? WarbandCoin - 10 : WarbandCoin;
-        public bool CanRecruitWarband => !HasWarband && Wood >= WarbandRecruitWood && Coin >= WarbandRecruitCoin
-            && SettlementPopulation(CapitalCell) > WarbandRecruits;
+        public bool CanRecruitWarband => CanRecruitWarbandAt(CapitalCell);
+
+        public bool CanRecruitWarbandAt(int site)
+            => !HasWarband && Wood >= WarbandRecruitWood && Coin >= WarbandRecruitCoin
+                && SettlementPopulation(site) > WarbandRecruits && map.IsMarchCell(site) && !map.IsFord(site);
 
         private bool HasSettlementInRegion(int region)
         {
@@ -1764,6 +1769,10 @@ namespace GrandStrategy.WorldGeneration
                         || !settlementSites.Add(site))
                         throw new ArgumentException("The save contains an invalid settlement site.");
                 }
+
+            if (save.WarbandHomeSite < 0 || (save.WarbandHomeSite > 0 && (!save.Warband
+                || (save.WarbandHomeSite - 1 != save.CapitalCell && !settlementSites.Contains(save.WarbandHomeSite - 1)))))
+                throw new ArgumentException("The save contains an invalid warband home settlement.");
 
             if (save.Towns != null)
             {
@@ -2531,13 +2540,17 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
-        public bool TryRecruitWarband()
+        public bool TryRecruitWarband() => TryRecruitWarbandAt(CapitalCell);
+
+        public bool TryRecruitWarbandAt(int site)
         {
-            if (!CanRecruitWarband) return false;
+            if (!CanRecruitWarbandAt(site)) return false;
             data.Wood -= WarbandRecruitWood;
             data.Coin -= WarbandRecruitCoin;
-            LoseCapitalPopulation(WarbandRecruits);
+            LoseSettlementPopulation(site, WarbandRecruits);
             data.Warband = true;
+            data.WarbandHomeSite = site + 1;
+            SetWarbandRoute(new[] { site });
             return true;
         }
 
@@ -3231,7 +3244,7 @@ namespace GrandStrategy.WorldGeneration
             if (PendingApproach == ExpansionApproach.Force)
             {
                 var losses = IsDefensible(map.Provinces[target]) ? 18 : 8;
-                LoseCapitalPopulation(HasIronWarband ? losses / 2 : losses);
+                LoseSettlementPopulation(WarbandHomeCell, HasIronWarband ? losses / 2 : losses);
                 LosePopulation(target, 12);
                 AddFood(38);
             }
@@ -3363,11 +3376,12 @@ namespace GrandStrategy.WorldGeneration
 
         private void AddFood(long amount) => data.Food = (int)Math.Min(ResourceLimit, Math.Max(0, Food + amount));
 
-        private void LoseCapitalPopulation(int amount)
+        private void LoseSettlementPopulation(int site, int amount)
         {
-            var loss = Math.Min(amount, Math.Max(0, data.SettlementPopulations[0] - 1));
-            data.SettlementPopulations[0] -= loss;
-            data.Pop[Capital] -= loss;
+            var index = site == CapitalCell ? 0 : data.SettlementCells.IndexOf(site) + 1;
+            var loss = Math.Min(amount, Math.Max(0, data.SettlementPopulations[index] - 1));
+            data.SettlementPopulations[index] -= loss;
+            data.Pop[SettlementProvince(site)] -= loss;
             if (loss > 0) InfluenceRevision++;
         }
 
