@@ -529,6 +529,13 @@ internal static class Program
         Require(CampaignState.Restore(map, key,
             JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(town.ToSave(), json), json), 5).IsTown(0),
             "Town upgrades must survive save and load.");
+        Require(!town.TrySpecialiseTown(0, SettlementBuilding.Farm) && town.TryBuildAtSettlement(0, SettlementBuilding.Farm)
+            && town.TrySpecialiseTown(0, SettlementBuilding.Farm) && !town.TrySpecialiseTown(0, SettlementBuilding.Farm),
+            "A town can specialise once it has the matching building, and can only specialise once.");
+        Require(CampaignState.Restore(map, key,
+            JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(town.ToSave(), json), json), 5)
+                .TownSpeciality(0) == SettlementBuilding.Farm,
+            "Town specialisation must survive save and load.");
 
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);

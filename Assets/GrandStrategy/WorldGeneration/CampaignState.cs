@@ -76,6 +76,13 @@ namespace GrandStrategy.WorldGeneration
     }
 
     [Serializable]
+    internal struct TownSpecialisation
+    {
+        public int Cell;
+        public SettlementBuilding Building;
+    }
+
+    [Serializable]
     internal sealed class CampaignSave
     {
         public int Version;
@@ -86,6 +93,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> SettlementCells;
         public List<int> SettlementProvinceRoots;
         public List<int> Towns;
+        public List<TownSpecialisation> TownSpecialisations;
         public List<int> SettlementPopulations; // Capital first, then villages in founding order.
         public int SecondSettlementSite; // Cell index plus one. Zero means no second settlement.
         public int Day;
@@ -179,6 +187,7 @@ namespace GrandStrategy.WorldGeneration
                     throw new ArgumentException("The save contains an invalid secured ford.");
 
             data.Towns ??= new List<int>();
+            data.TownSpecialisations ??= new List<TownSpecialisation>();
             data.Construction ??= new List<SettlementConstruction>();
             data.SettlementCells ??= new List<int>();
             if (data.SecondSettlementSite > 0)
@@ -242,6 +251,22 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public bool IsTown(int cell) => data.Towns.Contains(cell);
+
+        public SettlementBuilding TownSpeciality(int cell)
+        {
+            foreach (var entry in data.TownSpecialisations)
+                if (entry.Cell == cell) return entry.Building;
+            return 0;
+        }
+
+        public bool TrySpecialiseTown(int cell, SettlementBuilding building)
+        {
+            if (!IsTown(cell) || TownSpeciality(cell) != 0
+                || !Enum.IsDefined(typeof(SettlementBuilding), building)
+                || !HasSettlementBuilding(cell, building)) return false;
+            data.TownSpecialisations.Add(new TownSpecialisation { Cell = cell, Building = building });
+            return true;
+        }
 
         public bool TryUpgradeTown(int cell)
         {
@@ -589,6 +614,15 @@ namespace GrandStrategy.WorldGeneration
                         throw new ArgumentException("The save contains an invalid town.");
             }
 
+            if (save.TownSpecialisations != null)
+            {
+                var specialised = new HashSet<int>();
+                foreach (var entry in save.TownSpecialisations)
+                    if (save.Towns?.Contains(entry.Cell) != true || !specialised.Add(entry.Cell)
+                        || !Enum.IsDefined(typeof(SettlementBuilding), entry.Building))
+                        throw new ArgumentException("The save contains an invalid town specialisation.");
+            }
+
             if (save.SettlementPopulations != null)
             {
                 if (save.SecondSettlementSite != 0 || save.SettlementPopulations.Count != 1 + settlementSites.Count)
@@ -876,6 +910,8 @@ namespace GrandStrategy.WorldGeneration
                     var yield = SettlementBuildingInfo(site.Cell, building, site.Placement(building) - 1).Yield;
                     total += yield > 0 ? yield : BuildingInfo(SettlementProvince(site.Cell), building).Yield;
                 }
+            foreach (var entry in data.TownSpecialisations)
+                if (entry.Building == building && HasSettlementBuilding(entry.Cell, building)) total++;
             return total;
         }
 

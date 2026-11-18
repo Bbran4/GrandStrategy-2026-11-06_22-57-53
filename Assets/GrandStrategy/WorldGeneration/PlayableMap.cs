@@ -437,6 +437,7 @@ namespace GrandStrategy.WorldGeneration
             if (campaign.IsTown(site))
             {
                 GUILayout.Label("Town | Expanded city limits");
+                DrawTownSpecialisation(site);
                 return;
             }
 
@@ -455,6 +456,34 @@ namespace GrandStrategy.WorldGeneration
             }
             GUI.enabled = wasEnabled;
         }
+
+        private void DrawTownSpecialisation(int site)
+        {
+            var selectedRole = campaign.TownSpeciality(site);
+            if (selectedRole != 0)
+            {
+                GUILayout.Label(TownRoleLabel(selectedRole));
+                return;
+            }
+
+            GUILayout.Label("Choose one permanent specialisation");
+            foreach (var building in new[] { SettlementBuilding.Farm, SettlementBuilding.LumberCamp,
+                SettlementBuilding.IronMine, SettlementBuilding.Docks })
+                if (campaign.HasSettlementBuilding(site, building) && GUILayout.Button(TownRoleLabel(building)))
+                {
+                    campaign.TrySpecialiseTown(site, building);
+                    break;
+                }
+        }
+
+        private static string TownRoleLabel(SettlementBuilding building) => building switch
+        {
+            SettlementBuilding.Farm => "Farming town | +1 food per production cycle",
+            SettlementBuilding.LumberCamp => "Timber town | +1 wood per production cycle",
+            SettlementBuilding.IronMine => "Mining town | +1 iron per production cycle",
+            SettlementBuilding.Docks => "Port town | +1 trade agreement slot",
+            _ => throw new ArgumentOutOfRangeException(nameof(building))
+        };
 
         private void DrawInfluenceProvince()
         {
@@ -899,8 +928,9 @@ namespace GrandStrategy.WorldGeneration
             var placement = built ? campaign.BuildingPlacement(site, building) : clickedCell;
             var info = campaign.SettlementBuildingInfo(site, building, placement);
             if (built && info.Yield == 0) info = campaign.BuildingInfo(campaign.SettlementProvince(site), building);
-            var output = building == SettlementBuilding.Docks ? "Water trade access and +1 agreement slot"
-                : $"+{info.Yield} {info.Resource} / {CampaignState.ProductionInterval} days";
+            var bonus = campaign.TownSpeciality(site) == building ? 1 : 0;
+            var output = building == SettlementBuilding.Docks ? $"Water trade access and +{1 + bonus} agreement slots"
+                : $"+{info.Yield + bonus} {info.Resource} / {CampaignState.ProductionInterval} days";
             if (built)
             {
                 GUILayout.Label($"{info.Name} | {output}");
