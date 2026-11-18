@@ -140,6 +140,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             surface.ShowWarband(campaign);
+            surface.ShowBridges(campaign);
             surface.ShowIndependentVillage(campaign);
             surface.RefreshPassageDisplay();
             surface.RefreshInfluence();
@@ -460,6 +461,17 @@ namespace GrandStrategy.WorldGeneration
                     surface.RefreshSecuredFord(clickedCell);
                     saveStatus = closed ? "Ford reopened." : "Ford closed to civilian traffic.";
                 }
+            }
+
+            if (campaign.HasBridge(clickedCell)) GUILayout.Label("Timber bridge | Faster crossing");
+            else if (campaign.IsFordSecured(clickedCell))
+            {
+                var enabled = GUI.enabled;
+                GUI.enabled = enabled && campaign.CanBuildBridge(clickedCell);
+                if (GUILayout.Button($"Build timber bridge ({CampaignState.BridgeWood} wood, {CampaignState.BridgeCoin} coin)")
+                    && campaign.TryBuildBridge(clickedCell))
+                    saveStatus = "Timber bridge built. The crossing now takes less time.";
+                GUI.enabled = enabled;
             }
 
             var partner = campaign.FordPassagePartner(clickedCell);
@@ -1051,7 +1063,7 @@ namespace GrandStrategy.WorldGeneration
                 GUI.enabled = orderEnabled;
                 if (GUILayout.Button("Withdraw and return to capital") && campaign.TryWithdrawWarband())
                 {
-                    var route = surface.FindWarbandRoute(campaign.WarbandCell, campaign.CapitalCell);
+                    var route = campaign.PlanWarbandRoute(campaign.CapitalCell);
                     saveStatus = campaign.TryMarchWarband(route)
                         ? "Operation ended. Warband returning to the capital."
                         : "Operation ended. Warband holding position.";
@@ -1098,7 +1110,7 @@ namespace GrandStrategy.WorldGeneration
             if (GUILayout.Button(fordSelected ? "Plan march to ford bank" : "Plan march to selected ground"))
             {
                 plannedMarchDestination = clickedCell;
-                plannedMarch = surface.FindWarbandRoute(campaign.WarbandCell, clickedCell);
+                plannedMarch = campaign.PlanWarbandRoute(clickedCell);
                 if (plannedMarch == null) saveStatus = "No land route to the selected ground.";
             }
             GUI.enabled = wasEnabled;

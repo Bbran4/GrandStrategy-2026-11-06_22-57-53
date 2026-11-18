@@ -202,17 +202,36 @@ namespace GrandStrategy.WorldGeneration
             return ((a | b) & (horizontal ? FordEastWest : FordNorthSouth)) != 0;
         }
 
+        internal bool TryGetFordBanks(int ford, out int first, out int second)
+        {
+            first = second = -1;
+            if (!IsFord(ford)) return false;
+            var offset = (marchTerrain[ford] & FordEastWest) != 0 ? 1 : Width;
+            first = ford - offset;
+            second = ford + offset;
+            return true;
+        }
+
         internal const int BaseMarchCost = 4;
 
-        internal int MarchStepCost(int from, int to)
+        internal int MarchStepCost(int from, int to, Func<int, bool> hasBridge = null)
         {
+            if (hasBridge != null)
+            {
+                var ford = IsFord(from) ? from : IsFord(to) ? to : -1;
+                if (ford >= 0 && hasBridge(ford) && TryGetFordBanks(ford, out var a, out var b))
+                {
+                    var bank = ford == from ? to : from;
+                    if (bank == a || bank == b) return BaseMarchCost;
+                }
+            }
             var grade = marchElevations == null ? 0f : Math.Abs(marchElevations[from] - marchElevations[to]) * Height;
             var elevationCost = (int)Math.Min(16f, grade);
             return BaseMarchCost + elevationCost + (IsFord(from) || IsFord(to) ? 2 : 0);
         }
 
         internal List<int> FindWarbandRoute(int start, int goal, Func<int, bool> canUseFord = null,
-            Func<int, bool> canVisit = null)
+            Func<int, bool> canVisit = null, Func<int, bool> hasBridge = null)
         {
             if (!IsMarchCell(start) || !IsMarchCell(goal) || start == goal) return null;
             var fordDestination = IsFord(goal);
@@ -248,7 +267,7 @@ namespace GrandStrategy.WorldGeneration
                 {
                     if (!CanMarchBetween(cell, next) || (canUseFord != null && IsFord(next) && !canUseFord(next))
                         || canVisit?.Invoke(next) == false) return;
-                    var cost = spent + MarchStepCost(cell, next);
+                    var cost = spent + MarchStepCost(cell, next, hasBridge);
                     var distance = Distance(next);
                     if (costs.TryGetValue(next, out var prior))
                     {

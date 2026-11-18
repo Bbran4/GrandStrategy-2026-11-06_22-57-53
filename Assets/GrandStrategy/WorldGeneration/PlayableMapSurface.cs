@@ -25,6 +25,9 @@ namespace GrandStrategy.WorldGeneration
         private LineRenderer ironSupplyLine;
         private Material ironSupplyMaterial;
         private Material ironCargoMaterial;
+        private Material bridgeMaterial;
+        private CampaignState displayedBridgeCampaign;
+        private readonly List<LineRenderer> displayedBridges = new List<LineRenderer>();
         private GameObject ironCargoMarker;
         private IReadOnlyList<int> displayedIronSupplyRoute;
         private IReadOnlyList<int> displayedMarchRoute;
@@ -698,7 +701,42 @@ namespace GrandStrategy.WorldGeneration
             productionSites.Apply(false, false);
         }
 
-        public List<int> FindWarbandRoute(int start, int goal) => Map.FindWarbandRoute(start, goal);
+        public void ShowBridges(CampaignState campaign)
+        {
+            if (campaign != displayedBridgeCampaign)
+            {
+                foreach (var bridge in displayedBridges) UnityEngine.Object.Destroy(bridge.gameObject);
+                displayedBridges.Clear();
+                displayedBridgeCampaign = campaign;
+            }
+            if (campaign == null || displayedBridges.Count >= campaign.BridgedFords.Count) return;
+            if (bridgeMaterial == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null || !shader.isSupported) return;
+                bridgeMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+                bridgeMaterial.SetColor("_BaseColor", new Color(.48f, .29f, .15f));
+            }
+
+            for (var i = displayedBridges.Count; i < campaign.BridgedFords.Count; i++)
+            {
+                var ford = campaign.BridgedFords[i];
+                if (!Map.TryGetFordBanks(ford, out var first, out var second)) break;
+                var start = geometry.Sample(CellCentre(first), out _);
+                var end = geometry.Sample(CellCentre(second), out _);
+                var deck = new GameObject("Timber bridge", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
+                deck.transform.SetParent(surface.transform, false);
+                var line = deck.GetComponent<LineRenderer>();
+                line.useWorldSpace = false;
+                line.widthMultiplier = .00075f;
+                line.sharedMaterial = bridgeMaterial;
+                line.positionCount = 2;
+                line.SetPosition(0, start + Vector3.up * .00042f);
+                line.SetPosition(1, end + Vector3.up * .00042f);
+                line.alignment = LineAlignment.View;
+                displayedBridges.Add(line);
+            }
+        }
 
         public void ShowWarband(CampaignState campaign)
         {
@@ -1333,6 +1371,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(warbandArmour);
             UnityEngine.Object.Destroy(ironSupplyMaterial);
             UnityEngine.Object.Destroy(ironCargoMaterial);
+            UnityEngine.Object.Destroy(bridgeMaterial);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);

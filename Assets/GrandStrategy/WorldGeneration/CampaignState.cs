@@ -149,6 +149,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> WarbandRoute;
         public List<int> SecuredFords;
         public List<int> ClosedFords;
+        public List<int> BridgedFords;
         public List<int> PassageFords;
         public List<int> RivalHeldFords;
         public List<int> PassagePartners; // Region index plus one. Zero represents older agreements.
@@ -175,6 +176,8 @@ namespace GrandStrategy.WorldGeneration
     {
         public const int ResearchCost = 2;
         private const int ResearchLimit = 99;
+        public const int BridgeWood = 20;
+        public const int BridgeCoin = 15;
         public const int GarrisonRecruits = 4;
         public const int GarrisonCoin = 10;
         public const float VillageRadius = .008f;
@@ -252,7 +255,7 @@ namespace GrandStrategy.WorldGeneration
             if (data.WarbandRoute != null)
                 remainingMarchCost = RouteCost(data.WarbandRoute, data.WarbandRouteIndex);
             if (data.WarbandMarchCredit < 0 || (data.WarbandMarchCredit != 0
-                && (remainingMarchCost == 0 || data.WarbandMarchCredit >= map.MarchStepCost(
+                && (remainingMarchCost == 0 || data.WarbandMarchCredit >= MarchStepCost(
                     data.WarbandRoute[data.WarbandRouteIndex], data.WarbandRoute[data.WarbandRouteIndex + 1]))))
                 throw new ArgumentException("The save contains invalid warband march progress.");
             data.SecuredFords ??= new List<int>();
@@ -288,6 +291,12 @@ namespace GrandStrategy.WorldGeneration
                 if (index < 0 || data.PassagePartners[index] == 0 || IsFordSecured(ford) || !rivalFords.Add(ford))
                     throw new ArgumentException("The save contains invalid rival ford control.");
             }
+
+            data.BridgedFords ??= new List<int>();
+            var bridges = new HashSet<int>();
+            foreach (var ford in data.BridgedFords)
+                if (!uniqueFords.Contains(ford) || !bridges.Add(ford))
+                    throw new ArgumentException("The save contains a bridge at an invalid ford.");
 
             data.Towns ??= new List<int>();
             data.Garrisons ??= new List<int>();
@@ -581,6 +590,28 @@ namespace GrandStrategy.WorldGeneration
         public bool HasGranary => data.Granary;
         public int GranaryCell => data.GranarySite - 1;
         public bool HasWarband => data.Warband;
+        public IReadOnlyList<int> BridgedFords => data.BridgedFords;
+        public bool HasBridge(int ford) => data.BridgedFords?.Contains(ford) == true;
+        public bool CanBuildBridge(int ford) => CanChangeFordAccess(ford) && !HasBridge(ford)
+            && Wood >= BridgeWood && Coin >= BridgeCoin;
+
+        public bool TryBuildBridge(int ford)
+        {
+            if (!CanBuildBridge(ford)) return false;
+            data.Wood -= BridgeWood;
+            data.Coin -= BridgeCoin;
+            data.BridgedFords.Add(ford);
+            if (data.WarbandRoute != null && remainingMarchCost > 0)
+            {
+                remainingMarchCost = RouteCost(data.WarbandRoute, data.WarbandRouteIndex);
+                var index = data.WarbandRouteIndex;
+                data.WarbandMarchCredit = Math.Min(data.WarbandMarchCredit,
+                    MarchStepCost(data.WarbandRoute[index], data.WarbandRoute[index + 1]) - 1);
+            }
+            RefreshFordAccess();
+            return true;
+        }
+
         public bool IsFordSecured(int cell) => data.SecuredFords.Contains(cell);
 
         public IReadOnlyList<int> PassageFords => data.PassageFords;
@@ -813,7 +844,8 @@ namespace GrandStrategy.WorldGeneration
         public bool TryRepositionWarband(int cell)
         {
             if (!CanRepositionWarband(cell)) return false;
-            var route = map.FindWarbandRoute(WarbandCell, cell, canVisit: step => SettlementProvince(step) == IntegrationTarget);
+            var route = map.FindWarbandRoute(WarbandCell, cell, canVisit: step => SettlementProvince(step) == IntegrationTarget,
+                hasBridge: HasBridge);
             if (route == null) return false;
             SetWarbandRoute(route);
             return true;
@@ -837,11 +869,15 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        internal List<int> PlanWarbandRoute(int goal) => map.FindWarbandRoute(WarbandCell, goal, hasBridge: HasBridge);
+
+        private int MarchStepCost(int from, int to) => map.MarchStepCost(from, to, HasBridge);
+
         private long RouteCost(IReadOnlyList<int> route, int start)
         {
             long total = 0;
             for (var i = start + 1; i < route.Count; i++)
-                total += map.MarchStepCost(route[i - 1], route[i]);
+                total += MarchStepCost(route[i - 1], route[i]);
             return total;
         }
 
@@ -853,7 +889,7 @@ namespace GrandStrategy.WorldGeneration
             while (data.WarbandRouteIndex < route.Count - 1)
             {
                 var index = data.WarbandRouteIndex;
-                var step = map.MarchStepCost(route[index], route[index + 1]);
+                var step = MarchStepCost(route[index], route[index + 1]);
                 if (budget < step) break;
                 budget -= step;
                 remainingMarchCost -= step;
@@ -1491,7 +1527,7 @@ namespace GrandStrategy.WorldGeneration
             if (cell == CapitalCell || !map.HasMarchTerrain) return null;
             if (!ironSupplyRoutes.TryGetValue(cell, out var route))
             {
-                route = map.FindWarbandRoute(cell, CapitalCell, CanUseSupplyFord);
+                route = map.FindWarbandRoute(cell, CapitalCell, CanUseSupplyFord, hasBridge: HasBridge);
                 ironSupplyRoutes[cell] = route;
             }
             return route;
@@ -1537,7 +1573,7 @@ namespace GrandStrategy.WorldGeneration
             var duration = shipment.IronTravelEndDay - shipment.IronDepartureDay;
             var step = (int)((long)elapsed * (path.Length - 1) / duration);
             if (step > 0 && IsFordClosed(path[step])) step--;
-            var alternate = map.FindWarbandRoute(path[step], CapitalCell, CanUseSupplyFord);
+            var alternate = map.FindWarbandRoute(path[step], CapitalCell, CanUseSupplyFord, hasBridge: HasBridge);
             if (alternate == null) return false;
 
             SetIronJourney(ref shipment, alternate, IronSupplyRoute.Overland);

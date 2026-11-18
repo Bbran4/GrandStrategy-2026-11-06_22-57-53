@@ -647,9 +647,14 @@ internal static class Program
             && garrison.OwnedPopulation == beforeGuards - CampaignState.GarrisonRecruits
             && garrison.HasGarrisonAtFord(fordCell) && garrison.TryChangeFordAccess(fordCell) && garrison.IsFordClosed(fordCell),
             "A local garrison must recruit people and manage a nearby secured crossing without a warband.");
+        var bridgeWood = garrison.Wood;
+        Require(garrison.TryBuildBridge(fordCell) && !garrison.TryBuildBridge(fordCell)
+            && garrison.Wood == bridgeWood - CampaignState.BridgeWood
+            && fordMap.MarchStepCost(fordCell - 1, fordCell, garrison.HasBridge) < fordMap.MarchStepCost(fordCell - 1, fordCell),
+            "A guarded bridge must charge once and reduce march cost across its banks.");
         garrison = CampaignState.Restore(fordMap, "garrison", JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(garrison.ToSave(), json), json), 5);
-        Require(garrison.HasGarrison(garrison.CapitalCell) && garrison.TryChangeFordAccess(fordCell)
+        Require(garrison.HasGarrison(garrison.CapitalCell) && garrison.HasBridge(fordCell) && garrison.TryChangeFordAccess(fordCell)
             && garrison.TryDisbandGarrison(garrison.CapitalCell) && garrison.OwnedPopulation == beforeGuards
             && !garrison.TryChangeFordAccess(fordCell), "Saved garrisons must restore and return recruits on disbanding.");
 
