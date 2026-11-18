@@ -356,6 +356,8 @@ namespace GrandStrategy.WorldGeneration
             && province >= 0 && ProvinceAt(map, WarbandCell) == province;
         public int WarbandCell => !HasWarband ? -1
             : data.WarbandRoute == null ? CapitalCell : data.WarbandRoute[data.WarbandRouteIndex];
+        public IReadOnlyList<int> WarbandRoute => data.WarbandRoute;
+        public int WarbandRouteIndex => data.WarbandRouteIndex;
         public int WarbandTravelDays => data.WarbandRoute == null
             ? 0 : (data.WarbandRoute.Count - 1 - data.WarbandRouteIndex + WarbandCellsPerDay - 1) / WarbandCellsPerDay;
         private int WarbandCellsPerDay => Math.Max(1, map.Height / 128);

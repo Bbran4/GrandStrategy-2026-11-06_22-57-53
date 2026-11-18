@@ -130,7 +130,7 @@ namespace GrandStrategy.WorldGeneration
                     OnProvinceJoined(hadExpanded);
             }
 
-            surface.ShowWarband(campaign?.WarbandCell ?? -1);
+            surface.ShowWarband(campaign);
             surface.RefreshInfluence();
             surface.HighlightInfluenceAt(clickedCell);
             surface.SetCityLimitsVisible(campaign, selected);
@@ -718,9 +718,10 @@ namespace GrandStrategy.WorldGeneration
                 ? $"Warband marching | {campaign.WarbandTravelDays} days"
                 : "Warband ready");
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && clickedCell >= 0 && clickedCell != campaign.WarbandCell
-                && surface.IsDryLand(clickedCell);
-            if (GUILayout.Button("March to selected ground"))
+            var fordSelected = surface.Map.IsFord(clickedCell);
+            GUI.enabled = wasEnabled && clickedCell != campaign.WarbandCell && surface.Map.IsMarchCell(clickedCell)
+                && (!fordSelected || !surface.Map.CanMarchBetween(campaign.WarbandCell, clickedCell));
+            if (GUILayout.Button(fordSelected ? "March to ford bank" : "March to selected ground"))
             {
                 var route = surface.FindWarbandRoute(campaign.WarbandCell, clickedCell);
                 saveStatus = campaign.TryMarchWarband(route) ? "March ordered." : "No land route to the selected ground.";

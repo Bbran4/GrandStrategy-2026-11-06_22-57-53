@@ -15,6 +15,9 @@ namespace GrandStrategy.WorldGeneration
         private Material footprintMaterial;
         private Material warbandMaterial;
         private GameObject warbandMarker;
+        private LineRenderer marchLine;
+        private IReadOnlyList<int> displayedMarchRoute;
+        private int displayedMarchIndex = -1;
         private int markerCell = -1;
         private LineRenderer footprint;
         private int footprintCell = -1;
@@ -527,8 +530,8 @@ namespace GrandStrategy.WorldGeneration
 
         public List<int> FindWarbandRoute(int start, int goal)
         {
-            if (start < 0 || goal < 0 || start == goal || !IsDryLand(goal)
-                || !CampaignState.IsLand(Map, Map.ProvinceAt[goal])) return null;
+            if (!Map.IsMarchCell(start) || !Map.IsMarchCell(goal) || start == goal) return null;
+            var fordDestination = Map.IsFord(goal);
 
             var frontier = new SortedSet<(int Estimate, int Cell)> { (Distance(start), start) };
             var costs = new Dictionary<int, int> { [start] = 0 };
@@ -538,9 +541,9 @@ namespace GrandStrategy.WorldGeneration
                 var current = frontier.Min;
                 frontier.Remove(current);
                 var cell = current.Cell;
-                if (cell == goal)
+                if (fordDestination ? Map.CanMarchBetween(cell, goal) : cell == goal)
                 {
-                    var route = new List<int> { goal };
+                    var route = new List<int> { cell };
                     while (cell != start)
                     {
                         cell = previous[cell];
@@ -577,8 +580,10 @@ namespace GrandStrategy.WorldGeneration
                 + Math.Abs(cell / Map.Width - goal / Map.Width);
         }
 
-        public void ShowWarband(int cell)
+        public void ShowWarband(CampaignState campaign)
         {
+            var cell = campaign?.WarbandCell ?? -1;
+            UpdateMarchLine(campaign?.WarbandRoute, campaign?.WarbandRouteIndex ?? 0);
             if (cell == markerCell) return;
             if (cell < 0)
             {
@@ -605,9 +610,42 @@ namespace GrandStrategy.WorldGeneration
             }
 
             warbandMarker.SetActive(true);
+            UpdateMarchLine(campaign.WarbandRoute, campaign.WarbandRouteIndex);
             warbandMarker.transform.localPosition = geometry.Sample(CellCentre(cell), out _) + Vector3.up * .003f;
             warbandMarker.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
             markerCell = cell;
+        }
+
+        private void UpdateMarchLine(IReadOnlyList<int> route, int index)
+        {
+            if (warbandMaterial == null) return;
+            if (route == null || route.Count - index < 2)
+            {
+                if (marchLine != null) marchLine.enabled = false;
+                displayedMarchRoute = null;
+                displayedMarchIndex = -1;
+                return;
+            }
+
+            if (ReferenceEquals(displayedMarchRoute, route) && displayedMarchIndex == index) return;
+            if (marchLine == null)
+            {
+                var path = new GameObject("Warband march route", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
+                path.transform.SetParent(surface.transform, false);
+                marchLine = path.GetComponent<LineRenderer>();
+                marchLine.useWorldSpace = false;
+                marchLine.widthMultiplier = .00034f;
+                marchLine.sharedMaterial = warbandMaterial;
+            }
+
+            var positions = new Vector3[route.Count - index];
+            for (var i = 0; i < positions.Length; i++)
+                positions[i] = geometry.Sample(CellCentre(route[index + i]), out _) + Vector3.up * .0012f;
+            marchLine.positionCount = positions.Length;
+            marchLine.SetPositions(positions);
+            marchLine.enabled = true;
+            displayedMarchRoute = route;
+            displayedMarchIndex = index;
         }
 
         public void ShowBuildFootprint(int cell, float halfWidth, Color colour)
