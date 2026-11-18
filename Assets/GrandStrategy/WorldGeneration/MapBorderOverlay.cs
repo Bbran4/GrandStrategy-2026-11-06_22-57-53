@@ -6,7 +6,7 @@ using UnityEngine.Rendering;
 
 namespace GrandStrategy.WorldGeneration
 {
-    internal enum MapViewMode { Terrain, Territories, Provinces, Realm, Ownership, Biomes }
+    internal enum MapViewMode { Terrain, Territories, Provinces, Realm, Ownership, Biomes, Resources }
 
     internal sealed class MapBorderOverlay : IDisposable
     {

@@ -43,6 +43,7 @@ namespace GrandStrategy.WorldGeneration
         private float zoom = 1f;
         private float targetZoom = 1f;
         private bool dragging;
+        private SettlementBuilding resourceFilter = SettlementBuilding.Farm;
         private MapViewMode mapView = MapViewMode.Provinces;
         private bool editingName;
         private int selected = -1;
@@ -972,18 +973,28 @@ namespace GrandStrategy.WorldGeneration
             var dock = MapDock;
             DrawPanelFrame(dock);
             GUI.Label(new Rect(dock.x + 8, dock.y + 3, dock.width - 16, 19), "Map views", hudHeading);
-            var slot = (dock.width - 24) / 3f;
+            var slot = (dock.width - 26) / 4f;
             var x = dock.x + 7;
             var y = dock.y + 23;
             DrawMapViewButton("Terrain", MapViewMode.Terrain, x, y, slot);
             DrawMapViewButton("Biomes", MapViewMode.Biomes, x + slot + 4, y, slot);
             DrawMapViewButton("Provinces", MapViewMode.Provinces, x + (slot + 4) * 2, y, slot);
+            DrawMapViewButton("Resources", MapViewMode.Resources, x + (slot + 4) * 3, y, slot);
             DrawMapViewButton("Territories", MapViewMode.Territories, x, y + 26, slot, surface.HasTerritories);
             DrawMapViewButton("Realm", MapViewMode.Realm, x + slot + 4, y + 26, slot);
             DrawMapViewButton("Influence", MapViewMode.Ownership, x + (slot + 4) * 2, y + 26, slot);
 
+            if (mapView == MapViewMode.Resources)
+            {
+                DrawResourceFilter("Farmland", SettlementBuilding.Farm, x, y + 52, slot);
+                DrawResourceFilter("Timber", SettlementBuilding.LumberCamp, x + slot + 4, y + 52, slot);
+                DrawResourceFilter("Mining", SettlementBuilding.IronMine, x + (slot + 4) * 2, y + 52, slot);
+                DrawResourceFilter("Waterfront", SettlementBuilding.Docks, x + (slot + 4) * 3, y + 52, slot);
+            }
+
             var status = mapView switch
             {
+                MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership => campaign == null ? "Found a settlement to see its influence" : "Settlement reach based on population and terrain",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
@@ -995,10 +1006,20 @@ namespace GrandStrategy.WorldGeneration
             GUI.Label(new Rect(dock.x + 6, dock.y + 78, dock.width - 12, 21), status, hudLabel);
         }
 
+        private void DrawResourceFilter(string label, SettlementBuilding filter, float x, float y, float width)
+        {
+            if (DrawHudButton(new Rect(x, y, width, 23), label, true, filter == resourceFilter))
+            {
+                resourceFilter = filter;
+                surface.SetResourceFilter(filter);
+            }
+        }
+
         private void DrawMapViewButton(string label, MapViewMode mode, float x, float y, float width, bool available = true)
         {
             if (DrawHudButton(new Rect(x, y, width, 23), label, available, mapView == mode) && mapView != mode)
             {
+                if (mode == MapViewMode.Resources) surface.SetResourceFilter(resourceFilter);
                 surface.SetView(mode);
                 mapView = mode;
                 surface.HighlightInfluenceAt(clickedCell);

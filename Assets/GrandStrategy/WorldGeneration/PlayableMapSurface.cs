@@ -16,6 +16,7 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D regions;
         private Texture2D provinceCorners;
         private Texture2D ownership;
+        private Texture2D productionSites;
         private MapViewMode viewMode = MapViewMode.Provinces;
         private readonly ProvinceShape provinceShape;
         private Texture2D biomeSurface;
@@ -429,23 +430,69 @@ namespace GrandStrategy.WorldGeneration
                     var dy = y - centreY;
                     if (dx * dx + dy * dy > radius * radius) continue;
                     var cell = y * Map.Width + x;
-                    if (!IsDryLand(cell)) continue;
-                    var biome = settlementBiomes == null ? BiomeKind.Grassland : (BiomeKind)settlementBiomes[cell];
-                    if (biome == BiomeKind.Grassland || biome == BiomeKind.Wetland || MapNatureRules.IsForest(biome))
-                        result |= SettlementBuilding.Farm;
-                    if (settlementBiomes == null || MapNatureRules.IsForest(biome))
-                        result |= SettlementBuilding.LumberCamp;
-                    if (biome == BiomeKind.Alpine || elevations[cell] >= Mathf.Lerp(seaLevel, 1f, .62f))
-                        result |= SettlementBuilding.IronMine;
-                    if ((x > 0 && IsTradeWater(cell - 1)) || (x + 1 < Map.Width && IsTradeWater(cell + 1))
-                        || (y > 0 && IsTradeWater(cell - Map.Width))
-                        || (y + 1 < Map.Height && IsTradeWater(cell + Map.Width)))
-                        result |= SettlementBuilding.Docks;
+                    result |= ProductionSitesAt(cell, x, y);
                 }
-
             return result;
+        }
 
-            bool IsTradeWater(int cell) => water[cell] == WaterKind.Ocean || IsNavigableRiverCell(cell);
+        private SettlementBuilding ProductionSitesAt(int cell, int x, int y)
+        {
+            if (!IsDryLand(cell)) return 0;
+            var biome = settlementBiomes == null ? BiomeKind.Grassland : (BiomeKind)settlementBiomes[cell];
+            SettlementBuilding sites = 0;
+            if (biome == BiomeKind.Grassland || biome == BiomeKind.Wetland || MapNatureRules.IsForest(biome))
+                sites |= SettlementBuilding.Farm;
+            if (settlementBiomes == null || MapNatureRules.IsForest(biome))
+                sites |= SettlementBuilding.LumberCamp;
+            if (biome == BiomeKind.Alpine || elevations[cell] >= Mathf.Lerp(seaLevel, 1f, .62f))
+                sites |= SettlementBuilding.IronMine;
+            if ((x > 0 && IsTradeWater(cell - 1)) || (x + 1 < Map.Width && IsTradeWater(cell + 1))
+                || (y > 0 && IsTradeWater(cell - Map.Width))
+                || (y + 1 < Map.Height && IsTradeWater(cell + Map.Width)))
+                sites |= SettlementBuilding.Docks;
+            return sites;
+        }
+
+        private bool IsTradeWater(int cell) => water[cell] == WaterKind.Ocean || IsNavigableRiverCell(cell);
+
+        public void SetResourceFilter(SettlementBuilding building)
+        {
+            var filter = building switch
+            {
+                SettlementBuilding.LumberCamp => new Vector4(0, 1, 0, 0),
+                SettlementBuilding.IronMine => new Vector4(0, 0, 1, 0),
+                SettlementBuilding.Docks => new Vector4(0, 0, 0, 1),
+                _ => new Vector4(1, 0, 0, 0)
+            };
+            var colour = building switch
+            {
+                SettlementBuilding.LumberCamp => new Color(.28f, .83f, .33f),
+                SettlementBuilding.IronMine => new Color(.87f, .43f, .29f),
+                SettlementBuilding.Docks => new Color(.29f, .72f, 1f),
+                _ => new Color(.94f, .76f, .25f)
+            };
+            material.SetVector("_ResourceFilter", filter);
+            material.SetColor("_ResourceTint", colour);
+        }
+
+        private void CreateProductionSiteTexture()
+        {
+            if (productionSites != null) return;
+            productionSites = CreateTexture("Production sites", true, FilterMode.Point, false);
+            var pixels = productionSites.GetRawTextureData<Color32>();
+            for (var y = 0; y < Map.Height; y++)
+                for (var x = 0; x < Map.Width; x++)
+                {
+                    var cell = y * Map.Width + x;
+                    var sites = ProductionSitesAt(cell, x, y);
+                    pixels[cell] = new Color32(
+                        (sites & SettlementBuilding.Farm) != 0 ? (byte)255 : (byte)0,
+                        (sites & SettlementBuilding.LumberCamp) != 0 ? (byte)255 : (byte)0,
+                        (sites & SettlementBuilding.IronMine) != 0 ? (byte)255 : (byte)0,
+                        (sites & SettlementBuilding.Docks) != 0 ? (byte)255 : (byte)0);
+                }
+            productionSites.Apply(false, true);
+            material.SetTexture("_ProductionSites", productionSites);
         }
 
         public bool IsWithinCityLimits(Vector3 capital, Vector2 uv)
@@ -494,6 +541,8 @@ namespace GrandStrategy.WorldGeneration
         {
             borders.SetView(mode);
             viewMode = mode;
+            if (mode == MapViewMode.Resources) CreateProductionSiteTexture();
+            material.SetFloat("_ShowResources", mode == MapViewMode.Resources ? 1f : 0f);
             RefreshInfluence();
             UpdateOwnershipVisibility();
             material.SetFloat("_ShowPolitics", mode == MapViewMode.Terrain || mode == MapViewMode.Biomes ? 0f : 1f);
@@ -651,6 +700,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
             UnityEngine.Object.Destroy(ownership);
+            UnityEngine.Object.Destroy(productionSites);
             UnityEngine.Object.Destroy(biomeSurface);
             UnityEngine.Object.Destroy(riverFlow);
             UnityEngine.Object.Destroy(groundPatterns);

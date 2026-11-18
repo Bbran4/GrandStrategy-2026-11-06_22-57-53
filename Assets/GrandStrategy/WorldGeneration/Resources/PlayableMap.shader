@@ -47,6 +47,10 @@ Shader "GrandStrategy/Playable Map"
         _MapSun ("Map sun direction", Vector) = (-1, 1, 1, 0)
         _GroundDetail ("Ground detail", Float) = 0.25
         _CapitalClearing ("Capital clearing", Vector) = (0, 0, 0, 0)
+        [HideInInspector] _ProductionSites ("Production sites", 2D) = "black" {}
+        [HideInInspector] _ResourceFilter ("Resource filter", Vector) = (1, 0, 0, 0)
+        [HideInInspector] _ResourceTint ("Resource colour", Color) = (0.94, 0.76, 0.25, 1)
+        [HideInInspector] _ShowResources ("Show resources", Float) = 0
         [HideInInspector] _ShowBiomes ("Show biome colours", Float) = 0
         _ShowPolitics ("Political overlays", Float) = 1
         _ProvinceIndices ("Province indices", 2D) = "black" {}
@@ -136,6 +140,7 @@ Shader "GrandStrategy/Playable Map"
             SAMPLER(sampler_TerrainShadow);
             TEXTURE2D(_ProvinceIndices);
             SAMPLER(sampler_ProvinceIndices);
+            TEXTURE2D(_ProductionSites);
             TEXTURE2D(_OwnershipMask); SAMPLER(sampler_OwnershipMask);
             TEXTURE2D(_ProvinceCorners);
             SAMPLER(sampler_ProvinceCorners);
@@ -156,6 +161,9 @@ Shader "GrandStrategy/Playable Map"
                 float4 _MapSun;
                 float _ShowPolitics;
                 float _ShowBiomes;
+                float _ShowResources;
+                float4 _ResourceFilter;
+                float4 _ResourceTint;
                 float4 _BiomeViewPalette[8];
                 float _GroundDetail;
                 float _GroundTileFrequency;
@@ -840,6 +848,13 @@ Shader "GrandStrategy/Playable Map"
             {
                 float4 map = SAMPLE_TEXTURE2D(_MapColours, sampler_MapColours, input.uv);
                 float3 ground = ShadeGround(input, normalize(input.normalWS), map);
+                UNITY_BRANCH
+                if (_ShowResources > 0.5)
+                {
+                    float4 sites = SAMPLE_TEXTURE2D_LOD(_ProductionSites, sampler_ProvinceIndices, input.uv, 0);
+                    float coverage = dot(sites, _ResourceFilter);
+                    return half4(lerp(ground * 0.64, _ResourceTint.rgb, coverage * 0.78), 1);
+                }
                 float politicalCoverage = _ShowPolitics * smoothstep(0.52, 0.95, map.a);
                 if (politicalCoverage <= 0.0) return half4(ground, 1);
 
