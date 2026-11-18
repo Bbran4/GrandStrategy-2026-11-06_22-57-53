@@ -885,7 +885,14 @@ internal static class Program
             && split.SettlementCells.SequenceEqual(beforeSplitOrder) && split.OwnedPopulation == beforeSplitPopulation
             && split.Coin == beforeSplitCoin,
             "A split must reassign only the selected component without changing settlement order, population or coin.");
+        Require(split.ProvinceNumber(claimSeat) == 1 && split.ProvinceNumber(newSeat) == 2
+            && split.ProvinceNumber(mineSite) == 0, "A split must assign its own number to the new province seat.");
         var splitSnapshot = JsonSerializer.Serialize(split.ToSave(), json);
+        var unnumbered = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
+        unnumbered.SettlementProvinceNumbers = null;
+        unnumbered.NextProvinceNumber = 0;
+        Require(CampaignState.Restore(splitMap, "detached", unnumbered, 5).ProvinceNumber(newSeat) == 2,
+            "Older saves must acquire their original display order on load.");
         split = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json), 5);
         Require(split.SettlementProvinceRoots.SequenceEqual(new[] { newSeat, newSeat, claimSeat, claimSeat })
             && split.AdvanceToNextDecision() && split.SettlementCells.Last() == plannedSite
@@ -902,7 +909,7 @@ internal static class Program
         movedSeat = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(movedSeat.ToSave(), json), json), 5);
         Require(movedSeat.AdvanceToNextDecision() && movedSeat.SettlementCells.Last() == plannedSite
-            && movedSeat.SettlementProvinceRoots.Last() == mineSite,
+            && movedSeat.SettlementProvinceRoots.Last() == mineSite && movedSeat.ProvinceNumber(mineSite) == 2,
             "A saved seat relocation must redirect the province's pending integration.");
 
         var famineSeatSave = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
@@ -916,7 +923,7 @@ internal static class Program
         famineSeat.Advance(1);
         Require(famineSeat.SettlementPopulation(newSeat) == 0 && famineSeat.SettlementPopulation(mineSite) > 0
             && famineSeat.SettlementProvinceRoots.Take(2).All(root => root == mineSite)
-            && famineSeat.ToSave().IntegrationProvinceRoot == mineSite + 1,
+            && famineSeat.ProvinceNumber(mineSite) == 2 && famineSeat.ToSave().IntegrationProvinceRoot == mineSite + 1,
             "Losing a seat during a food tick must transfer the province and its pending order to an inhabited member.");
 
         var vacantSeatSave = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
@@ -928,6 +935,7 @@ internal static class Program
 
         var reunionSave = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
         reunionSave.Warband = true;
+        reunionSave.Coin = 200;
         reunionSave.SecuredFords.Add(fordCell);
         var reunion = CampaignState.Restore(splitMap, "detached", reunionSave, 5);
         foreach (var cell in new[] { mineSite, newSeat, plannedSite, plannedSite + 1 })
@@ -952,16 +960,24 @@ internal static class Program
             && !reunion.TryMergeProvinces(claimSeat, newSeat)
             && !reunion.TryMergeProvinces(newSeat, nearVillage),
             "An open ford must expose the mutual border while protecting the capital seat and rejecting non-seats.");
+        var laterProvince = lonelySite + 1;
+        Require(reunion.TryFoundSettlement(laterProvince) && reunion.ProvinceNumber(laterProvince) == 3,
+            "An unrelated province must receive the next number before the merger.");
         var reunionPopulation = reunion.OwnedPopulation;
         Require(reunion.TryMergeProvinces(newSeat, claimSeat)
             && !reunion.TryMergeProvinces(newSeat, claimSeat)
-            && reunion.SettlementProvinceRoots.All(root => root == claimSeat) && reunion.OwnedPopulation == reunionPopulation,
+            && reunion.SettlementProvinceRoots.Take(4).All(root => root == claimSeat)
+            && reunion.OwnedPopulation == reunionPopulation && reunion.ProvinceNumber(laterProvince) == 3,
             "Merging must reassign the source seat and all of its villages without moving population.");
         reunion = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(reunion.ToSave(), json), json), 5);
         Require(reunion.AdvanceToNextDecision() && reunion.SettlementCells.Last() == plannedSite
-            && reunion.SettlementProvinceRoots.All(root => root == claimSeat) && !reunion.Owns(1),
+            && reunion.SettlementProvinceRoots.Last() == claimSeat && !reunion.Owns(1),
             "After saving a merger, a pending integration must join the surviving province seat.");
+        Require(reunion.ProvinceNumber(claimSeat) == 1 && reunion.ProvinceNumber(newSeat) == 0
+            && reunion.ProvinceNumber(laterProvince) == 3 && reunion.TryFoundSettlement(laterProvince + 1)
+            && reunion.ProvinceNumber(laterProvince + 1) == 4,
+            "A new province must receive a fresh number after a merger and reload.");
 
         supply.Paused = false;
         supply.Advance(5);

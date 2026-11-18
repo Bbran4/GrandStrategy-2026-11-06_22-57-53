@@ -147,6 +147,8 @@ namespace GrandStrategy.WorldGeneration
         public int CapitalCell;
         public List<int> SettlementCells;
         public List<int> SettlementProvinceRoots;
+        public List<long> SettlementProvinceNumbers;
+        public long NextProvinceNumber;
         public List<int> Towns;
         public List<int> Garrisons;
         public List<SettlementFoodReserve> SettlementFood;
@@ -403,6 +405,15 @@ namespace GrandStrategy.WorldGeneration
                     data.SettlementProvinceRoots.Add(root);
                 }
             }
+            if (data.SettlementProvinceNumbers == null)
+            {
+                // Older saves numbered seats in settlement order.
+                data.NextProvinceNumber = 2;
+                data.SettlementProvinceNumbers = new List<long>(data.SettlementCells.Count);
+                for (var i = 0; i < data.SettlementCells.Count; i++)
+                    data.SettlementProvinceNumbers.Add(
+                        data.SettlementProvinceRoots[i] == data.SettlementCells[i] ? data.NextProvinceNumber++ : 0);
+            }
             if (data.SettlementPopulations == null)
             {
                 data.SettlementPopulations = new List<int> { data.Pop[Capital] };
@@ -419,6 +430,20 @@ namespace GrandStrategy.WorldGeneration
         public IReadOnlyList<int> SettlementCells => data.SettlementCells;
         public IReadOnlyList<int> SettlementProvinceRoots => data.SettlementProvinceRoots;
         public int SettlementProvince(int cell) => ProvinceAt(map, cell);
+
+        public long ProvinceNumber(int seat)
+        {
+            if (seat == CapitalCell) return 1;
+            var index = data.SettlementCells.IndexOf(seat);
+            return index < 0 ? 0 : data.SettlementProvinceNumbers[index];
+        }
+
+        private void AppendSettlementProvince(int cell, int root)
+        {
+            data.SettlementCells.Add(cell);
+            data.SettlementProvinceRoots.Add(root);
+            data.SettlementProvinceNumbers.Add(cell == root ? data.NextProvinceNumber++ : 0);
+        }
 
         public bool CanFoundSettlement(int cell)
         {
@@ -437,8 +462,7 @@ namespace GrandStrategy.WorldGeneration
             if (party.People == 0) return false;
             data.Coin -= SettlementCoin;
             data.Wood -= SettlementWoodCost;
-            data.SettlementCells.Add(cell);
-            data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
+            AppendSettlementProvince(cell, provinceRoot == -1 ? cell : provinceRoot);
             AllocateSettlers(cell, party.Donor, party.People, Owns(SettlementProvince(cell)));
             InfluenceRevision++;
             return true;
@@ -458,6 +482,7 @@ namespace GrandStrategy.WorldGeneration
                 if (data.SettlementProvinceRoots[i] == oldSeat && fragment.Contains(data.SettlementCells[i]))
                     data.SettlementProvinceRoots[i] = seat;
 
+            data.SettlementProvinceNumbers[index] = data.NextProvinceNumber++;
             if (data.IntegrationProvinceRoot == oldSeat + 1 && fragment.Contains(IntegrationSettlementCell))
                 data.IntegrationProvinceRoot = seat + 1;
             InfluenceRevision++;
@@ -491,6 +516,12 @@ namespace GrandStrategy.WorldGeneration
 
         private void ReassignProvinceSeat(int oldSeat, int newSeat)
         {
+            var oldIndex = data.SettlementCells.IndexOf(oldSeat);
+            var newIndex = data.SettlementCells.IndexOf(newSeat);
+            if (newIndex >= 0 && data.SettlementProvinceNumbers[newIndex] == 0)
+                data.SettlementProvinceNumbers[newIndex] = data.SettlementProvinceNumbers[oldIndex];
+            data.SettlementProvinceNumbers[oldIndex] = 0;
+
             for (var i = 0; i < data.SettlementProvinceRoots.Count; i++)
                 if (data.SettlementProvinceRoots[i] == oldSeat)
                     data.SettlementProvinceRoots[i] = newSeat;
@@ -1702,6 +1733,25 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var root in save.SettlementProvinceRoots)
                     if (!roots.Contains(root))
                         throw new ArgumentException("The save contains an unknown settlement province.");
+            }
+
+            if (save.SettlementProvinceNumbers == null)
+            {
+                if (save.NextProvinceNumber != 0)
+                    throw new ArgumentException("The save contains a province numbering counter without province numbers.");
+            }
+            else
+            {
+                if (save.NextProvinceNumber < 2 || save.SettlementProvinceNumbers.Count != save.SettlementProvinceRoots?.Count)
+                    throw new ArgumentException("The save contains mismatched province numbers.");
+                var numbers = new HashSet<long>();
+                for (var i = 0; i < save.SettlementProvinceNumbers.Count; i++)
+                {
+                    var number = save.SettlementProvinceNumbers[i];
+                    var isSeat = save.SettlementCells[i] == save.SettlementProvinceRoots[i];
+                    if (isSeat ? number < 2 || number >= save.NextProvinceNumber || !numbers.Add(number) : number != 0)
+                        throw new ArgumentException("The save contains an invalid province number.");
+                }
             }
 
             var settlementSites = new HashSet<int>();
@@ -3198,17 +3248,15 @@ namespace GrandStrategy.WorldGeneration
                 var index = destination == CapitalCell ? 0 : data.SettlementCells.IndexOf(destination) + 1;
                 if (index == 0 && destination != CapitalCell)
                 {
-                    data.SettlementCells.Add(destination);
                     var root = data.IntegrationProvinceRoot - 1;
                     var provinceRoot = root >= 0 ? root : destination;
-                    data.SettlementProvinceRoots.Add(provinceRoot);
+                    AppendSettlementProvince(destination, provinceRoot);
                     var outpostResidents = destination == IndependentVillageCell && IndependentOutpostCell >= 0
                         ? remainingResidents / 3 : 0;
                     data.SettlementPopulations.Add(remainingResidents - outpostResidents);
                     if (destination == IndependentVillageCell && IndependentOutpostCell >= 0)
                     {
-                        data.SettlementCells.Add(IndependentOutpostCell);
-                        data.SettlementProvinceRoots.Add(provinceRoot);
+                        AppendSettlementProvince(IndependentOutpostCell, provinceRoot);
                         data.SettlementPopulations.Add(outpostResidents);
                     }
                     if (destination == IndependentVillageCell && IndependentFarmCell >= 0)

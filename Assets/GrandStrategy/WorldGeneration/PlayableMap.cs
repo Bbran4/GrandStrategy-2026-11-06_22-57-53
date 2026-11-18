@@ -853,15 +853,8 @@ namespace GrandStrategy.WorldGeneration
         private string InfluenceProvinceName(int seat)
         {
             if (seat == campaign.CapitalCell) return "Capital province";
-            var number = 1;
-            for (var i = 0; i < campaign.SettlementCells.Count; i++)
-            {
-                var site = campaign.SettlementCells[i];
-                if (campaign.SettlementProvinceRoots[i] != site) continue;
-                number++;
-                if (site == seat) return $"Province {number}";
-            }
-            return "Province";
+            var number = campaign.ProvinceNumber(seat);
+            return number > 0 ? $"Province {number}" : "Province";
         }
 
         private string SettlementLabel(int site)
