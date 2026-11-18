@@ -60,6 +60,7 @@ namespace GrandStrategy.WorldGeneration
         [NonSerialized] private byte[] marchTerrain;
         [NonSerialized] private float[] marchElevations;
         [NonSerialized] private int[] waterwayAt;
+        [NonSerialized] private byte[] waterwayRivers;
         internal bool HasDockWaterwayData => waterwayAt != null;
 
         internal int DockWaterwayAt(int cell)
@@ -83,12 +84,71 @@ namespace GrandStrategy.WorldGeneration
                     var dx = x - column;
                     var dy = y - row;
                     var distance = dx * dx + dy * dy;
-                    if (channel == 0 || distance == 0 || distance >= nearest) continue;
+                    if (channel <= 0 || distance == 0 || distance >= nearest) continue;
                     nearest = distance;
                     waterCell = row * Width + column;
                 }
             return waterCell;
         }
+        internal List<int> FindDockRoute(int loadingDock, int receivingDock)
+        {
+            var start = DockWaterCell(loadingDock);
+            var goal = DockWaterCell(receivingDock);
+            if (start < 0 || goal < 0 || waterwayAt[start] != waterwayAt[goal]) return null;
+
+            var channel = waterwayAt[start];
+            var frontier = new SortedSet<(int Estimate, int Remaining, int Cell)> { (Distance(start), Distance(start), start) };
+            var costs = new Dictionary<int, int> { [start] = 0 };
+            var previous = new Dictionary<int, int>();
+            while (frontier.Count > 0)
+            {
+                var entry = frontier.Min;
+                frontier.Remove(entry);
+                var cell = entry.Cell;
+                if (cell == goal)
+                {
+                    var route = new List<int> { receivingDock, goal };
+                    while (cell != start)
+                    {
+                        cell = previous[cell];
+                        route.Add(cell);
+                    }
+                    route.Add(loadingDock);
+                    route.Reverse();
+                    return route;
+                }
+
+                var x = cell % Width;
+                var y = cell / Width;
+                var cost = costs[cell] + 1;
+                for (var dy = -1; dy <= 1; dy++)
+                    for (var dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        var nx = x + dx;
+                        var ny = y + dy;
+                        if (nx < 0 || nx >= Width || ny < 0 || ny >= Height) continue;
+                        var next = ny * Width + nx;
+                        if (Math.Abs(waterwayAt[next]) != channel) continue;
+                        // Connected coast uses cardinal edges. Diagonals connect river raster cells.
+                        if (dx != 0 && dy != 0 && (waterwayRivers == null
+                            || waterwayRivers[cell] == 0 || waterwayRivers[next] == 0)) continue;
+                        var distance = Distance(next);
+                        if (costs.TryGetValue(next, out var prior))
+                        {
+                            if (prior <= cost) continue;
+                            frontier.Remove((prior + distance, distance, next));
+                        }
+                        costs[next] = cost;
+                        previous[next] = cell;
+                        frontier.Add((cost + distance, distance, next));
+                    }
+            }
+            return null;
+
+            int Distance(int cell) => Math.Max(Math.Abs(cell % Width - goal % Width), Math.Abs(cell / Width - goal / Width));
+        }
+
         [NonSerialized] internal Func<int, SettlementBuilding, int?> LocalProductionYield;
 
         internal void BuildMarchTerrain(WaterMap water, byte[] rivers, float[] elevations)
@@ -366,9 +426,10 @@ namespace GrandStrategy.WorldGeneration
                 if (channelsAt[cell] == 0 || water[cell] == WaterKind.Ocean) continue;
                 var province = ProvinceAt[cell];
                 if (province < 0 || !string.Equals(Provinces[province].Type, "ocean", StringComparison.OrdinalIgnoreCase))
-                    channelsAt[cell] = 0;
+                    channelsAt[cell] = -channelsAt[cell];
             }
             result.waterwayAt = channelsAt;
+            result.waterwayRivers = rivers;
             return result;
 
             bool IsRiver(int cell) => water[cell] == WaterKind.Land && rivers != null && rivers[cell] != 0;

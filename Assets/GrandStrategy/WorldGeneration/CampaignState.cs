@@ -178,6 +178,7 @@ namespace GrandStrategy.WorldGeneration
         private double fractionOfDay;
         private HashSet<int> dockWaterways;
         private long remainingMarchCost;
+        private readonly Dictionary<int, List<int>> ironWaterRoutes = new Dictionary<int, List<int>>();
         private readonly Dictionary<int, List<int>> ironSupplyRoutes = new Dictionary<int, List<int>>();
         internal Func<int, bool> LandContactResolver { get; set; }
         public int InfluenceRevision { get; private set; }
@@ -1033,6 +1034,18 @@ namespace GrandStrategy.WorldGeneration
             {
                 route = map.FindWarbandRoute(cell, CapitalCell, IsFordSecured);
                 ironSupplyRoutes[cell] = route;
+            }
+            return route;
+        }
+
+        public IReadOnlyList<int> GetWaterwayIronRoute(int cell)
+        {
+            if (GetIronSupplyRoute(cell) != IronSupplyRoute.Waterway) return null;
+            if (!ironWaterRoutes.TryGetValue(cell, out var route))
+            {
+                route = map.FindDockRoute(BuildingPlacement(cell, SettlementBuilding.Docks),
+                    BuildingPlacement(CapitalCell, SettlementBuilding.Docks));
+                ironWaterRoutes[cell] = route;
             }
             return route;
         }

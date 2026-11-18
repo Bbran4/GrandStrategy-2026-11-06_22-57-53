@@ -696,7 +696,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        public void ShowIronSupplyRoute(IReadOnlyList<int> route)
+        public void ShowIronSupplyRoute(IReadOnlyList<int> route, bool waterway)
         {
             if (route == null || route.Count < 2)
             {
@@ -711,8 +711,7 @@ namespace GrandStrategy.WorldGeneration
                 var shader = Shader.Find("Universal Render Pipeline/Unlit");
                 if (shader == null || !shader.isSupported) return;
                 ironSupplyMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
-                ironSupplyMaterial.SetColor("_BaseColor", new Color(.37f, .91f, .56f));
-                var path = new GameObject("Overland iron supply route", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
+                var path = new GameObject("Iron supply route", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
                 path.transform.SetParent(surface.transform, false);
                 ironSupplyLine = path.GetComponent<LineRenderer>();
                 ironSupplyLine.useWorldSpace = false;
@@ -720,6 +719,7 @@ namespace GrandStrategy.WorldGeneration
                 ironSupplyLine.sharedMaterial = ironSupplyMaterial;
             }
 
+            ironSupplyMaterial.SetColor("_BaseColor", waterway ? new Color(.30f, .73f, 1f) : new Color(.37f, .91f, .56f));
             var positions = new Vector3[route.Count];
             for (var i = 0; i < route.Count; i++)
                 positions[i] = geometry.Sample(CellCentre(route[i]), out _) + Vector3.up * .00135f;

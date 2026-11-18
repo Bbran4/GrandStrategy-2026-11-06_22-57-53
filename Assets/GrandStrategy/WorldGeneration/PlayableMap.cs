@@ -142,9 +142,15 @@ namespace GrandStrategy.WorldGeneration
             var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
             surface.SetCityLimitsVisible(campaign, selected, constructionSite);
             var showSupply = showIronSupplyRoute && constructionSite >= 0
-                && campaign.HasSettlementBuilding(constructionSite, SettlementBuilding.IronMine)
-                && campaign.GetIronSupplyRoute(constructionSite) == IronSupplyRoute.Overland;
-            surface.ShowIronSupplyRoute(showSupply ? campaign.GetOverlandIronRoute(constructionSite) : null);
+                && campaign.HasSettlementBuilding(constructionSite, SettlementBuilding.IronMine);
+            var supply = showSupply ? campaign.GetIronSupplyRoute(constructionSite) : IronSupplyRoute.None;
+            var supplyPath = supply switch
+            {
+                IronSupplyRoute.Overland => campaign.GetOverlandIronRoute(constructionSite),
+                IronSupplyRoute.Waterway => campaign.GetWaterwayIronRoute(constructionSite),
+                _ => null
+            };
+            surface.ShowIronSupplyRoute(supplyPath, supply == IronSupplyRoute.Waterway);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -1010,8 +1016,8 @@ namespace GrandStrategy.WorldGeneration
                         _ => "No supply route to the capital"
                     };
                     GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | {route}");
-                    if (supply == IronSupplyRoute.Overland)
-                        showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show overland supply route");
+                    if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway)
+                        showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show iron supply route");
                 }
                 return;
             }

@@ -539,6 +539,8 @@ internal static class Program
         Require(ports.TryBuildAtSettlement(ports.CapitalCell, SettlementBuilding.Docks, ports.CapitalCell)
             && ports.GetIronSupplyRoute(mineSite) == IronSupplyRoute.Waterway,
             "Two docks on the same navigable channel must open iron shipments.");
+        Require(ports.GetWaterwayIronRoute(mineSite).SequenceEqual(new[] { mineSite, fordCell, ports.CapitalCell }),
+            "The waterway route must join the loading dock, channel and receiving dock.");
         ports.Paused = false;
         ports.Advance(4);
         Require(ports.Iron > 0 && ports.SettlementIronStock(mineSite) == 0,
