@@ -629,7 +629,8 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!CampaignState.IsLand(surface.Map, selected)) return;
 
-            GUILayout.Label("Pop: " + campaign.Population(selected).ToString("N0"));
+            var population = campaign.Owns(selected) ? campaign.Population(selected) : campaign.IndependentPopulation(selected);
+            GUILayout.Label($"Population: {population:N0}");
             if (campaign.Owns(selected))
             {
                 GUILayout.Label(selected == campaign.Capital
@@ -644,7 +645,8 @@ namespace GrandStrategy.WorldGeneration
                 return;
             }
 
-            GUILayout.Label("Unclaimed | Independent community");
+            GUILayout.Label(HasVillageHere ? "Clan settlement nearby | Independent community"
+                : "Independent community");
             DrawFoundSettlement();
             if (campaign.CanTradeWith(selected))
             {
@@ -954,7 +956,6 @@ namespace GrandStrategy.WorldGeneration
                         + (provinceRoot < 0 ? "New province" : "Joins existing province"));
             }
             GUI.enabled = wasEnabled && validSite && party.People > 0 && campaign.CanFoundSettlement(clickedCell);
-            var claimed = !campaign.Owns(selected);
             var action = provinceRoot < 0 ? "Found new province" : "Found village";
             if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)"))
             {
@@ -962,7 +963,6 @@ namespace GrandStrategy.WorldGeneration
                 {
                     surface.RefreshVillage(campaign, clickedCell);
                     surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
-                    if (claimed) showTrade = false;
                     saveStatus = provinceRoot < 0 ? "Settlement founded a new province." : "Settlement joined an existing province.";
                 }
                 else

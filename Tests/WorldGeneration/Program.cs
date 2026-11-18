@@ -651,20 +651,27 @@ internal static class Program
         Require(joined.TryFoundSettlement(1, joined.CapitalCell)
             && joined.SettlementProvinceRoots.Single() == joined.CapitalCell
             && joined.SettlementPopulation(0) == originalCapital - originalCapital / 2
-            && joined.SettlementPopulation(1) == originalResidents + originalCapital / 2
-            && joined.OwnedPopulation == (long)originalCapital + originalResidents,
+            && joined.SettlementPopulation(1) == originalCapital / 2
+            && joined.IndependentPopulation(1) == originalResidents
+            && joined.OwnedPopulation == originalCapital && !joined.Owns(1),
             "Founding inside an influence province must move settlers across authored boundaries without duplicating population.");
+        Require(joined.CanTradeWith(1) && joined.TryStartIntegration(1),
+            "Founding alongside an independent community must leave trade and diplomacy available.");
+        Require(joined.AdvanceToNextDecision() && joined.Owns(1) && joined.IndependentPopulation(1) == 0
+            && joined.SettlementPopulation(1) == joined.Population(1),
+            "Integrating a region with an existing village must incorporate the remaining population exactly once.");
 
         var settlers = CampaignState.Found(map, key, 0, "Settlers", 0);
         Require(!settlers.TryFoundSettlement(recipe.Width) && settlers.Coin == CampaignState.StartingCoin,
             "Founding on water must leave resources untouched.");
         var colonists = settlers.FoundingParty(1, -1);
         Require(colonists.Origin == 0 && colonists.People > 0
-            && settlers.TryFoundSettlement(1) && settlers.Owns(1) && settlers.SettlementCells.Contains(1)
+            && settlers.TryFoundSettlement(1) && !settlers.Owns(1) && settlers.SettlementCells.Contains(1)
             && settlers.SettlementPopulation(0) == originalCapital - colonists.People
-            && settlers.SettlementPopulation(1) == originalResidents + colonists.People
+            && settlers.SettlementPopulation(1) == colonists.People
+            && settlers.IndependentPopulation(1) == originalResidents
             && settlers.Coin == CampaignState.StartingCoin - CampaignState.SettlementCoin,
-            "Founding on independent land must register the settlement and claim its region.");
+            "A village must claim settlement ground while keeping the regional community independent.");
         Require(settlers.TryBuildAtSettlement(1, SettlementBuilding.Farm, 1)
             && settlers.HasSettlementBuilding(1, SettlementBuilding.Farm)
             && !settlers.HasSettlementBuilding(0, SettlementBuilding.Farm)
@@ -673,9 +680,9 @@ internal static class Program
         var settlementSave = JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(settlers.ToSave(), json), json);
         var restoredSettlers = CampaignState.Restore(map, key, settlementSave, 5);
-        Require(restoredSettlers.Owns(1) && restoredSettlers.SettlementCells.Contains(1)
+        Require(!restoredSettlers.Owns(1) && restoredSettlers.SettlementCells.Contains(1)
             && restoredSettlers.SettlementProvinceRoots.Single() == 1
-            && restoredSettlers.SettlementPopulation(1) == restoredSettlers.Population(1)
+            && restoredSettlers.SettlementPopulation(1) + restoredSettlers.IndependentPopulation(1) == restoredSettlers.Population(1)
             && restoredSettlers.HasSettlementBuilding(1, SettlementBuilding.Farm)
             && restoredSettlers.BuildingPlacement(1, SettlementBuilding.Farm) == 1,
             "A founded settlement and its claim must survive save and load.");

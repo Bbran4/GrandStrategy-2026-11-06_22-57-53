@@ -262,14 +262,8 @@ namespace GrandStrategy.WorldGeneration
             data.Wood -= SettlementWood;
             data.SettlementCells.Add(cell);
             data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
-            AllocateSettlers(cell, party.Donor, party.People);
+            AllocateSettlers(cell, party.Donor, party.People, Owns(SettlementProvince(cell)));
             InfluenceRevision++;
-            var province = SettlementProvince(cell);
-            if (!Owns(province))
-            {
-                data.Owned[province] = true;
-                CancelTradeAgreement(province);
-            }
             return true;
         }
 
@@ -361,12 +355,12 @@ namespace GrandStrategy.WorldGeneration
             return (donor, people);
         }
 
-        private void AllocateSettlers(int cell, int donor = -1, int plannedPeople = -1)
+        private void AllocateSettlers(int cell, int donor = -1, int plannedPeople = -1, bool includeResidents = true)
         {
             var region = SettlementProvince(cell);
             var localDonor = FindSettlerDonor(cell, -1);
             if (donor < 0) donor = localDonor;
-            var residents = localDonor < 0 ? data.Pop[region] : 0;
+            var residents = localDonor < 0 && includeResidents ? data.Pop[region] : 0;
             var settlers = donor < 0 ? 0 : plannedPeople >= 0 ? plannedPeople : data.SettlementPopulations[donor] / 2;
             if (donor >= 0)
             {
@@ -398,6 +392,8 @@ namespace GrandStrategy.WorldGeneration
                 long total = 0;
                 for (var i = 0; i < data.Pop.Length; i++)
                     if (Owns(i)) total += data.Pop[i];
+                for (var i = 1; i < data.SettlementPopulations.Count; i++)
+                    if (!Owns(SettlementProvince(SettlementCellAt(i)))) total += data.SettlementPopulations[i];
                 return total;
             }
         }
@@ -611,7 +607,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 var food = FarmFood - WarbandFoodCost;
                 for (var province = 0; province < data.Owned.Length; province++)
-                    if (Owns(province)) food += SubsistenceFood(province);
+                    if (Owns(province) || HasSettlementInRegion(province)) food += SubsistenceFood(province);
                 return food;
             }
         }
@@ -620,6 +616,22 @@ namespace GrandStrategy.WorldGeneration
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
         public bool CanRecruitWarband => !HasWarband && Wood >= WarbandWood && Coin >= WarbandCoin
             && SettlementPopulation(CapitalCell) > WarbandRecruits;
+
+        private bool HasSettlementInRegion(int region)
+        {
+            foreach (var cell in SettlementCells)
+                if (SettlementProvince(cell) == region) return true;
+            return false;
+        }
+
+        public int IndependentPopulation(int region)
+        {
+            if (!IsLand(map, region) || Owns(region)) return 0;
+            var independent = Population(region);
+            for (var i = 1; i < data.SettlementPopulations.Count; i++)
+                if (SettlementProvince(SettlementCellAt(i)) == region) independent -= data.SettlementPopulations[i];
+            return independent;
+        }
 
         public bool Owns(int province) => province >= 0 && province < data.Owned.Length && data.Owned[province];
         public int Population(int province) => data.Pop[province];
@@ -699,7 +711,7 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var site in save.SettlementCells)
                 {
                     var province = ProvinceAt(map, site);
-                    if (!IsLand(map, province) || !save.Owned[province] || site == save.CapitalCell
+                    if (!IsLand(map, province) || site == save.CapitalCell
                         || !settlementSites.Add(site))
                         throw new ArgumentException("The save contains an invalid settlement site.");
                 }
@@ -721,6 +733,11 @@ namespace GrandStrategy.WorldGeneration
                         throw new ArgumentException("The save contains an invalid town specialisation.");
             }
 
+            if (save.SettlementPopulations == null && settlementSites.Count > 0)
+                foreach (var site in settlementSites)
+                    if (!save.Owned[ProvinceAt(map, site)])
+                        throw new ArgumentException("Independent regions require a saved population for each settlement.");
+
             if (save.SettlementPopulations != null)
             {
                 if (save.SecondSettlementSite != 0 || save.SettlementPopulations.Count != 1 + settlementSites.Count)
@@ -735,7 +752,7 @@ namespace GrandStrategy.WorldGeneration
                     if (population < 0) throw new ArgumentException("The save contains negative settlement population.");
                 }
                 foreach (var total in totals)
-                    if (total.Value != save.Pop[total.Key])
+                    if (total.Value > save.Pop[total.Key] || (save.Owned[total.Key] && total.Value != save.Pop[total.Key]))
                         throw new ArgumentException("Settlement populations do not match their region total.");
             }
 
@@ -861,10 +878,11 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!IsLand(map, province) || Owns(province)) return false;
             if (LandContactResolver != null) return LandContactResolver(province);
+            if (HasSettlementInRegion(province)) return true;
             var neighbours = map.Provinces[province].Neighbours;
             if (neighbours != null)
                 foreach (var neighbour in neighbours)
-                    if (Owns(neighbour)) return true;
+                    if (Owns(neighbour) || HasSettlementInRegion(neighbour)) return true;
             return false;
         }
 
@@ -953,7 +971,7 @@ namespace GrandStrategy.WorldGeneration
         public SettlementBuilding SettlementBuildings(int cell)
         {
             var province = SettlementProvince(cell);
-            if (!Owns(province)) return 0;
+            if (!IsLand(map, province)) return 0;
             var buildings = LegacyBuildingSite(province) == cell ? data.Buildings[province] : 0;
             foreach (var site in data.Construction)
                 if (site.Cell == cell) return (SettlementBuilding)(buildings | site.Buildings);
@@ -982,8 +1000,7 @@ namespace GrandStrategy.WorldGeneration
         public bool CanBuildAtSettlement(int cell, SettlementBuilding building, int placement = -1)
         {
             if (cell != CapitalCell && !data.SettlementCells.Contains(cell)) return false;
-            var province = SettlementProvince(cell);
-            if (!Owns(province) || HasSettlementBuilding(cell, building) || placement < -1
+            if (HasSettlementBuilding(cell, building) || placement < -1
                 || (placement >= 0 && !IsLand(map, ProvinceAt(map, placement)))) return false;
             var info = SettlementBuildingInfo(cell, building, placement);
             return info.SiteIssue == null && Coin >= info.Coin && Wood >= info.Wood;
@@ -1611,7 +1628,15 @@ namespace GrandStrategy.WorldGeneration
                 AddFood(38);
             }
             if (FirstExpansion == ExpansionApproach.None) data.FirstExpansion = PendingApproach;
+            var remainingResidents = IndependentPopulation(target);
+            for (var i = 1; i < data.SettlementPopulations.Count; i++)
+                if (SettlementProvince(SettlementCellAt(i)) == target)
+                {
+                    data.SettlementPopulations[i] += remainingResidents;
+                    break;
+                }
             data.Owned[target] = true;
+            InfluenceRevision++;
             CancelTradeAgreement(target);
             ClearIntegration();
             return true;
@@ -1629,8 +1654,10 @@ namespace GrandStrategy.WorldGeneration
         private void LosePopulation(int province, int amount)
         {
             var loss = Math.Min(amount, Math.Max(0, data.Pop[province] - 1));
+            var civilians = IndependentPopulation(province);
             data.Pop[province] -= loss;
             if (loss > 0) InfluenceRevision++;
+            loss = Math.Max(0, loss - civilians);
             for (var i = 0; i < data.SettlementPopulations.Count && loss > 0; i++)
             {
                 if (SettlementProvince(SettlementCellAt(i)) != province) continue;
