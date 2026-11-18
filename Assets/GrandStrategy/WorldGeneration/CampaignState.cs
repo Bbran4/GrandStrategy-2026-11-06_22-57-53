@@ -11,6 +11,8 @@ namespace GrandStrategy.WorldGeneration
     [Flags]
     internal enum SettlementBuilding { Farm = 1, LumberCamp = 2, IronMine = 4, Docks = 8 }
 
+    internal enum IronSupplyRoute { None, Local, Overland, Waterway }
+
     internal enum WarbandSupplyPolicy { Standard, Forage, Provisioned }
 
     internal enum TaxPolicy { Standard, Relief, Heavy }
@@ -1012,16 +1014,24 @@ namespace GrandStrategy.WorldGeneration
             return 0;
         }
 
-        public bool HasIronSupplyRoute(int cell)
+        public IronSupplyRoute GetIronSupplyRoute(int cell)
         {
-            if (cell == CapitalCell || !map.HasMarchTerrain) return true;
+            if (cell == CapitalCell) return IronSupplyRoute.Local;
+
+            var dock = map.DockWaterwayAt(BuildingPlacement(cell, SettlementBuilding.Docks));
+            if (dock > 0 && dock == map.DockWaterwayAt(BuildingPlacement(CapitalCell, SettlementBuilding.Docks)))
+                return IronSupplyRoute.Waterway;
+
+            if (!map.HasMarchTerrain) return IronSupplyRoute.Overland;
             if (!ironSupplyRoutes.TryGetValue(cell, out var hasRoute))
             {
                 hasRoute = map.FindWarbandRoute(cell, CapitalCell, IsFordSecured) != null;
                 ironSupplyRoutes[cell] = hasRoute;
             }
-            return hasRoute;
+            return hasRoute ? IronSupplyRoute.Overland : IronSupplyRoute.None;
         }
+
+        public bool HasIronSupplyRoute(int cell) => GetIronSupplyRoute(cell) != IronSupplyRoute.None;
 
         private void ProduceIron(int periods)
         {

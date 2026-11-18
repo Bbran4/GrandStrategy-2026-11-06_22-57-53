@@ -995,9 +995,14 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label($"{info.Name} | {output}");
                 if (building == SettlementBuilding.IronMine && placement >= 0)
                 {
-                    var connected = campaign.HasIronSupplyRoute(site);
-                    GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | "
-                        + (connected ? "Supply route to capital open" : "No secured land route to the capital"));
+                    var route = campaign.GetIronSupplyRoute(site) switch
+                    {
+                        IronSupplyRoute.Local => "Feeds capital stock directly",
+                        IronSupplyRoute.Overland => "Overland route to capital open",
+                        IronSupplyRoute.Waterway => "Waterway route to capital open",
+                        _ => "No supply route to the capital"
+                    };
+                    GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | {route}");
                 }
                 return;
             }

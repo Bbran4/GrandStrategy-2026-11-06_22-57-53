@@ -519,6 +519,30 @@ internal static class Program
         Require(supply.Iron > storedIron && supply.SettlementIronStock(mineSite) == 0,
             "Establishing a supply route must release accumulated and newly produced iron.");
 
+        var portsRaster = Enumerable.Repeat(1, raster.Length).ToArray();
+        for (var row = 0; row < recipe.Height; row++) portsRaster[row * recipe.Width + 1] = 2;
+        var supplyWater = WaterMap.Classify(new HeightmapResult(recipe, fordTerrain));
+        var portsMap = ProvinceMap.Build(recipe, portsRaster, new[]
+        {
+            new ProvinceInfo { Id = "Banks", Rgb = 1, Type = "land", Terrain = "mountains" },
+            new ProvinceInfo { Id = "River", Rgb = 2, Type = "ocean" }
+        }).WithSettlementGeography(supplyWater, supplyRivers, null);
+        portsMap.BuildMarchTerrain(supplyWater, supplyRivers, fordTerrain);
+        var portsSave = CampaignState.Found(portsMap, "ports", fordCell - 1, "Ports", 0).ToSave();
+        portsSave.Coin = portsSave.Wood = 200;
+        var ports = CampaignState.Restore(portsMap, "ports", portsSave, 5);
+        Require(ports.TryFoundSettlement(mineSite) && ports.TryBuildAtSettlement(mineSite, SettlementBuilding.IronMine, mineSite)
+            && ports.TryBuildAtSettlement(mineSite, SettlementBuilding.Docks, mineSite)
+            && ports.GetIronSupplyRoute(mineSite) == IronSupplyRoute.None,
+            "A producer's dock cannot deliver iron without a receiving dock.");
+        Require(ports.TryBuildAtSettlement(ports.CapitalCell, SettlementBuilding.Docks, ports.CapitalCell)
+            && ports.GetIronSupplyRoute(mineSite) == IronSupplyRoute.Waterway,
+            "Two docks on the same navigable channel must open iron shipments.");
+        ports.Paused = false;
+        ports.Advance(4);
+        Require(ports.Iron > 0 && ports.SettlementIronStock(mineSite) == 0,
+            "Waterway access must deliver local iron on the production tick.");
+
         var hill = recipe.Width + 2;
         var marchHeights = Enumerable.Repeat(recipe.SeaLevel, raster.Length).ToArray();
         marchHeights[hill] = 1f;
