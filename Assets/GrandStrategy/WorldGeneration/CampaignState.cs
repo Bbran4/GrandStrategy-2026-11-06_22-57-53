@@ -52,6 +52,27 @@ namespace GrandStrategy.WorldGeneration
     {
         public int Cell;
         public int Buildings;
+        public int FarmSite, LumberSite, MineSite, DockSite; // Cell index plus one.
+
+        public int Placement(SettlementBuilding building) => building switch
+        {
+            SettlementBuilding.Farm => FarmSite,
+            SettlementBuilding.LumberCamp => LumberSite,
+            SettlementBuilding.IronMine => MineSite,
+            SettlementBuilding.Docks => DockSite,
+            _ => 0
+        };
+
+        public void SetPlacement(SettlementBuilding building, int cell)
+        {
+            switch (building)
+            {
+                case SettlementBuilding.Farm: FarmSite = cell + 1; break;
+                case SettlementBuilding.LumberCamp: LumberSite = cell + 1; break;
+                case SettlementBuilding.IronMine: MineSite = cell + 1; break;
+                case SettlementBuilding.Docks: DockSite = cell + 1; break;
+            }
+        }
     }
 
     [Serializable]
@@ -444,9 +465,19 @@ namespace GrandStrategy.WorldGeneration
             {
                 var builtSites = new HashSet<int>();
                 foreach (var site in save.Construction)
+                {
                     if ((site.Cell != save.CapitalCell && !settlementSites.Contains(site.Cell))
                         || !builtSites.Add(site.Cell) || site.Buildings == 0 || (site.Buildings & ~(int)AllBuildings) != 0)
                         throw new ArgumentException("The save contains invalid settlement construction.");
+                    foreach (var building in new[] { SettlementBuilding.Farm, SettlementBuilding.LumberCamp,
+                        SettlementBuilding.IronMine, SettlementBuilding.Docks })
+                    {
+                        var placement = site.Placement(building);
+                        if (placement < 0 || (placement > 0 && ((site.Buildings & (int)building) == 0
+                            || !IsLand(map, ProvinceAt(map, placement - 1)))))
+                            throw new ArgumentException("The save contains an invalid building location.");
+                    }
+                }
             }
 
             for (var i = 0; i < save.Pop.Length; i++)
@@ -647,13 +678,22 @@ namespace GrandStrategy.WorldGeneration
             return info.SiteIssue == null && Coin >= info.Coin && Wood >= info.Wood;
         }
 
-        public bool TryBuildAtSettlement(int cell, SettlementBuilding building)
+        public int BuildingPlacement(int cell, SettlementBuilding building)
         {
-            if (!CanBuildAtSettlement(cell, building)) return false;
+            foreach (var site in data.Construction)
+                if (site.Cell == cell) return site.Placement(building) - 1;
+            return -1;
+        }
+
+        public bool TryBuildAtSettlement(int cell, SettlementBuilding building, int placement = -1)
+        {
+            if (!CanBuildAtSettlement(cell, building) || placement < -1
+                || (placement >= 0 && !IsLand(map, ProvinceAt(map, placement)))) return false;
             var info = BuildingInfo(SettlementProvince(cell), building);
             var index = data.Construction.FindIndex(site => site.Cell == cell);
             var entry = index >= 0 ? data.Construction[index] : new SettlementConstruction { Cell = cell };
             entry.Buildings |= (int)building;
+            entry.SetPlacement(building, placement);
             if (index >= 0) data.Construction[index] = entry;
             else data.Construction.Add(entry);
             data.Coin -= info.Coin;

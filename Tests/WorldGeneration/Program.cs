@@ -503,7 +503,7 @@ internal static class Program
         Require(settlers.TryFoundSettlement(1) && settlers.Owns(1) && settlers.SettlementCells.Contains(1)
             && settlers.Coin == CampaignState.StartingCoin - CampaignState.SettlementCoin,
             "Founding on independent land must register the settlement and claim its region.");
-        Require(settlers.TryBuildAtSettlement(1, SettlementBuilding.Farm)
+        Require(settlers.TryBuildAtSettlement(1, SettlementBuilding.Farm, 1)
             && settlers.HasSettlementBuilding(1, SettlementBuilding.Farm)
             && !settlers.HasSettlementBuilding(0, SettlementBuilding.Farm)
             && settlers.SettlementHappiness(1) == settlers.CapitalHappiness + 5,
@@ -514,7 +514,8 @@ internal static class Program
         Require(restoredSettlers.Owns(1) && restoredSettlers.SettlementCells.Contains(1)
             && restoredSettlers.SettlementProvinceRoots.Single() == 1
             && restoredSettlers.SettlementPopulation(1) == restoredSettlers.Population(1)
-            && restoredSettlers.HasSettlementBuilding(1, SettlementBuilding.Farm),
+            && restoredSettlers.HasSettlementBuilding(1, SettlementBuilding.Farm)
+            && restoredSettlers.BuildingPlacement(1, SettlementBuilding.Farm) == 1,
             "A founded settlement and its claim must survive save and load.");
 
         var granary = CampaignState.Found(map, key, 0, "Granary", 0);

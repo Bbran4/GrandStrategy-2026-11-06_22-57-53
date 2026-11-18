@@ -7,12 +7,13 @@ namespace GrandStrategy.WorldGeneration
 {
     internal sealed class MapSettlement : IDisposable
     {
+        public const float ProductionHalfWidth = .0010f;
         public const float BuildRadius = .008f;
         public const float GranaryHalfWidth = .00125f;
         private static readonly Vector2 FirstHut = new Vector2(-.0019f, .0014f);
         private static readonly Vector2 SecondHut = new Vector2(.0005f, -.0021f);
         private static readonly Vector2 ThirdHut = new Vector2(-.0026f, -.0017f);
-        private static readonly Vector2 GranaryOffset = new Vector2(.0020f, .0018f);
+        public static readonly Vector2 GranaryOffset = new Vector2(.0020f, .0018f);
         private readonly MapTerrainGeometry terrain;
         private readonly Func<Vector2, bool> isDryLand;
         private readonly float aspect;
@@ -85,7 +86,7 @@ namespace GrandStrategy.WorldGeneration
         public void SetBoundaryVisible(bool visible) => boundary.enabled = visible;
 
         // Place or refresh settlement models on the sampled terrain surface.
-        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production)
+        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production, Func<SettlementBuilding, Vector3?> placement)
         {
             const int segments = 96;
             boundary.positionCount = segments;
@@ -128,6 +129,13 @@ namespace GrandStrategy.WorldGeneration
             AddHut(SecondHut);
             if (expanded) AddHut(ThirdHut);
 
+            foreach (var building in new[] { SettlementBuilding.Farm, SettlementBuilding.LumberCamp,
+                SettlementBuilding.IronMine, SettlementBuilding.Docks })
+            {
+                var fixedSite = placement(building);
+                if (fixedSite.HasValue) occupied.Add(fixedSite.Value);
+            }
+
             AddProduction(SettlementBuilding.Farm, new Color32(110, 126, 53, 255), thatch);
             AddProduction(SettlementBuilding.LumberCamp, timber, new Color32(92, 65, 42, 255));
             AddProduction(SettlementBuilding.IronMine, new Color32(107, 104, 101, 255), new Color32(66, 61, 59, 255));
@@ -164,7 +172,13 @@ namespace GrandStrategy.WorldGeneration
             {
                 if ((production & building) == 0) return;
                 const int sites = 24;
-                const float halfWidth = .0010f;
+                const float halfWidth = ProductionHalfWidth;
+                var fixedSite = placement(building);
+                if (fixedSite.HasValue)
+                {
+                    House(fixedSite.Value, halfWidth, walls, roof);
+                    return;
+                }
                 for (var i = 0; i < sites; i++)
                 {
                     var angle = i * (2f * Mathf.PI / sites);

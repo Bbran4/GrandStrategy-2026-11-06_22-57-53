@@ -391,7 +391,7 @@ namespace GrandStrategy.WorldGeneration
                 villages.Add(cell, village);
             }
 
-            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell));
+            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell), building => ProductionPoint(campaign, cell, building));
         }
 
         public bool IsWithinVillageLimits(int cell, Vector2 uv)
@@ -499,15 +499,67 @@ namespace GrandStrategy.WorldGeneration
             => IsDryLandAt(uv) && MapSettlement.Contains(capital,
                 new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f));
 
+        private Vector3? ProductionPoint(CampaignState campaign, int site, SettlementBuilding building)
+        {
+            var cell = campaign.BuildingPlacement(site, building);
+            return cell < 0 ? (Vector3?)null : geometry.Sample(CellCentre(cell), out _);
+        }
+
+        public bool CanPlaceProduction(CampaignState campaign, int site, int cell, SettlementBuilding building)
+        {
+            if (cell < 0 || !IsDryLand(cell)) return false;
+            var centre = geometry.Sample(CellCentre(site), out _);
+            var anchor = geometry.Sample(CellCentre(cell), out _);
+            if (!MapSettlement.FitsGranary(centre, anchor) || !HasDryFootprint(CellCentre(cell), MapSettlement.ProductionHalfWidth)
+                || ConflictsWithProduction(campaign, site, cell, MapSettlement.ProductionHalfWidth)) return false;
+
+            if (site == campaign.CapitalCell && campaign.HasGranary)
+            {
+                var granary = campaign.GranaryCell;
+                var granaryUv = granary >= 0
+                    ? CellCentre(granary)
+                    : CellCentre(site) + new Vector2(MapSettlement.GranaryOffset.x / Aspect, MapSettlement.GranaryOffset.y);
+                var offset = CellCentre(cell) - granaryUv;
+                var clearance = MapSettlement.ProductionHalfWidth + MapSettlement.GranaryHalfWidth;
+                if (Mathf.Abs(offset.x * Aspect) < clearance && Mathf.Abs(offset.y) < clearance * .77f)
+                    return false;
+            }
+
+            // The regional survey already checks the waterfront. The building itself needs dry ground.
+            return building == SettlementBuilding.Docks
+                || (ProductionSitesAt(cell, cell % Map.Width, cell / Map.Width) & building) != 0;
+        }
+
+        public bool ConflictsWithProduction(CampaignState campaign, int site, int cell, float halfWidth)
+        {
+            foreach (var building in new[] { SettlementBuilding.Farm, SettlementBuilding.LumberCamp,
+                SettlementBuilding.IronMine, SettlementBuilding.Docks })
+            {
+                var occupied = campaign.BuildingPlacement(site, building);
+                if (occupied >= 0 && Overlaps(cell, halfWidth, occupied, MapSettlement.ProductionHalfWidth)) return true;
+            }
+            return false;
+        }
+
+        private bool Overlaps(int first, float firstWidth, int second, float secondWidth)
+        {
+            var offset = CellCentre(first) - CellCentre(second);
+            var width = firstWidth + secondWidth;
+            return Mathf.Abs(offset.x * Aspect) < width && Mathf.Abs(offset.y) < width * .77f;
+        }
+
         public bool CanPlaceGranary(Vector3 capital, int cell)
         {
             if (cell < 0 || cell >= Map.ProvinceAt.Length || !IsDryLand(cell)) return false;
             var uv = CellCentre(cell);
             var site = geometry.Sample(uv, out _);
-            if (!MapSettlement.FitsGranary(capital, site)) return false;
+            return MapSettlement.FitsGranary(capital, site) && HasDryFootprint(uv, MapSettlement.GranaryHalfWidth);
+        }
 
-            var halfWidth = MapSettlement.GranaryHalfWidth / Aspect;
-            var halfDepth = MapSettlement.GranaryHalfWidth * .77f;
+        private bool HasDryFootprint(Vector2 uv, float width)
+        {
+            var halfWidth = width / Aspect;
+            var halfDepth = width * .77f;
             var min = uv - new Vector2(halfWidth, halfDepth);
             var max = uv + new Vector2(halfWidth, halfDepth);
             if (min.x < 0f || min.y < 0f || max.x >= 1f || max.y >= 1f) return false;
@@ -530,7 +582,8 @@ namespace GrandStrategy.WorldGeneration
             if (campaign.HasGranary && CanPlaceGranary(point, campaign.GranaryCell))
                 granarySite = geometry.Sample(CellCentre(campaign.GranaryCell), out _);
             settlement.Show(point, campaign.HasGranary, campaign.FirstExpansion != ExpansionApproach.None,
-                granarySite, campaign.SettlementBuildings(campaign.CapitalCell));
+                granarySite, campaign.SettlementBuildings(campaign.CapitalCell),
+                building => ProductionPoint(campaign, campaign.CapitalCell, building));
             nature.SetCapital(point);
             material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));
         }

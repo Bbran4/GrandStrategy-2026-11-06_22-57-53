@@ -776,21 +776,23 @@ namespace GrandStrategy.WorldGeneration
                 SettlementBuilding.Docks => "Requires an ocean shore or navigable riverbank within city limits.",
                 _ => null
             };
-            GUI.enabled = wasEnabled && localIssue == null && campaign.CanBuildAtSettlement(site, building);
+            var fits = localIssue == null && surface.CanPlaceProduction(campaign, site, clickedCell, building);
+            GUI.enabled = wasEnabled && fits && campaign.CanBuildAtSettlement(site, building);
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)")
-                && campaign.TryBuildAtSettlement(site, building))
+                && campaign.TryBuildAtSettlement(site, building, clickedCell))
             {
                 if (site == campaign.CapitalCell) surface.SetCapital(settlement, campaign);
                 else surface.RefreshVillage(campaign, site);
             }
             GUI.enabled = wasEnabled;
-            GUILayout.Label(localIssue ?? info.SiteIssue ?? output);
+            GUILayout.Label(localIssue ?? info.SiteIssue ?? (fits ? output : "Select clear ground suitable for this building."));
         }
 
         private void DrawCapitalActions()
         {
             var wasEnabled = GUI.enabled;
-            var fitsGranary = InCapitalLimits && surface.CanPlaceGranary(settlement, clickedCell);
+            var fitsGranary = InCapitalLimits && surface.CanPlaceGranary(settlement, clickedCell)
+                && !surface.ConflictsWithProduction(campaign, campaign.CapitalCell, clickedCell, MapSettlement.GranaryHalfWidth);
             if (!campaign.HasGranary && InCapitalLimits && !fitsGranary)
                 GUILayout.Label("Select open ground for the granary.");
             GUI.enabled = wasEnabled && fitsGranary && campaign.CanBuildGranary;
