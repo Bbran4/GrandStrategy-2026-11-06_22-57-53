@@ -713,6 +713,31 @@ internal static class Program
             && expandedRival.OwnedPopulation == expandedRival.Population(0),
             "Integrating the community must preserve both sites and distribute its population without duplication.");
 
+        var guarantee = CampaignState.Restore(fordMap, "ford-frontier",
+            JsonSerializer.Deserialize<CampaignSave>(frontierJson, json), 5);
+        guarantee.IndependentVillageSiteResolver = _ => fordCell + 1;
+        guarantee.IndependentTerritoryResolver = cell => cell == fordCell + 1;
+        var guaranteeOffer = new TradeOffer(TradeResource.Coin, 4, TradeResource.Food, 1);
+        Require(!guarantee.TryGuaranteeFord(fordCell) && guarantee.TryTrade(0, guaranteeOffer),
+            "Crossing guarantees must require a trusted trading partner.");
+        guarantee.Paused = false;
+        guarantee.Advance(14);
+        Require(guarantee.TryTrade(0, guaranteeOffer), "Second market period must accept trade.");
+        guarantee.Advance(15);
+        var guaranteeCoin = guarantee.Coin - guaranteeOffer.GiveAmount;
+        Require(guarantee.TryTrade(0, guaranteeOffer) && guarantee.TryGuaranteeFord(fordCell)
+            && !guarantee.TryGuaranteeFord(fordCell) && guarantee.Coin == guaranteeCoin - CampaignState.FordGuaranteeCoin
+            && guarantee.FrontierFordThreat().Ford == -1, "A trusted neighbour must honour a paid crossing guarantee.");
+        guarantee = CampaignState.Restore(fordMap, "ford-frontier", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(guarantee.ToSave(), json), json), 5);
+        guarantee.IndependentTerritoryResolver = cell => cell == fordCell + 1;
+        guarantee.Paused = false;
+        guarantee.Advance(15);
+        Require(guarantee.IsFordSecured(fordCell) && guarantee.FordGuaranteeHolder(fordCell) == 0
+            && guarantee.TryRecruitWarband() && guarantee.TryStartIntegration(0, ExpansionApproach.Force)
+            && guarantee.FordGuaranteeHolder(fordCell) == -1,
+            "Guarantees must survive reload and lapse if the clan goes to war with the guarantor.");
+
         var localFarm = CampaignState.Found(fordMap, "local-farm", fordCell - 1, "Local farm", 0);
         fordMap.LocalProductionYield = (cell, building) =>
             building == SettlementBuilding.Farm ? (cell == fordCell + 1 ? 3 : 0) : (int?)null;

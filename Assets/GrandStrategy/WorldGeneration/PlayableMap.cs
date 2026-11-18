@@ -474,6 +474,19 @@ namespace GrandStrategy.WorldGeneration
                 GUI.enabled = enabled;
             }
 
+            var guarantor = campaign.FordGuaranteeHolder(clickedCell);
+            if (guarantor >= 0)
+                GUILayout.Label($"Crossing guaranteed by {surface.Map.Provinces[guarantor].Id}");
+            else if (campaign.FordGuaranteePartner(clickedCell) >= 0)
+            {
+                var enabled = GUI.enabled;
+                GUI.enabled = enabled && campaign.Coin >= CampaignState.FordGuaranteeCoin;
+                if (GUILayout.Button($"Negotiate crossing guarantee ({CampaignState.FordGuaranteeCoin} coin)")
+                    && campaign.TryGuaranteeFord(clickedCell))
+                    saveStatus = "The community agreed to respect your claim to the ford.";
+                GUI.enabled = enabled;
+            }
+
             var partner = campaign.FordPassagePartner(clickedCell);
             if (partner < 0) return;
             GUILayout.Label($"Passage available from {surface.Map.Provinces[partner].Id}");
@@ -985,7 +998,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 var rival = surface.Map.Provinces[threat.Region].Id;
                 GUILayout.Label($"{rival} threatens an unguarded ford", hudHeading);
-                GUILayout.Label($"Possible takeover in {threat.Days} {(threat.Days == 1 ? "day" : "days")}. Station a warband or garrison to protect it.");
+                GUILayout.Label($"Possible takeover in {threat.Days} {(threat.Days == 1 ? "day" : "days")}. Station guards or negotiate protection.");
                 if (GUILayout.Button("View threatened ford")) FocusFord(threat.Ford);
             }
 

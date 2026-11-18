@@ -121,6 +121,13 @@ namespace GrandStrategy.WorldGeneration
     }
 
     [Serializable]
+    internal struct FordGuarantee
+    {
+        public int Ford;
+        public int Region;
+    }
+
+    [Serializable]
     internal sealed class CampaignSave
     {
         public int Version;
@@ -174,6 +181,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> PassageFords;
         public List<int> RivalHeldFords;
         public List<int> RivalFordRegions;
+        public List<FordGuarantee> FordGuarantees;
         public bool PreviouslySecuredFord;
         public List<int> PassagePartners; // Region index plus one. Zero represents older agreements.
         public bool IronWarband;
@@ -211,6 +219,7 @@ namespace GrandStrategy.WorldGeneration
         public const int MaxTradeGoodwill = 3;
         public const int TrustedPartnerDiscount = 5;
         public const int FordRetakeFood = 5;
+        public const int FordGuaranteeCoin = 10;
         public const int FordPassageCoin = 15;
         public const int RegionalCouncilCoin = 60;
         public const int TradeMilestoneDeliveries = 3;
@@ -337,6 +346,13 @@ namespace GrandStrategy.WorldGeneration
                 if (!map.IsFord(ford) || !IsLand(map, data.RivalFordRegions[i]) || IsFordSecured(ford) || !rivalFords.Add(ford))
                     throw new ArgumentException("The save contains invalid rival ford control.");
             }
+
+            data.FordGuarantees ??= new List<FordGuarantee>();
+            var guarantees = new HashSet<int>();
+            foreach (var guarantee in data.FordGuarantees)
+                if (!uniqueFords.Contains(guarantee.Ford) || !IsLand(map, guarantee.Region)
+                    || !guarantees.Add(guarantee.Ford))
+                    throw new ArgumentException("The save contains an invalid ford guarantee.");
 
             data.BridgedFords ??= new List<int>();
             var bridges = new HashSet<int>();
@@ -747,6 +763,31 @@ namespace GrandStrategy.WorldGeneration
             => data.ClosedFords.Contains(cell) || IsPassageSuspended(cell) || IsFordHeldByRival(cell);
         public bool HasFordPassage(int cell) => data.PassageFords.Contains(cell);
         public bool CanUseSupplyFord(int cell) => !IsFordClosed(cell) && (IsFordSecured(cell) || HasFordPassage(cell));
+
+        public int FordGuaranteeHolder(int ford)
+        {
+            foreach (var pact in data.FordGuarantees)
+                if (pact.Ford == ford) return pact.Region;
+            return -1;
+        }
+
+        public int FordGuaranteePartner(int ford)
+        {
+            var region = IndependentVillageRegion;
+            if (!IsFordSecured(ford) || FordGuaranteeHolder(ford) >= 0 || !IsTrustedTradePartner(region)
+                || !CanReachIndependentProvince(region) || (WarbandCommitted && IntegrationTarget == region)
+                || !RivalClaimsFordBank(ford)) return -1;
+            return region;
+        }
+
+        public bool TryGuaranteeFord(int ford)
+        {
+            var partner = FordGuaranteePartner(ford);
+            if (partner < 0 || Coin < FordGuaranteeCoin) return false;
+            data.Coin -= FordGuaranteeCoin;
+            data.FordGuarantees.Add(new FordGuarantee { Ford = ford, Region = partner });
+            return true;
+        }
 
         public int FordPassagePartner(int ford)
         {
@@ -2258,6 +2299,7 @@ namespace GrandStrategy.WorldGeneration
                 var partner = data.Markets[province];
                 partner.Goodwill = 0;
                 data.Markets[province] = partner;
+                data.FordGuarantees.RemoveAll(pact => pact.Region == province);
             }
             else data.Coin -= approach == ExpansionApproach.Trade ? PactCost : NegotiationCostWith(province);
             data.IntegrationTarget = province;
@@ -2581,6 +2623,7 @@ namespace GrandStrategy.WorldGeneration
             }
             InfluenceRevision++;
             CancelTradeAgreement(target);
+            data.FordGuarantees.RemoveAll(pact => pact.Region == target);
             var releasedFords = false;
             for (var index = data.RivalHeldFords.Count - 1; index >= 0; index--)
             {
@@ -2616,13 +2659,16 @@ namespace GrandStrategy.WorldGeneration
             for (var i = 0; i < data.SecuredFords.Count; i++)
             {
                 var ford = data.SecuredFords[i];
-                if (HasGarrisonAtFord(ford) || (HasWarband && WarbandTravelDays == 0
+                if (FordGuaranteeHolder(ford) == region || HasGarrisonAtFord(ford) || (HasWarband && WarbandTravelDays == 0
                     && (WarbandCell == ford || map.CanMarchBetween(WarbandCell, ford)))) continue;
-                if (map.TryGetFordBanks(ford, out var first, out var second)
-                    && (IndependentTerritoryResolver(first) || IndependentTerritoryResolver(second))) return i;
+                if (RivalClaimsFordBank(ford)) return i;
             }
             return -1;
         }
+
+        private bool RivalClaimsFordBank(int ford)
+            => IndependentTerritoryResolver != null && map.TryGetFordBanks(ford, out var first, out var second)
+                && (IndependentTerritoryResolver(first) || IndependentTerritoryResolver(second));
 
         private void ContestUnguardedPlayerFord(int region)
         {
@@ -2631,6 +2677,7 @@ namespace GrandStrategy.WorldGeneration
             var ford = data.SecuredFords[index];
             data.SecuredFords.RemoveAt(index);
             data.ClosedFords.Remove(ford);
+            data.FordGuarantees.RemoveAll(pact => pact.Ford == ford);
             SetRivalFord(ford, region);
             RefreshFordAccess();
         }
