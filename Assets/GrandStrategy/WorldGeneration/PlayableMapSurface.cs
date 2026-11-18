@@ -447,6 +447,9 @@ namespace GrandStrategy.WorldGeneration
             if (cell < 0 || !IsDryLand(cell)) return false;
             var centre = CellCentre(cell);
             if (Conflicts(campaign.CapitalCell)) return false;
+            var proposed = campaign.IntegrationSettlementCell;
+            if (proposed >= 0 && proposed != campaign.CapitalCell && !villages.ContainsKey(proposed)
+                && Conflicts(proposed)) return false;
             foreach (var other in campaign.SettlementCells)
                 if (Conflicts(other)) return false;
             return true;

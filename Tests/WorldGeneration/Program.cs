@@ -488,10 +488,20 @@ internal static class Program
         var localStartSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(localStart.ToSave(), json), json);
         localStart = CampaignState.Restore(fordMap, "local-start", localStartSave, 5);
         Require(!localStart.Owns(localStart.Capital) && localStart.TryStartIntegration(localStart.Capital)
-            && localStart.AdvanceToNextDecision() && localStart.Owns(localStart.Capital)
+            && localStart.AdvanceToNextDecision() && !localStart.Owns(localStart.Capital)
             && localStart.IndependentPopulation(localStart.Capital) == 0
             && localStart.SettlementPopulation(localStart.CapitalCell) == localStart.Population(localStart.Capital),
-            "A local capital claim must reload and only incorporate the region following integration.");
+            "Integration must add residents to a local capital without granting the region.");
+
+        var localIntegration = CampaignState.Found(map, key, 0, "Local integration", 0, localCapitalClaim: true);
+        Require(!localIntegration.TryStartIntegration(1)
+            && localIntegration.TryStartIntegration(1, ExpansionApproach.Diplomacy, settlementCell: 1),
+            "A community without a clan settlement needs an integration site.");
+        localIntegration = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(localIntegration.ToSave(), json), json), 5);
+        Require(localIntegration.AdvanceToNextDecision() && !localIntegration.Owns(1)
+            && localIntegration.SettlementCells.Contains(1) && localIntegration.IndependentPopulation(1) == 0,
+            "Completing a restored integration must create a settlement without granting the region.");
 
         var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
         Require(fordMap.IsFord(fordCell) && !fordCampaign.TrySecureFord(fordCell)

@@ -115,6 +115,9 @@ namespace GrandStrategy.WorldGeneration
         public bool[] Owned;
         public int[] Pop;
         public int IntegrationTarget;
+        public bool LocalIntegration;
+        public int IntegrationSettlementSite;
+        public int IntegrationProvinceRoot;
         public int IntegrationDaysLeft;
         public int Food;
         public int Wood;
@@ -193,6 +196,7 @@ namespace GrandStrategy.WorldGeneration
         {
             this.map = map;
             this.data = data;
+            data.LocalIntegration |= !data.Owned[ProvinceAt(map, data.CapitalCell)];
             if (data.WarbandRoute != null && (!data.Warband || data.WarbandRouteIndex < 0
                 || data.WarbandRouteIndex >= data.WarbandRoute.Count || !IsWarbandRoute(data.WarbandRoute)))
                 throw new ArgumentException("The save contains an invalid warband route.");
@@ -379,6 +383,17 @@ namespace GrandStrategy.WorldGeneration
         public int Day => data.Day;
         public int Speed => data.Speed;
         public int Coin => data.Coin;
+        public bool UsesLocalIntegration => data.LocalIntegration;
+        public int IntegrationSettlementCell => data.IntegrationSettlementSite - 1;
+
+        public int SettlementInRegion(int region)
+        {
+            if (region == Capital) return CapitalCell;
+            foreach (var cell in SettlementCells)
+                if (SettlementProvince(cell) == region) return cell;
+            return -1;
+        }
+
         public int IntegrationTarget => data.IntegrationTarget;
         public int IntegrationDaysLeft => data.IntegrationDaysLeft;
         public bool Paused { get; set; } = true;
@@ -659,6 +674,7 @@ namespace GrandStrategy.WorldGeneration
                 TribeName = name.Trim(),
                 Colour = colour,
                 CapitalCell = capitalCell,
+                LocalIntegration = localCapitalClaim,
                 SettlementPopulations = localCapitalClaim ? new List<int> { 100 } : null,
                 Day = 1,
                 Speed = 1,
@@ -828,6 +844,15 @@ namespace GrandStrategy.WorldGeneration
                     || save.IntegrationDaysLeft < 1 || save.IntegrationDaysLeft > DaysFor(pending)
                     || !IsLand(map, target) || state.Owns(target))
                 throw new ArgumentException("The save contains invalid integration progress.");
+
+            if (save.IntegrationSettlementSite != 0 || save.IntegrationProvinceRoot != 0)
+            {
+                var site = save.IntegrationSettlementSite - 1;
+                var root = save.IntegrationProvinceRoot - 1;
+                if (!state.UsesLocalIntegration || target < 0 || site < 0 || state.SettlementProvince(site) != target
+                    || (root != -1 && root != state.CapitalCell && !save.SettlementProvinceRoots.Contains(root)))
+                    throw new ArgumentException("The save contains an invalid integration settlement.");
+            }
 
             if (legacy)
             {
@@ -1467,9 +1492,24 @@ namespace GrandStrategy.WorldGeneration
 
         // Pay the chosen expansion cost up front and schedule the ownership change for a later simulation
         // day.
-        public bool TryStartIntegration(int province, ExpansionApproach approach = ExpansionApproach.Diplomacy)
+        public bool TryStartIntegration(int province, ExpansionApproach approach = ExpansionApproach.Diplomacy,
+            int settlementCell = -1, int provinceRoot = -1)
         {
             if (!CanStartIntegration(province, approach)) return false;
+            if (UsesLocalIntegration)
+            {
+                var existing = SettlementInRegion(province);
+                if (existing >= 0)
+                {
+                    settlementCell = existing;
+                    provinceRoot = -1;
+                }
+                if (SettlementProvince(settlementCell) != province
+                    || (provinceRoot != -1 && provinceRoot != CapitalCell && !data.SettlementProvinceRoots.Contains(provinceRoot)))
+                    return false;
+                data.IntegrationSettlementSite = settlementCell + 1;
+                data.IntegrationProvinceRoot = provinceRoot + 1;
+            }
             if (approach == ExpansionApproach.Force) data.Food -= ForceFood;
             else data.Coin -= approach == ExpansionApproach.Trade ? PactCost : IntegrationCost;
             data.IntegrationTarget = province;
@@ -1633,13 +1673,21 @@ namespace GrandStrategy.WorldGeneration
             }
             if (FirstExpansion == ExpansionApproach.None) data.FirstExpansion = PendingApproach;
             var remainingResidents = IndependentPopulation(target);
-            for (var i = 0; i < data.SettlementPopulations.Count; i++)
-                if (SettlementProvince(SettlementCellAt(i)) == target)
+            var destination = IntegrationSettlementCell;
+            if (destination < 0) destination = SettlementInRegion(target);
+            if (destination >= 0)
+            {
+                var index = destination == CapitalCell ? 0 : data.SettlementCells.IndexOf(destination) + 1;
+                if (index == 0 && destination != CapitalCell)
                 {
-                    data.SettlementPopulations[i] += remainingResidents;
-                    break;
+                    data.SettlementCells.Add(destination);
+                    var root = data.IntegrationProvinceRoot - 1;
+                    data.SettlementProvinceRoots.Add(root >= 0 ? root : destination);
+                    data.SettlementPopulations.Add(remainingResidents);
                 }
-            data.Owned[target] = true;
+                else data.SettlementPopulations[index] += remainingResidents;
+            }
+            if (!UsesLocalIntegration || destination < 0) data.Owned[target] = true;
             InfluenceRevision++;
             CancelTradeAgreement(target);
             ClearIntegration();
@@ -1650,6 +1698,8 @@ namespace GrandStrategy.WorldGeneration
         {
             data.IntegrationTarget = -1;
             data.IntegrationDaysLeft = 0;
+            data.IntegrationSettlementSite = 0;
+            data.IntegrationProvinceRoot = 0;
             data.PendingApproach = ExpansionApproach.None;
         }
 

@@ -721,9 +721,19 @@ namespace GrandStrategy.WorldGeneration
         private void DrawExpansionButton(ExpansionApproach approach, string label)
         {
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanStartIntegration(selected, approach);
+            var existing = campaign.SettlementInRegion(selected);
+            var needsSite = campaign.UsesLocalIntegration && existing < 0;
+            var validSite = !needsSite || (clickedCell >= 0 && campaign.SettlementProvince(clickedCell) == selected
+                && surface.CanSiteVillage(campaign, clickedCell));
+            GUI.enabled = wasEnabled && validSite && campaign.CanStartIntegration(selected, approach);
             if (GUILayout.Button(label))
-                campaign.TryStartIntegration(selected, approach);
+            {
+                var root = needsSite ? surface.InfluenceProvinceAt(clickedCell) : -1;
+                campaign.TryStartIntegration(selected, approach, needsSite ? clickedCell : existing, root);
+            }
+            if (!validSite && approach == ExpansionApproach.Diplomacy)
+                GUILayout.Label("Select clear ground for the community's settlement.");
+
             GUI.enabled = wasEnabled;
         }
 
@@ -1317,6 +1327,7 @@ namespace GrandStrategy.WorldGeneration
 
         private void OnProvinceJoined(bool hadExpanded)
         {
+            surface.SetVillages(campaign);
             surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
             if (!hadExpanded) surface.SetCapital(settlement, campaign);
         }
