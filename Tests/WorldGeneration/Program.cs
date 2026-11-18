@@ -652,8 +652,17 @@ internal static class Program
             && contest.GetOverlandIronRoute(mineSite) == null, "A rival takeover must outlast a withdrawal.");
         var contested = JsonSerializer.Serialize(contest.ToSave(), json);
         var retake = CampaignState.Restore(portsMap, "passage", JsonSerializer.Deserialize<CampaignSave>(contested, json), 5);
-        Require(retake.TrySecureFord(fordCell) && retake.IsFordSecured(fordCell) && !retake.IsFordHeldByRival(fordCell)
+        var retakeFood = retake.Food;
+        Require(retake.RivalFordHolder(fordCell) == 0 && retake.TrySecureFord(fordCell)
+            && retake.IsFordSecured(fordCell) && !retake.IsFordHeldByRival(fordCell)
+            && retake.Food == retakeFood - CampaignState.FordRetakeFood
             && retake.GetOverlandIronRoute(mineSite).Contains(fordCell), "A warband on the bank must be able to retake the crossing.");
+        var undersupplied = JsonSerializer.Deserialize<CampaignSave>(contested, json);
+        undersupplied.Food = CampaignState.FordRetakeFood - 1;
+        var noSupplies = CampaignState.Restore(portsMap, "passage", undersupplied, 5);
+        Require(!noSupplies.TrySecureFord(fordCell) && noSupplies.IsFordHeldByRival(fordCell)
+            && noSupplies.Food == CampaignState.FordRetakeFood - 1,
+            "A failed retake must leave rival control and supplies untouched.");
         var renewed = CampaignState.Restore(portsMap, "passage", JsonSerializer.Deserialize<CampaignSave>(contested, json), 5);
         Require(renewed.TryNegotiateFordPassage(fordCell) && !renewed.IsFordHeldByRival(fordCell)
             && !renewed.IsFordSecured(fordCell) && renewed.GetOverlandIronRoute(mineSite).Contains(fordCell),

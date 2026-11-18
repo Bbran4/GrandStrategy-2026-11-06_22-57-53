@@ -597,7 +597,8 @@ namespace GrandStrategy.WorldGeneration
         }
 
         private byte FordResourceCode(int cell)
-            => influenceCampaign?.IsFordClosed(cell) == true ? (byte)92
+            => influenceCampaign?.IsFordHeldByRival(cell) == true ? (byte)110
+                : influenceCampaign?.IsFordClosed(cell) == true ? (byte)92
                 : influenceCampaign?.IsFordSecured(cell) == true ? (byte)176
                 : influenceCampaign?.HasFordPassage(cell) == true ? (byte)145 : (byte)128;
 

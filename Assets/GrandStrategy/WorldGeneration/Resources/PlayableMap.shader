@@ -860,7 +860,8 @@ Shader "GrandStrategy/Playable Map"
                         coverage = step(0.25, sites.a) * (1.0 - step(0.75, sites.a));
                         tint = lerp(tint, float3(0.29, 0.72, 1.0), step(0.54, sites.a));
                         tint = lerp(tint, float3(0.27, 0.85, 0.36), step(0.60, sites.a));
-                        tint = lerp(tint, float3(0.95, 0.24, 0.17), 1.0 - step(0.42, sites.a));
+                        tint = lerp(tint, float3(0.74, 0.34, 0.91), step(0.39, sites.a) * (1.0 - step(0.47, sites.a)));
+                        tint = lerp(tint, float3(0.95, 0.24, 0.17), 1.0 - step(0.39, sites.a));
                     }
                     return half4(lerp(ground * 0.64, tint, coverage * 0.78), 1);
                 }

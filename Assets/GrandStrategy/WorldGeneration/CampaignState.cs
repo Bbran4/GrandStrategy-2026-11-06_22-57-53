@@ -168,6 +168,7 @@ namespace GrandStrategy.WorldGeneration
     {
         public const int ResearchCost = 2;
         private const int ResearchLimit = 99;
+        public const int FordRetakeFood = 5;
         public const int FordPassageCoin = 15;
         public const int RegionalCouncilCoin = 60;
         public const int TradeMilestoneDeliveries = 3;
@@ -536,6 +537,9 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public bool IsFordHeldByRival(int cell) => data.RivalHeldFords.Contains(cell);
+
+        public int RivalFordHolder(int cell)
+            => IsFordHeldByRival(cell) ? data.PassagePartners[data.PassageFords.IndexOf(cell)] - 1 : -1;
         public bool IsFordClosed(int cell)
             => data.ClosedFords.Contains(cell) || IsPassageSuspended(cell) || IsFordHeldByRival(cell);
         public bool HasFordPassage(int cell) => data.PassageFords.Contains(cell);
@@ -586,14 +590,15 @@ namespace GrandStrategy.WorldGeneration
             => HasWarband && !WarbandCommitted && WarbandTravelDays == 0 && map.IsFord(cell)
                 && map.CanMarchBetween(WarbandCell, cell);
 
-        public bool CanSecureFord(int cell) => CanGuardFord(cell) && !IsFordSecured(cell);
+        public bool CanSecureFord(int cell) => CanGuardFord(cell) && !IsFordSecured(cell)
+            && (!IsFordHeldByRival(cell) || Food >= FordRetakeFood);
         public bool CanChangeFordAccess(int cell) => CanGuardFord(cell) && IsFordSecured(cell);
 
         public bool TrySecureFord(int cell)
         {
             if (!CanSecureFord(cell)) return false;
             data.SecuredFords.Add(cell);
-            data.RivalHeldFords.Remove(cell);
+            if (data.RivalHeldFords.Remove(cell)) data.Food -= FordRetakeFood;
             RefreshFordAccess();
             return true;
         }

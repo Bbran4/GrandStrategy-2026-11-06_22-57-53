@@ -439,7 +439,8 @@ namespace GrandStrategy.WorldGeneration
 
         private void DrawFordDetails()
         {
-            GUILayout.Label(campaign?.IsFordHeldByRival(clickedCell) == true ? "Ford held by a rival community"
+            var holder = campaign?.RivalFordHolder(clickedCell) ?? -1;
+            GUILayout.Label(holder >= 0 ? $"Ford held by {surface.Map.Provinces[holder].Id}"
                 : campaign?.IsPassageSuspended(clickedCell) == true ? "Community suspended civilian passage"
                 : campaign?.IsFordClosed(clickedCell) == true ? "Ford closed to civilian traffic"
                 : campaign?.IsFordSecured(clickedCell) == true ? "Secured ford | Open to civilian traffic"
@@ -990,19 +991,25 @@ namespace GrandStrategy.WorldGeneration
             {
                 var secured = campaign.IsFordSecured(clickedCell);
                 var closed = campaign.IsFordClosed(clickedCell);
+                var rival = campaign.IsFordHeldByRival(clickedCell);
                 var canIssueOrder = secured ? campaign.CanChangeFordAccess(clickedCell) : campaign.CanSecureFord(clickedCell);
                 var enabled = GUI.enabled;
                 GUI.enabled = enabled && canIssueOrder;
                 var order = secured ? (closed ? "Reopen ford" : "Close ford to civilian traffic")
-                    : campaign.IsFordHeldByRival(clickedCell) ? "Retake ford" : "Secure ford";
+                    : rival ? $"Retake ford ({CampaignState.FordRetakeFood} food)" : "Secure ford";
                 if (GUILayout.Button(order) && (secured ? campaign.TryChangeFordAccess(clickedCell) : campaign.TrySecureFord(clickedCell)))
                 {
                     surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
                     surface.RefreshSecuredFord(clickedCell);
-                    saveStatus = !secured ? "Ford secured." : closed ? "Ford reopened." : "Ford closed. Civilian shipments that still need the crossing will wait.";
+                    saveStatus = rival ? "Ford retaken. Civilian traffic can resume."
+                        : !secured ? "Ford secured." : closed ? "Ford reopened."
+                        : "Ford closed. Civilian shipments that still need the crossing will wait.";
                 }
                 GUI.enabled = enabled;
-                if (!canIssueOrder) GUILayout.Label("Stop the warband on a bank beside this ford.");
+                if (!canIssueOrder)
+                    GUILayout.Label(rival && campaign.Food < CampaignState.FordRetakeFood
+                        ? $"Bring {CampaignState.FordRetakeFood} food to retake this crossing."
+                        : "Stop the warband on a bank beside this ford.");
             }
             GUILayout.Label(campaign.WarbandTravelDays > 0
                 ? $"Warband marching | {campaign.WarbandTravelDays} days"
@@ -1422,7 +1429,7 @@ namespace GrandStrategy.WorldGeneration
 
             var status = mapView switch
             {
-                MapViewMode.Resources when resourceFilter == 0 => "White: ford | Blue: passage | Green: secured | Red: closed",
+                MapViewMode.Resources when resourceFilter == 0 => "White: ford | Blue: passage | Green: secured | Purple: rival | Red: closed",
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",
