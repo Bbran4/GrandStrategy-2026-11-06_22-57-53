@@ -65,6 +65,7 @@ namespace GrandStrategy.WorldGeneration
         private bool hasSave;
         private string saveStatus;
         private Vector3 settlement;
+        private ClanTradition foundingTradition;
         private string tribeName = "My tribe";
         private string failure;
         private int colourIndex;
@@ -602,6 +603,10 @@ namespace GrandStrategy.WorldGeneration
             if (GUILayout.Button("Tribe colour: " + ColourNames[colourIndex]))
                 colourIndex = (colourIndex + 1) % ColourNames.Length;
 
+            if (GUILayout.Button(foundingTradition == ClanTradition.River ? "Tradition: River Clan" : "Tradition: Standard"))
+                foundingTradition = foundingTradition == ClanTradition.River ? ClanTradition.Standard : ClanTradition.River;
+            if (foundingTradition == ClanTradition.River)
+                GUILayout.Label("Start with 10 extra wood and 20 less coin. Docks cost 10 less wood.");
             var dry = surface.IsDryLand(clickedCell) && surface.IsDryLand(selectedCell);
             if (!dry) GUILayout.Label("Click dry land to place the settlement.");
             else if (Array.FindIndex(province.Neighbours ?? Array.Empty<int>(), i => CampaignState.IsLand(surface.Map, i)) < 0)
@@ -612,7 +617,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 try
                 {
-                    ApplyCampaign(CampaignState.Found(surface.Map, mapKey, selectedCell, tribeName, colourIndex, localCapitalClaim: true));
+                    ApplyCampaign(CampaignState.Found(surface.Map, mapKey, selectedCell, tribeName, colourIndex, localCapitalClaim: true, tradition: foundingTradition));
                     saveStatus = "Tribe founded. The campaign is paused.";
                 }
                 catch (Exception error)
@@ -745,6 +750,8 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.BeginArea(new Rect(panel.x + 9, panel.y + 7, Mathf.Max(1, panel.width - 18), Mathf.Max(1, panel.height - 14)));
             campaignScroll = GUILayout.BeginScrollView(campaignScroll);
             GUILayout.Label("Campaign", hudHeading);
+            if (campaign?.Tradition == ClanTradition.River)
+                GUILayout.Label("River Clan | Docks cost 10 less wood");
             if (campaign != null)
             {
                 if (campaign.Day < CampaignState.WinterStart)

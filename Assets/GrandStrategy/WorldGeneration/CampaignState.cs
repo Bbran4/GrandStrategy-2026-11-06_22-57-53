@@ -15,6 +15,8 @@ namespace GrandStrategy.WorldGeneration
 
     internal enum WarbandSupplyPolicy { Standard, Forage, Provisioned }
 
+    internal enum ClanTradition { Standard, River }
+
     internal enum TaxPolicy { Standard, Relief, Heavy }
 
     internal enum TradeResource { Coin, Food, Wood, Iron }
@@ -99,6 +101,7 @@ namespace GrandStrategy.WorldGeneration
         public int Version;
         public string MapKey;
         public string TribeName;
+        public ClanTradition Tradition;
         public int Colour;
         public int CapitalCell;
         public List<int> SettlementCells;
@@ -241,6 +244,7 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public string TribeName => data.TribeName;
+        public ClanTradition Tradition => data.Tradition;
         public int Colour => data.Colour;
         public int CapitalCell => data.CapitalCell;
         public int Capital => SettlementProvince(CapitalCell);
@@ -656,10 +660,11 @@ namespace GrandStrategy.WorldGeneration
         // Seed the capital and initial resources, while also creating population entries for independent
         // land provinces.
         public static CampaignState Found(ProvinceMap map, string mapKey, int capitalCell, string name, int colour,
-            bool localCapitalClaim = false)
+            bool localCapitalClaim = false, ClanTradition tradition = ClanTradition.Standard)
         {
             var capital = ProvinceAt(map, capitalCell);
-            if (!IsLand(map, capital) || !IsValidName(name) || colour < 0)
+            if (!IsLand(map, capital) || !IsValidName(name) || colour < 0
+                || !Enum.IsDefined(typeof(ClanTradition), tradition))
                 throw new ArgumentException("Founding requires a land province, a tribe name, and a colour.");
             var owned = new bool[map.Provinces.Length];
             var pop = new int[owned.Length];
@@ -672,13 +677,14 @@ namespace GrandStrategy.WorldGeneration
                 Version = SaveVersion,
                 MapKey = mapKey,
                 TribeName = name.Trim(),
+                Tradition = tradition,
                 Colour = colour,
                 CapitalCell = capitalCell,
                 LocalIntegration = localCapitalClaim,
                 SettlementPopulations = localCapitalClaim ? new List<int> { 100 } : null,
                 Day = 1,
                 Speed = 1,
-                Coin = StartingCoin,
+                Coin = tradition == ClanTradition.River ? StartingCoin - 20 : StartingCoin,
                 Owned = owned,
                 Buildings = new int[owned.Length],
                 Markets = new NeighbourMarket[owned.Length],
@@ -688,7 +694,7 @@ namespace GrandStrategy.WorldGeneration
                 IntegrationTarget = -1,
                 TradePartner = -1,
                 Food = StartingFood,
-                Wood = StartingWood
+                Wood = tradition == ClanTradition.River ? StartingWood + 10 : StartingWood
             });
         }
 
@@ -708,6 +714,7 @@ namespace GrandStrategy.WorldGeneration
                     || save.SecondSettlementSite - 1 == save.CapitalCell))
                 || (!save.Owned[capital] && save.SettlementPopulations == null)
                 || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes)
+                || !Enum.IsDefined(typeof(ClanTradition), save.Tradition)
                 || !Enum.IsDefined(typeof(WarbandSupplyPolicy), save.WarbandSupply))
                 throw new ArgumentException("The save contains invalid campaign data.");
 
@@ -962,7 +969,7 @@ namespace GrandStrategy.WorldGeneration
                     HasTimber(site) ? null : "Requires more than 25% forest cover."),
                 SettlementBuilding.IronMine => ("Iron mine", 35, 20, Count(site, BiomeKind.Alpine) * 2L >= site.PixelCount ? 2 : 1, "iron",
                     IsMountain(site) ? null : "Requires mountainous terrain."),
-                SettlementBuilding.Docks => ("Docks", 25, 25, 1, null,
+                SettlementBuilding.Docks => ("Docks", 25, Tradition == ClanTradition.River ? 15 : 25, 1, null,
                     HasTradeAccess(site) ? null : "Requires an ocean coast or river bank."),
                 _ => throw new ArgumentOutOfRangeException(nameof(building))
             };

@@ -493,6 +493,16 @@ internal static class Program
             && localStart.SettlementPopulation(localStart.CapitalCell) == localStart.Population(localStart.Capital),
             "Integration must add residents to a local capital without granting the region.");
 
+        var riverClan = CampaignState.Found(map, key, 0, "River Clan", 0, localCapitalClaim: true, tradition: ClanTradition.River);
+        var standardClan = CampaignState.Found(map, key, 0, "Standard Clan", 0, localCapitalClaim: true);
+        Require(riverClan.Coin == standardClan.Coin - 20 && riverClan.Wood == standardClan.Wood + 10
+            && riverClan.BuildingInfo(0, SettlementBuilding.Docks).Wood
+                == standardClan.BuildingInfo(0, SettlementBuilding.Docks).Wood - 10,
+            "River clans must trade starting coin for timber and cheaper docks.");
+        Require(CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(riverClan.ToSave(), json), json), 5).Tradition == ClanTradition.River,
+            "Clan tradition must survive save and load.");
+
         var localIntegration = CampaignState.Found(map, key, 0, "Local integration", 0, localCapitalClaim: true);
         Require(!localIntegration.TryStartIntegration(1)
             && localIntegration.TryStartIntegration(1, ExpansionApproach.Diplomacy, settlementCell: 1),
