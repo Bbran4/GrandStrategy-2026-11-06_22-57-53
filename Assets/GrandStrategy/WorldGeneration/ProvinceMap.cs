@@ -54,6 +54,59 @@ namespace GrandStrategy.WorldGeneration
         public bool HasRiverFootprint;
         public bool HasCoastData;
 
+        private const byte MarchLand = 1;
+        private const byte FordEastWest = 2;
+        private const byte FordNorthSouth = 4;
+        [NonSerialized] private byte[] marchTerrain;
+
+        internal void BuildMarchTerrain(WaterMap water, byte[] rivers, float[] elevations)
+        {
+            marchTerrain = new byte[ProvinceAt.Length];
+            for (var cell = 0; cell < marchTerrain.Length; cell++)
+                if (water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0)
+                    && CampaignState.IsLand(this, ProvinceAt[cell]))
+                    marchTerrain[cell] = MarchLand;
+
+            if (rivers == null) return;
+            for (var y = 1; y < Height - 1; y++)
+                for (var x = 1; x < Width - 1; x++)
+                {
+                    var cell = y * Width + x;
+                    if (water[cell] != WaterKind.Land || rivers[cell] == 0) continue;
+                    if (FlatBanks(cell, 1)) marchTerrain[cell] |= FordEastWest;
+                    if (FlatBanks(cell, Width)) marchTerrain[cell] |= FordNorthSouth;
+                }
+
+            bool FlatBanks(int centre, int step)
+            {
+                var a = centre - step;
+                var b = centre + step;
+                return marchTerrain[a] == MarchLand && marchTerrain[b] == MarchLand
+                    && Math.Abs(elevations[a] - elevations[centre]) <= .025f
+                    && Math.Abs(elevations[b] - elevations[centre]) <= .025f;
+            }
+        }
+
+        internal bool IsFord(int cell) => marchTerrain != null && cell >= 0 && cell < marchTerrain.Length
+            && (marchTerrain[cell] & (FordEastWest | FordNorthSouth)) != 0;
+
+        internal bool IsMarchCell(int cell) => cell >= 0 && cell < ProvinceAt.Length
+            && (marchTerrain == null ? CampaignState.IsLand(this, ProvinceAt[cell]) : marchTerrain[cell] != 0);
+
+        internal bool CanMarchBetween(int from, int to)
+        {
+            if (!IsMarchCell(from) || !IsMarchCell(to)) return false;
+            var horizontal = from / Width == to / Width && Math.Abs(from - to) == 1;
+            var vertical = Math.Abs(from - to) == Width;
+            if (!horizontal && !vertical) return false;
+            if (marchTerrain == null) return true;
+            var a = marchTerrain[from];
+            var b = marchTerrain[to];
+            if (a == MarchLand && b == MarchLand) return true;
+            if (a != MarchLand && b != MarchLand) return false;
+            return ((a | b) & (horizontal ? FordEastWest : FordNorthSouth)) != 0;
+        }
+
         // Resolve imported colours to compact province indices and collect each province's neighbours and
         // biome counts.
         public static ProvinceMap Build(HeightmapRecipe recipe, int[] rgb, ProvinceInfo[] provinces,

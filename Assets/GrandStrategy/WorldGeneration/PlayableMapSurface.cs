@@ -77,6 +77,7 @@ namespace GrandStrategy.WorldGeneration
                 : null;
             settlementBiomes = biomes?.Samples;
             Map = provinces.Map.WithSettlementGeography(water, rivers, biomes?.Samples);
+            Map.BuildMarchTerrain(water, rivers, elevations);
             provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
 
             try
@@ -470,6 +471,7 @@ namespace GrandStrategy.WorldGeneration
                 SettlementBuilding.LumberCamp => new Vector4(0, 1, 0, 0),
                 SettlementBuilding.IronMine => new Vector4(0, 0, 1, 0),
                 SettlementBuilding.Docks => new Vector4(0, 0, 0, 1),
+                0 => Vector4.zero,
                 _ => new Vector4(1, 0, 0, 0)
             };
             var colour = building switch
@@ -477,6 +479,7 @@ namespace GrandStrategy.WorldGeneration
                 SettlementBuilding.LumberCamp => new Color(.28f, .83f, .33f),
                 SettlementBuilding.IronMine => new Color(.87f, .43f, .29f),
                 SettlementBuilding.Docks => new Color(.29f, .72f, 1f),
+                0 => new Color(.82f, .90f, 1f),
                 _ => new Color(.94f, .76f, .25f)
             };
             material.SetVector("_ResourceFilter", filter);
@@ -497,7 +500,7 @@ namespace GrandStrategy.WorldGeneration
                         (sites & SettlementBuilding.Farm) != 0 ? (byte)255 : (byte)0,
                         (sites & SettlementBuilding.LumberCamp) != 0 ? (byte)255 : (byte)0,
                         (sites & SettlementBuilding.IronMine) != 0 ? (byte)255 : (byte)0,
-                        (sites & SettlementBuilding.Docks) != 0 ? (byte)255 : (byte)0);
+                        (sites & SettlementBuilding.Docks) != 0 ? (byte)255 : Map.IsFord(cell) ? (byte)128 : (byte)0);
                 }
             productionSites.Apply(false, true);
             material.SetTexture("_ProductionSites", productionSites);
@@ -541,7 +544,7 @@ namespace GrandStrategy.WorldGeneration
 
                 void Visit(int next)
                 {
-                    if (!IsDryLand(next) || !CampaignState.IsLand(Map, Map.ProvinceAt[next])) return;
+                    if (!Map.CanMarchBetween(cell, next)) return;
                     var distance = Distance(next);
                     if (costs.TryGetValue(next, out var prior))
                     {

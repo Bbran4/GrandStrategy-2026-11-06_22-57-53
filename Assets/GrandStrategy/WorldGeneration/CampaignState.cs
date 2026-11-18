@@ -354,11 +354,7 @@ namespace GrandStrategy.WorldGeneration
             for (var i = 0; i < route.Count; i++)
             {
                 var cell = route[i];
-                if (!IsLand(map, ProvinceAt(map, cell))) return false;
-                if (i == 0) continue;
-                var previous = route[i - 1];
-                if (Math.Abs(cell % map.Width - previous % map.Width)
-                    + Math.Abs(cell / map.Width - previous / map.Width) != 1) return false;
+                if (!map.IsMarchCell(cell) || (i > 0 && !map.CanMarchBetween(route[i - 1], cell))) return false;
             }
             return true;
         }

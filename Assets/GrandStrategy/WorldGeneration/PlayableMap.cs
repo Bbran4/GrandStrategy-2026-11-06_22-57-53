@@ -388,6 +388,7 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label("Territory: " + (string.IsNullOrEmpty(territory) ? "None" : territory));
                 }
             }
+            if (surface.Map.IsFord(clickedCell)) GUILayout.Label("River ford | Warbands can cross here.");
             if (selected >= 0)
                 DrawProvince(surface.Map.Provinces[selected]);
             else if (selectedCell >= 0)
@@ -1043,6 +1044,7 @@ namespace GrandStrategy.WorldGeneration
 
             if (mapView == MapViewMode.Resources)
             {
+                DrawResourceFilter("Fords", 0, x + (slot + 4) * 3, y + 26, slot);
                 DrawResourceFilter("Farmland", SettlementBuilding.Farm, x, y + 52, slot);
                 DrawResourceFilter("Timber", SettlementBuilding.LumberCamp, x + slot + 4, y + 52, slot);
                 DrawResourceFilter("Mining", SettlementBuilding.IronMine, x + (slot + 4) * 2, y + 52, slot);
@@ -1051,6 +1053,7 @@ namespace GrandStrategy.WorldGeneration
 
             var status = mapView switch
             {
+                MapViewMode.Resources when resourceFilter == 0 => "Highlighted fords allow warband crossings",
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",
