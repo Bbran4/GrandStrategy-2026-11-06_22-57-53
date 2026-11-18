@@ -554,8 +554,8 @@ internal static class Program
         heavyTaxes.Advance(14);
         Require(heavyTaxes.Population(0) < standardTaxes.Population(0),
             "Heavy taxes must slow fed capital growth.");
-        var taxSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(heavyTaxes.ToSave(), json), json);
-        Require(CampaignState.Restore(map, key, taxSave, 5).Taxes == TaxPolicy.Heavy,
+        var heavyTaxSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(heavyTaxes.ToSave(), json), json);
+        Require(CampaignState.Restore(map, key, heavyTaxSave, 5).Taxes == TaxPolicy.Heavy,
             "Tax policy must survive save and load.");
 
         var joined = CampaignState.Found(map, key, 0, "Joined", 0);

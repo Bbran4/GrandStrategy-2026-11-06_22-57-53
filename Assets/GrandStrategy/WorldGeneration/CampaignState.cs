@@ -220,6 +220,7 @@ namespace GrandStrategy.WorldGeneration
         public string TribeName => data.TribeName;
         public int Colour => data.Colour;
         public int CapitalCell => data.CapitalCell;
+        public int Capital => SettlementProvince(CapitalCell);
         public IReadOnlyList<int> SettlementCells => data.SettlementCells;
         public IReadOnlyList<int> SettlementProvinceRoots => data.SettlementProvinceRoots;
         public int SettlementProvince(int cell) => ProvinceAt(map, cell);
