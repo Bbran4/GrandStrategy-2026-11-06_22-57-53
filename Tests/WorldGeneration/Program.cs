@@ -534,6 +534,9 @@ internal static class Program
         march.SetWarbandSupply(WarbandSupplyPolicy.Forage);
         Require(march.WarbandFoodCost == 0 && march.WarbandTravelDays == 2,
             "Foraging must trade march speed for lower food costs.");
+        Require(march.EstimateMarchDays(new List<int> { 1, 0, 1 }) == 2 && march.TryHaltWarband()
+            && march.WarbandCell == 1 && march.WarbandTravelDays == 0 && !march.TryHaltWarband(),
+            "A march estimate must match the current policy, and halting must keep the warband at its current cell.");
 
         var frontier = CampaignState.Found(map, key, 0, "Frontier", 0);
         frontier.LandContactResolver = province => province == 2;

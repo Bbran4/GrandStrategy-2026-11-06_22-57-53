@@ -502,6 +502,21 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        public int EstimateMarchDays(IReadOnlyList<int> route)
+            => route != null && route.Count > 1 && route[0] == WarbandCell
+                ? (int)((RouteCost(route, 0) + MarchBudgetPerDay - 1) / MarchBudgetPerDay) : 0;
+
+        public bool TryHaltWarband()
+        {
+            if (WarbandCommitted || WarbandTravelDays == 0 || map.IsFord(WarbandCell)) return false;
+            var cell = WarbandCell;
+            data.WarbandRoute = new List<int> { cell };
+            data.WarbandRouteIndex = 0;
+            data.WarbandMarchCredit = 0;
+            remainingMarchCost = 0;
+            return true;
+        }
+
         public bool TryMarchWarband(List<int> route)
         {
             if (!HasWarband || WarbandCommitted || route == null || route.Count < 2 || route[0] != WarbandCell || !IsWarbandRoute(route))

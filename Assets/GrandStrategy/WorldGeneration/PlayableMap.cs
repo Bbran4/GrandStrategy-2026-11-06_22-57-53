@@ -48,6 +48,8 @@ namespace GrandStrategy.WorldGeneration
         private bool editingName;
         private bool showProvinceSettlements;
         private bool showHappinessDetails;
+        private System.Collections.Generic.List<int> plannedMarch;
+        private int plannedMarchDestination = -1;
         private int selected = -1;
         private int selectedCell = -1;
         private int clickedCell = -1;
@@ -310,6 +312,8 @@ namespace GrandStrategy.WorldGeneration
             surface.SetVillages(next);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
+            plannedMarch = null;
+            plannedMarchDestination = -1;
             showTrade = showTradeContacts = false;
             settlement = capitalPoint;
             editingName = false;
@@ -831,16 +835,37 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label(campaign.WarbandTravelDays > 0
                 ? $"Warband marching | {campaign.WarbandTravelDays} days"
                 : "Warband ready");
+            if (campaign.WarbandTravelDays > 0 && !surface.Map.IsFord(campaign.WarbandCell)
+                && GUILayout.Button("Halt march") && campaign.TryHaltWarband())
+            {
+                plannedMarch = null;
+                plannedMarchDestination = -1;
+                saveStatus = "Warband holding position.";
+            }
+
             var wasEnabled = GUI.enabled;
             var fordSelected = surface.Map.IsFord(clickedCell);
-            GUI.enabled = wasEnabled && clickedCell != campaign.WarbandCell && surface.Map.IsMarchCell(clickedCell)
+            var canPlan = clickedCell != campaign.WarbandCell && surface.Map.IsMarchCell(clickedCell)
                 && (!fordSelected || !surface.Map.CanMarchBetween(campaign.WarbandCell, clickedCell));
-            if (GUILayout.Button(fordSelected ? "March to ford bank" : "March to selected ground"))
+            GUI.enabled = wasEnabled && canPlan;
+            if (GUILayout.Button(fordSelected ? "Plan march to ford bank" : "Plan march to selected ground"))
             {
-                var route = surface.FindWarbandRoute(campaign.WarbandCell, clickedCell);
-                saveStatus = campaign.TryMarchWarband(route) ? "March ordered." : "No land route to the selected ground.";
+                plannedMarchDestination = clickedCell;
+                plannedMarch = surface.FindWarbandRoute(campaign.WarbandCell, clickedCell);
+                if (plannedMarch == null) saveStatus = "No land route to the selected ground.";
             }
             GUI.enabled = wasEnabled;
+            if (plannedMarchDestination == clickedCell && plannedMarch != null)
+            {
+                var days = campaign.EstimateMarchDays(plannedMarch);
+                if (days == 0) GUILayout.Label("Warband position changed. Plan the march again.");
+                else if (GUILayout.Button($"Confirm march | {days} {(days == 1 ? "day" : "days")}"))
+                {
+                    if (campaign.TryMarchWarband(plannedMarch)) saveStatus = "March ordered.";
+                    plannedMarch = null;
+                    plannedMarchDestination = -1;
+                }
+            }
         }
 
         private void DrawTaxPolicy(TaxPolicy policy)
