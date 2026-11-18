@@ -603,10 +603,23 @@ namespace GrandStrategy.WorldGeneration
             if (GUILayout.Button("Tribe colour: " + ColourNames[colourIndex]))
                 colourIndex = (colourIndex + 1) % ColourNames.Length;
 
-            if (GUILayout.Button(foundingTradition == ClanTradition.River ? "Tradition: River Clan" : "Tradition: Standard"))
-                foundingTradition = foundingTradition == ClanTradition.River ? ClanTradition.Standard : ClanTradition.River;
+            var traditionName = foundingTradition switch
+            {
+                ClanTradition.River => "River Clan",
+                ClanTradition.Highland => "Highland Clan",
+                _ => "Standard"
+            };
+            if (GUILayout.Button($"Tradition: {traditionName}"))
+                foundingTradition = foundingTradition switch
+                {
+                    ClanTradition.Standard => ClanTradition.River,
+                    ClanTradition.River => ClanTradition.Highland,
+                    _ => ClanTradition.Standard
+                };
             if (foundingTradition == ClanTradition.River)
                 GUILayout.Label("Start with 10 extra wood and 20 less coin. Docks cost 10 less wood.");
+            else if (foundingTradition == ClanTradition.Highland)
+                GUILayout.Label("Start with 20 extra coin and 10 less wood. Warbands cost 10 less coin and wood.");
             var dry = surface.IsDryLand(clickedCell) && surface.IsDryLand(selectedCell);
             if (!dry) GUILayout.Label("Click dry land to place the settlement.");
             else if (Array.FindIndex(province.Neighbours ?? Array.Empty<int>(), i => CampaignState.IsLand(surface.Map, i)) < 0)
@@ -752,6 +765,8 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label("Campaign", hudHeading);
             if (campaign?.Tradition == ClanTradition.River)
                 GUILayout.Label("River Clan | Docks cost 10 less wood");
+            else if (campaign?.Tradition == ClanTradition.Highland)
+                GUILayout.Label("Highland Clan | Reduced warband cost");
             if (campaign != null)
             {
                 if (campaign.Day < CampaignState.WinterStart)
@@ -1105,7 +1120,7 @@ namespace GrandStrategy.WorldGeneration
             if (!campaign.HasGranary)
                 PreviewWhenHovered(MapSettlement.GranaryHalfWidth, fitsGranary && campaign.CanBuildGranary);
             GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
-            if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({CampaignState.WarbandWood} wood, {CampaignState.WarbandCoin} coin, {CampaignState.WarbandRecruits} people)"))
+            if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({campaign.WarbandRecruitWood} wood, {campaign.WarbandRecruitCoin} coin, {CampaignState.WarbandRecruits} people)"))
             {
                 campaign.TryRecruitWarband();
                 saveStatus = $"{CampaignState.WarbandRecruits} people recruited from the capital.";

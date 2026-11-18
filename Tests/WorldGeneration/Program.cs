@@ -503,6 +503,16 @@ internal static class Program
             JsonSerializer.Serialize(riverClan.ToSave(), json), json), 5).Tradition == ClanTradition.River,
             "Clan tradition must survive save and load.");
 
+        var highland = CampaignState.Found(map, key, 0, "Highland Clan", 0,
+            localCapitalClaim: true, tradition: ClanTradition.Highland);
+        var highlandCoin = highland.Coin;
+        var highlandWood = highland.Wood;
+        Require(highlandCoin == standardClan.Coin + 20 && highlandWood == standardClan.Wood - 10
+            && highland.TryRecruitWarband() && highland.Coin == highlandCoin - CampaignState.WarbandCoin + 10
+            && highland.Wood == highlandWood - CampaignState.WarbandWood + 10
+            && highland.SettlementPopulation(0) == 100 - CampaignState.WarbandRecruits,
+            "Highland clans must trade starting wood for coin and cheaper recruitment without reducing population cost.");
+
         var localIntegration = CampaignState.Found(map, key, 0, "Local integration", 0, localCapitalClaim: true);
         Require(!localIntegration.TryStartIntegration(1)
             && localIntegration.TryStartIntegration(1, ExpansionApproach.Diplomacy, settlementCell: 1),

@@ -15,7 +15,7 @@ namespace GrandStrategy.WorldGeneration
 
     internal enum WarbandSupplyPolicy { Standard, Forage, Provisioned }
 
-    internal enum ClanTradition { Standard, River }
+    internal enum ClanTradition { Standard, River, Highland }
 
     internal enum TaxPolicy { Standard, Relief, Heavy }
 
@@ -633,7 +633,9 @@ namespace GrandStrategy.WorldGeneration
         public ExpansionApproach FirstExpansion => data.FirstExpansion;
         public ExpansionApproach PendingApproach => data.PendingApproach;
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
-        public bool CanRecruitWarband => !HasWarband && Wood >= WarbandWood && Coin >= WarbandCoin
+        public int WarbandRecruitWood => Tradition == ClanTradition.Highland ? WarbandWood - 10 : WarbandWood;
+        public int WarbandRecruitCoin => Tradition == ClanTradition.Highland ? WarbandCoin - 10 : WarbandCoin;
+        public bool CanRecruitWarband => !HasWarband && Wood >= WarbandRecruitWood && Coin >= WarbandRecruitCoin
             && SettlementPopulation(CapitalCell) > WarbandRecruits;
 
         private bool HasSettlementInRegion(int region)
@@ -684,7 +686,12 @@ namespace GrandStrategy.WorldGeneration
                 SettlementPopulations = localCapitalClaim ? new List<int> { 100 } : null,
                 Day = 1,
                 Speed = 1,
-                Coin = tradition == ClanTradition.River ? StartingCoin - 20 : StartingCoin,
+                Coin = tradition switch
+                {
+                    ClanTradition.River => StartingCoin - 20,
+                    ClanTradition.Highland => StartingCoin + 20,
+                    _ => StartingCoin
+                },
                 Owned = owned,
                 Buildings = new int[owned.Length],
                 Markets = new NeighbourMarket[owned.Length],
@@ -694,7 +701,12 @@ namespace GrandStrategy.WorldGeneration
                 IntegrationTarget = -1,
                 TradePartner = -1,
                 Food = StartingFood,
-                Wood = tradition == ClanTradition.River ? StartingWood + 10 : StartingWood
+                Wood = tradition switch
+                {
+                    ClanTradition.River => StartingWood + 10,
+                    ClanTradition.Highland => StartingWood - 10,
+                    _ => StartingWood
+                }
             });
         }
 
@@ -1235,8 +1247,8 @@ namespace GrandStrategy.WorldGeneration
         public bool TryRecruitWarband()
         {
             if (!CanRecruitWarband) return false;
-            data.Wood -= WarbandWood;
-            data.Coin -= WarbandCoin;
+            data.Wood -= WarbandRecruitWood;
+            data.Coin -= WarbandRecruitCoin;
             LoseCapitalPopulation(WarbandRecruits);
             data.Warband = true;
             return true;
