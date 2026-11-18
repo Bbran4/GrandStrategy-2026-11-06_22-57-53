@@ -910,10 +910,10 @@ namespace GrandStrategy.WorldGeneration
             if (!campaign.HasGranary)
                 PreviewWhenHovered(MapSettlement.GranaryHalfWidth, fitsGranary && campaign.CanBuildGranary);
             GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
-            if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({CampaignState.WarbandWood} wood, {CampaignState.WarbandCoin} coin)"))
+            if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({CampaignState.WarbandWood} wood, {CampaignState.WarbandCoin} coin, {CampaignState.WarbandRecruits} people)"))
             {
                 campaign.TryRecruitWarband();
-                saveStatus = "Warband raised. It uses 1 food per five days.";
+                saveStatus = $"{CampaignState.WarbandRecruits} people recruited from the capital. The warband uses 1 food every five days.";
             }
             GUI.enabled = wasEnabled && campaign.CanUpgradeWarband;
             if (campaign.HasWarband && !campaign.HasIronWarband && GUILayout.Button(

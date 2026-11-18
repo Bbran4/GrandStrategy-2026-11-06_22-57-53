@@ -132,6 +132,7 @@ namespace GrandStrategy.WorldGeneration
         public const int GranaryCoin = 35;
         public const int WarbandWood = 35;
         public const int WarbandCoin = 45;
+        public const int WarbandRecruits = 8;
         public const int ForceFood = 8;
         public const int IronWarbandIron = 10;
         public const int IronWarbandWood = 15;
@@ -468,7 +469,8 @@ namespace GrandStrategy.WorldGeneration
         public ExpansionApproach FirstExpansion => data.FirstExpansion;
         public ExpansionApproach PendingApproach => data.PendingApproach;
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
-        public bool CanRecruitWarband => !HasWarband && Wood >= WarbandWood && Coin >= WarbandCoin;
+        public bool CanRecruitWarband => !HasWarband && Wood >= WarbandWood && Coin >= WarbandCoin
+            && SettlementPopulation(CapitalCell) > WarbandRecruits;
 
         public bool Owns(int province) => province >= 0 && province < data.Owned.Length && data.Owned[province];
         public int Population(int province) => data.Pop[province];
@@ -858,6 +860,7 @@ namespace GrandStrategy.WorldGeneration
             if (!CanRecruitWarband) return false;
             data.Wood -= WarbandWood;
             data.Coin -= WarbandCoin;
+            LosePopulation(Capital, WarbandRecruits);
             data.Warband = true;
             return true;
         }

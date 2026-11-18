@@ -496,7 +496,9 @@ internal static class Program
             "Manual farm construction must use local eligibility and yield.");
 
         var march = CampaignState.Found(map, key, 0, "March", 0);
+        var beforeRecruitment = march.SettlementPopulation(0);
         Require(march.TryRecruitWarband() && march.WarbandCell == 0
+            && march.SettlementPopulation(0) == beforeRecruitment - CampaignState.WarbandRecruits
             && !march.TryMarchWarband(new List<int> { 0, 2 })
             && march.TryMarchWarband(new List<int> { 0, 1 }),
             "A recruited warband must start at the capital and accept only connected routes.");
@@ -746,9 +748,10 @@ internal static class Program
             "Equipping the warband must spend iron exactly once.");
         equipped.AdvanceToNextDecision();
         Require(equipped.TryStartIntegration(1, ExpansionApproach.Force), "The equipped warband must be able to attack after arriving.");
+        var equippedPopulation = equipped.Population(0);
         equipped.Paused = false;
         equipped.Advance(10);
-        Require(equipped.Population(0) == warriorPopulation - 9, "Iron equipment must halve friendly losses.");
+        Require(equipped.Population(0) == equippedPopulation - 9, "Iron equipment must halve friendly losses.");
 
         var previousSave = CampaignState.Found(map, key, 0, "Previous save", 0).ToSave();
         previousSave.Version = 2;
