@@ -550,6 +550,43 @@ internal static class Program
             && frontierRecruits.SettlementPopulation(1) == villageBeforeDraft - CampaignState.WarbandRecruits - 8,
             "A saved warband's operation losses must be charged to its recruiting settlement.");
 
+        var fieldArmy = CampaignState.Found(map, key, 0, "Field rations", 0);
+        Require(fieldArmy.TryRecruitWarband(), "The field ration fixture requires a warband.");
+        var foodBeforePacking = fieldArmy.Food;
+        Require(fieldArmy.TryPackWarbandRations() && fieldArmy.WarbandRations == CampaignState.WarbandRationCapacity
+            && fieldArmy.Food == foodBeforePacking - CampaignState.WarbandRationCapacity
+            && !fieldArmy.TryPackWarbandRations(),
+            "Packing rations must transfer food to the warband once and respect carrying capacity.");
+        fieldArmy.SetWarbandSupply(WarbandSupplyPolicy.Provisioned);
+        Require(fieldArmy.TryMarchWarband(new List<int> { 0, 1 }) && !fieldArmy.TryPackWarbandRations(),
+            "The warband can pack only while stationary at a settlement.");
+        fieldArmy.Paused = false;
+        fieldArmy.Advance(9);
+        var fieldMeasure = new List<int> { 1, 2, 1 };
+        Require(fieldArmy.WarbandRations == 2 && !fieldArmy.WarbandShortOnFood && fieldArmy.EstimateMarchDays(fieldMeasure) == 1,
+            "A warband away from settlements must use its carried rations while keeping its provisioned pace.");
+        fieldArmy = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(fieldArmy.ToSave(), json), json), 5);
+        fieldArmy.Paused = false;
+        fieldArmy.Advance(10);
+        Require(fieldArmy.WarbandRations == 0 && fieldArmy.WarbandShortOnFood
+            && fieldArmy.EstimateMarchDays(fieldMeasure) == 2 && !fieldArmy.TryPackWarbandRations() && fieldArmy.Food > 0,
+            "After reloading and running out in the field, a warband must lose its speed bonus despite food at the capital.");
+
+        var villageSupplySave = CampaignState.Found(map, key, 0, "Village supplies", 0).ToSave();
+        villageSupplySave.Wood = villageSupplySave.Coin = 180;
+        var villageSupply = CampaignState.Restore(map, key, villageSupplySave, 5);
+        Require(villageSupply.TryFoundSettlement(1) && villageSupply.TryRecruitWarbandAt(1),
+            "The village ration fixture requires locally raised troops.");
+        var villageMeal = villageSupply.LocalFoodUpkeep(1);
+        villageSupplySave.SettlementFood.Add(new SettlementFoodReserve { Cell = 1, Food = villageMeal + 3 });
+        villageSupplySave.WarbandShortOnFood = true;
+        var villageClanFood = villageSupply.Food;
+        Require(villageSupply.TryPackWarbandRations() && villageSupply.WarbandRations == 3
+            && !villageSupply.WarbandShortOnFood && villageSupply.LocalFoodStock(1) == villageMeal
+            && villageSupply.Food == villageClanFood,
+            "A village may resupply the warband from local stock while retaining its next meal.");
+
         var localIntegration = CampaignState.Found(map, key, 0, "Local integration", 0, localCapitalClaim: true);
         Require(!localIntegration.TryStartIntegration(1)
             && localIntegration.TryStartIntegration(1, ExpansionApproach.Diplomacy, settlementCell: 1),

@@ -1354,7 +1354,17 @@ namespace GrandStrategy.WorldGeneration
                 targetZoom = MinimumZoom;
             }
             GUILayout.EndHorizontal();
-            GUILayout.Label($"Military supplies | {campaign.WarbandFoodCost} food / {CampaignState.ProductionInterval} days");
+            GUILayout.Label($"Field rations {campaign.WarbandRations}/{CampaignState.WarbandRationCapacity} | "
+                + $"{campaign.WarbandFoodCost} food / {CampaignState.ProductionInterval} days");
+            if (campaign.WarbandShortOnFood && campaign.WarbandSupply != WarbandSupplyPolicy.Forage)
+                GUILayout.Label("Short on rations | Moving at foraging pace");
+            var packable = campaign.PackableWarbandRations;
+            var packEnabled = GUI.enabled;
+            GUI.enabled = packEnabled && packable > 0;
+            if (GUILayout.Button(packable > 0 ? $"Pack {packable} field rations" : "Pack field rations")
+                && campaign.TryPackWarbandRations())
+                saveStatus = $"Loaded {packable} rations at {SettlementLabel(campaign.WarbandCell)}.";
+            GUI.enabled = packEnabled;
             GUILayout.BeginHorizontal();
             foreach (var policy in new[] { WarbandSupplyPolicy.Forage, WarbandSupplyPolicy.Standard, WarbandSupplyPolicy.Provisioned })
             {

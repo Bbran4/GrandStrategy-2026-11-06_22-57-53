@@ -185,6 +185,8 @@ namespace GrandStrategy.WorldGeneration
         public int GranarySite; // Cell index plus one. Zero uses the original automatic placement.
         public bool Warband;
         public int WarbandHomeSite; // Cell index plus one. Older campaigns default to the capital.
+        public int WarbandRations;
+        public bool WarbandShortOnFood;
         public int WarbandRouteIndex;
         public int WarbandMarchCredit;
         public List<int> WarbandRoute;
@@ -264,6 +266,7 @@ namespace GrandStrategy.WorldGeneration
         public const int WarbandWood = 35;
         public const int WarbandCoin = 45;
         public const int WarbandRecruits = 8;
+        public const int WarbandRationCapacity = 6;
         public const int ForceFood = 8;
         public const int IronWarbandIron = 10;
         public const int IronWarbandWood = 15;
@@ -1246,13 +1249,72 @@ namespace GrandStrategy.WorldGeneration
             data.WarbandSupply = policy;
         }
 
+        public int WarbandRations => data.WarbandRations;
+        public bool WarbandShortOnFood => data.WarbandShortOnFood;
+
+        private int WarbandSupplySettlement => !HasWarband || WarbandCommitted || WarbandTravelDays > 0
+            || SettlementPopulation(WarbandCell) == 0 ? -1 : WarbandCell;
+
+        public int PackableWarbandRations
+        {
+            get
+            {
+                var site = WarbandSupplySettlement;
+                var surplus = site < 0 ? 0
+                    : site == CapitalCell ? Math.Max(0, Food - FoodUpkeep - FoodReserve)
+                    : Math.Max(0, LocalFoodStock(site) - LocalFoodUpkeep(site));
+                return (int)Math.Min(WarbandRationCapacity - WarbandRations, surplus);
+            }
+        }
+
+        public bool TryPackWarbandRations()
+        {
+            var amount = PackableWarbandRations;
+            if (amount == 0) return false;
+            DrawWarbandFood(WarbandSupplySettlement, amount);
+            data.WarbandRations += amount;
+            if (data.WarbandRations >= WarbandFoodCost) data.WarbandShortOnFood = false;
+            return true;
+        }
+
+        private void SupplyWarband()
+        {
+            var need = WarbandFoodCost;
+            if (need == 0) return;
+
+            var site = WarbandSupplySettlement;
+            if (site >= 0) need -= DrawWarbandFood(site, need);
+            var carried = Math.Min(data.WarbandRations, need);
+            data.WarbandRations -= carried;
+            data.WarbandShortOnFood = carried < need;
+        }
+
+        private int DrawWarbandFood(int site, int need)
+        {
+            if (site == CapitalCell)
+            {
+                var drawn = Math.Min(Food, need);
+                AddFood(-drawn);
+                return drawn;
+            }
+
+            var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == site);
+            if (index < 0) return 0;
+            var local = data.SettlementFood[index];
+            var amount = Math.Min(need, Math.Max(0, local.Food - LocalFoodUpkeep(site)));
+            local.Food -= amount;
+            data.SettlementFood[index] = local;
+            return amount;
+        }
+
         private int WarbandCellsPerDay
         {
             get
             {
                 var normal = Math.Max(1, map.Height / 128);
                 if (HasTechnology(CampaignTechnology.MarchLogistics)) normal++;
-                return WarbandSupply switch
+                var effectiveSupply = WarbandShortOnFood ? WarbandSupplyPolicy.Forage : WarbandSupply;
+                return effectiveSupply switch
                 {
                     WarbandSupplyPolicy.Forage => Math.Max(1, normal / 2),
                     WarbandSupplyPolicy.Provisioned => normal + Math.Max(1, normal / 2),
@@ -1480,10 +1542,11 @@ namespace GrandStrategy.WorldGeneration
                 if (from >= WinterEnd) return 0;
                 var meals = WinterEnd / FoodInterval - from / FoodInterval;
                 var production = WinterEnd / ProductionInterval - from / ProductionInterval;
-                return Math.Max(0, meals * FoodUpkeep - (long)production * WinterFoodOutput);
+                var warbandDraw = WarbandSupplySettlement == CapitalCell ? WarbandFoodCost : 0;
+                return Math.Max(0, meals * FoodUpkeep - (long)production * (WinterFoodOutput - warbandDraw));
             }
         }
-        private int WinterFoodOutput => FarmFood - (HasGranary ? 0 : 2) - WarbandFoodCost;
+        private int WinterFoodOutput => FarmFood - (HasGranary ? 0 : 2);
         private int FarmFood
         {
             get
@@ -1509,7 +1572,7 @@ namespace GrandStrategy.WorldGeneration
         {
             get
             {
-                var food = FarmFood - WarbandFoodCost;
+                var food = FarmFood;
                 var settled = new HashSet<int> { Capital };
                 var connected = new HashSet<int> { Capital };
                 foreach (var cell in SettlementCells)
@@ -1769,6 +1832,10 @@ namespace GrandStrategy.WorldGeneration
                         || !settlementSites.Add(site))
                         throw new ArgumentException("The save contains an invalid settlement site.");
                 }
+
+            if (save.WarbandRations < 0 || save.WarbandRations > WarbandRationCapacity
+                || (!save.Warband && (save.WarbandRations != 0 || save.WarbandShortOnFood)))
+                throw new ArgumentException("The save contains invalid warband rations.");
 
             if (save.WarbandHomeSite < 0 || (save.WarbandHomeSite > 0 && (!save.Warband
                 || (save.WarbandHomeSite - 1 != save.CapitalCell && !settlementSites.Contains(save.WarbandHomeSite - 1)))))
@@ -2923,6 +2990,7 @@ namespace GrandStrategy.WorldGeneration
                 var previousDay = Day;
                 var interval = Day >= WinterStart && Day < WinterEnd ? ProductionInterval : FoodInterval;
                 var span = Math.Min(destination - Day, interval - Day % interval);
+                if (WarbandFoodCost > 0) span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
                 foreach (var site in data.Construction)
                 {
                     if (site.Cell == CapitalCell || (site.Buildings & (int)SettlementBuilding.IronMine) == 0) continue;
@@ -2980,6 +3048,7 @@ namespace GrandStrategy.WorldGeneration
                 var output = Day > WinterStart && Day <= WinterEnd ? WinterFoodOutput : WarmFoodOutput;
                 if (Day == WinterStart) AddFood((long)(periods - 1) * output + FarmFood);
                 else AddFood((long)periods * output);
+                SupplyWarband();
                 ProduceLocalFood(periods);
 
                 var lumber = BuildingTotal(SettlementBuilding.LumberCamp);
