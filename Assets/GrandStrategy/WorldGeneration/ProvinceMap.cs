@@ -57,6 +57,9 @@ namespace GrandStrategy.WorldGeneration
         private const byte MarchLand = 1;
         private const byte FordEastWest = 2;
         private const byte FordNorthSouth = 4;
+        private const byte PassEastWest = 8;
+        private const byte PassNorthSouth = 16;
+        private const float PassGradeMultiplier = .45f;
         [NonSerialized] private byte[] marchTerrain;
         [NonSerialized] private float[] marchElevations;
         [NonSerialized] private int[] waterwayAt;
@@ -160,15 +163,19 @@ namespace GrandStrategy.WorldGeneration
                     && CampaignState.IsLand(this, ProvinceAt[cell]))
                     marchTerrain[cell] = MarchLand;
 
-            if (rivers == null) return;
-            for (var y = 1; y < Height - 1; y++)
-                for (var x = 1; x < Width - 1; x++)
-                {
-                    var cell = y * Width + x;
-                    if (water[cell] != WaterKind.Land || rivers[cell] == 0) continue;
-                    if (FlatBanks(cell, 1)) marchTerrain[cell] |= FordEastWest;
-                    if (FlatBanks(cell, Width)) marchTerrain[cell] |= FordNorthSouth;
-                }
+            if (rivers != null)
+            {
+                for (var y = 1; y < Height - 1; y++)
+                    for (var x = 1; x < Width - 1; x++)
+                    {
+                        var cell = y * Width + x;
+                        if (water[cell] != WaterKind.Land || rivers[cell] == 0) continue;
+                        if (FlatBanks(cell, 1)) marchTerrain[cell] |= FordEastWest;
+                        if (FlatBanks(cell, Width)) marchTerrain[cell] |= FordNorthSouth;
+                    }
+            }
+
+            MarkMountainPasses(water.Source.Recipe.SeaLevel);
 
             bool FlatBanks(int centre, int step)
             {
@@ -180,7 +187,65 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        private void MarkMountainPasses(float seaLevel)
+        {
+            const float minimumHeightAboveSea = .12f;
+            const float minimumRidgeRelief = .03f;
+            const float minimumExitDrop = .008f;
+            var radius = Math.Max(2, Height / 64);
+            for (var y = radius; y < Height - radius; y++)
+                for (var x = radius; x < Width - radius; x++)
+                {
+                    var cell = y * Width + x;
+                    if (marchTerrain[cell] != MarchLand || marchElevations[cell] < seaLevel + minimumHeightAboveSea)
+                        continue;
+                    if (Saddle(cell, travel: 1, ridge: Width)) marchTerrain[cell] |= PassEastWest;
+                    else if (Saddle(cell, travel: Width, ridge: 1)) marchTerrain[cell] |= PassNorthSouth;
+                }
+
+            bool Saddle(int cell, int travel, int ridge)
+            {
+                var elevation = marchElevations[cell];
+                var flank = ridge * radius;
+                var exit = travel * radius;
+                if (Math.Min(marchElevations[cell - flank], marchElevations[cell + flank]) - elevation < minimumRidgeRelief
+                    || elevation - Math.Max(marchElevations[cell - exit], marchElevations[cell + exit]) < minimumExitDrop)
+                    return false;
+
+                // Both approaches and ridge shoulders must remain on land.
+                for (var i = 1; i <= radius; i++)
+                    if ((marchTerrain[cell - travel * i] & MarchLand) == 0
+                        || (marchTerrain[cell + travel * i] & MarchLand) == 0
+                        || (marchTerrain[cell - ridge * i] & MarchLand) == 0
+                        || (marchTerrain[cell + ridge * i] & MarchLand) == 0)
+                        return false;
+                return true;
+            }
+        }
+
         internal bool HasMarchTerrain => marchTerrain != null;
+
+        internal bool IsMountainPass(int cell) => marchTerrain != null && cell >= 0 && cell < marchTerrain.Length
+            && (marchTerrain[cell] & (PassEastWest | PassNorthSouth)) != 0;
+
+        internal bool UsesMountainPass(int from, int to)
+        {
+            if ((!IsMountainPass(from) && !IsMountainPass(to)) || !IsMarchCell(from) || !IsMarchCell(to))
+                return false;
+            if ((marchTerrain[from] & marchTerrain[to] & MarchLand) == 0) return false;
+            var flags = marchTerrain[from] | marchTerrain[to];
+            return (Math.Abs(from - to) == Width && (flags & PassNorthSouth) != 0)
+                || (from / Width == to / Width && Math.Abs(from - to) == 1 && (flags & PassEastWest) != 0);
+        }
+
+        internal float InfluenceElevationCost(int from, int to) => ElevationGrade(from, to, .16f * Height);
+
+        private float ElevationGrade(int from, int to, float scale)
+        {
+            if (marchElevations == null) return 0f;
+            var grade = Math.Abs(marchElevations[from] - marchElevations[to]) * scale;
+            return UsesMountainPass(from, to) ? grade * PassGradeMultiplier : grade;
+        }
 
         internal bool IsFord(int cell) => marchTerrain != null && cell >= 0 && cell < marchTerrain.Length
             && (marchTerrain[cell] & (FordEastWest | FordNorthSouth)) != 0;
@@ -197,8 +262,8 @@ namespace GrandStrategy.WorldGeneration
             if (marchTerrain == null) return true;
             var a = marchTerrain[from];
             var b = marchTerrain[to];
-            if (a == MarchLand && b == MarchLand) return true;
-            if (a != MarchLand && b != MarchLand) return false;
+            if (((a & b) & MarchLand) != 0) return true;
+            if (((a | b) & MarchLand) == 0) return false;
             return ((a | b) & (horizontal ? FordEastWest : FordNorthSouth)) != 0;
         }
 
@@ -231,7 +296,7 @@ namespace GrandStrategy.WorldGeneration
                 if (ford >= 0 && hasBridge(ford)) return BaseMarchCost;
             }
             if (!IsFord(from) && !IsFord(to) && hasRoad?.Invoke(from, to) == true) return BaseMarchCost;
-            var grade = marchElevations == null ? 0f : Math.Abs(marchElevations[from] - marchElevations[to]) * Height;
+            var grade = ElevationGrade(from, to, Height);
             var elevationCost = (int)Math.Min(16f, grade);
             return BaseMarchCost + elevationCost + (IsFord(from) || IsFord(to) ? 2 : 0);
         }

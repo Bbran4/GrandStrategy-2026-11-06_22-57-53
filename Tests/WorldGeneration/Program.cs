@@ -1300,6 +1300,48 @@ internal static class Program
         Require(resumedClimb.WarbandCell == hill - 1 && resumedClimb.WarbandTravelDays == climb.WarbandTravelDays
             && resumedClimb.WarbandTravelDays > 0, "Partial progress across a steep step must survive a save.");
 
+        var saddle = 12 * recipe.Width + 12;
+        var passHeights = Enumerable.Repeat(.56f, raster.Length).ToArray();
+        passHeights[saddle] = .65f;
+        passHeights[saddle - 1] = passHeights[saddle + 1] = .60f;
+        passHeights[saddle - recipe.Width] = passHeights[saddle + recipe.Width] = .72f;
+        passHeights[saddle - 2 * recipe.Width] = passHeights[saddle + 2 * recipe.Width] = .78f;
+        var passMap = ProvinceMap.Build(recipe, Enumerable.Repeat(1, raster.Length).ToArray(),
+            new[] { new ProvinceInfo { Id = "Saddle", Rgb = 1, Type = "land", Terrain = "mountains" } });
+        passMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, passHeights)), null, passHeights);
+        Require(passMap.IsMountainPass(saddle) && passMap.UsesMountainPass(saddle - 1, saddle)
+            && passMap.UsesMountainPass(saddle, saddle + 1) && !passMap.UsesMountainPass(saddle, saddle + recipe.Width)
+            && passMap.CanMarchBetween(saddle - 1, saddle) && !passMap.IsFord(saddle),
+            "A dry saddle must allow ordinary land travel, with the pass oriented between the lower exits.");
+
+        var ridgeHeights = (float[])passHeights.Clone();
+        ridgeHeights[saddle + 2 * recipe.Width] = .67f;
+        var ridgeMap = ProvinceMap.Build(recipe, Enumerable.Repeat(1, raster.Length).ToArray(),
+            new[] { new ProvinceInfo { Id = "Ridge", Rgb = 1, Type = "land", Terrain = "mountains" } });
+        ridgeMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, ridgeHeights)), null, ridgeHeights);
+        Require(!ridgeMap.IsMountainPass(saddle) && !passMap.IsMountainPass(saddle + 5)
+            && passMap.MarchStepCost(saddle - 1, saddle) < ridgeMap.MarchStepCost(saddle - 1, saddle)
+            && passMap.InfluenceElevationCost(saddle - 1, saddle) < ridgeMap.InfluenceElevationCost(saddle - 1, saddle)
+            && passMap.MarchStepCost(saddle, saddle + recipe.Width) == ridgeMap.MarchStepCost(saddle, saddle + recipe.Width)
+            && passMap.InfluenceElevationCost(saddle, saddle + recipe.Width) == ridgeMap.InfluenceElevationCost(saddle, saddle + recipe.Width),
+            "A pass must reduce both grade penalties only along the crossing axis, and require opposing ridges.");
+
+        var interruptedPass = new byte[raster.Length];
+        interruptedPass[saddle + 1] = 1;
+        passMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, passHeights)), interruptedPass, passHeights);
+        Require(!passMap.IsMountainPass(saddle), "A river through the approach must interrupt the dry saddle.");
+
+        var passRecipe = HeightmapRecipe.OldWorld();
+        passRecipe.Width = 1024;
+        passRecipe.Height = 512;
+        var passRivers = RiverGenerator.Generate(HeightmapGenerator.Generate(passRecipe));
+        var generatedPassMap = ProvinceMap.Build(passRecipe, Enumerable.Repeat(1, passRivers.Terrain.Elevations.Length).ToArray(),
+            new[] { new ProvinceInfo { Id = "Generated relief", Rgb = 1, Type = "land" } });
+        generatedPassMap.BuildMarchTerrain(WaterMap.Classify(passRivers.Terrain), passRivers.BuildSurfaceDirections(),
+            passRivers.Terrain.Elevations);
+        Require(Enumerable.Range(0, generatedPassMap.ProvinceAt.Length).Any(generatedPassMap.IsMountainPass),
+            "Mountain passes must occur on standard generated terrain, including its carved rivers.");
+
         var roadSave = CampaignState.Found(hillMap, "road", hill - 1, "Road", 0).ToSave();
         roadSave.Coin = roadSave.Wood = 200;
         var road = CampaignState.Restore(hillMap, "road", roadSave, 5);

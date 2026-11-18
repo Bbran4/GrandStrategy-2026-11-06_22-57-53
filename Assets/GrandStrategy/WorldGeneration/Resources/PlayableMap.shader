@@ -864,6 +864,11 @@ Shader "GrandStrategy/Playable Map"
                         tint = lerp(tint, float3(0.27, 0.85, 0.36), step(0.60, sites.a));
                         tint = lerp(tint, float3(0.74, 0.34, 0.91), step(0.39, sites.a) * (1.0 - step(0.47, sites.a)));
                         tint = lerp(tint, float3(0.95, 0.24, 0.17), 1.0 - step(0.39, sites.a));
+                        // Pass codes are 48/255, or 224/255 on a waterfront cell.
+                        float passCoverage = step(0.15, sites.a) * (1.0 - step(0.24, sites.a))
+                            + step(0.83, sites.a) * (1.0 - step(0.93, sites.a));
+                        coverage = max(coverage, passCoverage);
+                        tint = lerp(tint, float3(0.99, 0.72, 0.20), passCoverage);
                     }
                     return half4(lerp(ground * 0.64, tint, coverage * 0.78), 1);
                 }

@@ -454,6 +454,8 @@ namespace GrandStrategy.WorldGeneration
                 }
             }
             if (surface.Map.IsFord(clickedCell)) DrawFordDetails();
+            else if (surface.Map.IsMountainPass(clickedCell))
+                GUILayout.Label("Mountain pass | Easier marches and influence along the saddle");
             var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
             if (constructionSite >= 0)
                 DrawSettlement(constructionSite);
@@ -1654,7 +1656,8 @@ namespace GrandStrategy.WorldGeneration
             get
             {
                 var width = Mathf.Max(1f, Mathf.Min(340f, Screen.width - PanelWidth - HudMargin * 3f));
-                return new Rect(Screen.width - HudMargin - width, Screen.height - HudMargin - DockHeight, width, DockHeight);
+                var height = mapView == MapViewMode.Resources && resourceFilter == 0 ? DockHeight + 14f : DockHeight;
+                return new Rect(Screen.width - HudMargin - width, Screen.height - HudMargin - height, width, height);
             }
         }
 
@@ -1765,7 +1768,7 @@ namespace GrandStrategy.WorldGeneration
 
             if (mapView == MapViewMode.Resources)
             {
-                DrawResourceFilter("Fords", 0, x + (slot + 4) * 3, y + 26, slot);
+                DrawResourceFilter("Crossings", 0, x + (slot + 4) * 3, y + 26, slot);
                 DrawResourceFilter("Farmland", SettlementBuilding.Farm, x, y + 52, slot);
                 DrawResourceFilter("Timber", SettlementBuilding.LumberCamp, x + slot + 4, y + 52, slot);
                 DrawResourceFilter("Iron", SettlementBuilding.IronMine, x + (slot + 4) * 2, y + 52, slot);
@@ -1774,7 +1777,7 @@ namespace GrandStrategy.WorldGeneration
 
             var status = mapView switch
             {
-                MapViewMode.Resources when resourceFilter == 0 => "White: ford | Blue: passage | Green: secured | Purple: rival | Red: closed",
+                MapViewMode.Resources when resourceFilter == 0 => "Gold: pass | White: ford | Blue: passage",
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows military occupation",
@@ -1786,6 +1789,9 @@ namespace GrandStrategy.WorldGeneration
                 _ => "Terrain and settlement"
             };
             GUI.Label(new Rect(dock.x + 6, dock.y + 78, dock.width - 12, 21), status, hudLabel);
+            if (mapView == MapViewMode.Resources && resourceFilter == 0)
+                GUI.Label(new Rect(dock.x + 6, dock.y + 94, dock.width - 12, 21),
+                    "Green: secured | Purple: rival | Red: closed", hudLabel);
         }
 
         private void DrawResourceFilter(string label, SettlementBuilding filter, float x, float y, float width)

@@ -702,11 +702,19 @@ namespace GrandStrategy.WorldGeneration
                         (sites & SettlementBuilding.Farm) != 0 ? (byte)255 : (byte)0,
                         (sites & SettlementBuilding.LumberCamp) != 0 ? (byte)255 : (byte)0,
                         (sites & SettlementBuilding.IronMine) != 0 ? (byte)255 : (byte)0,
-                        (sites & SettlementBuilding.Docks) != 0 ? (byte)255 : Map.IsFord(cell) ? FordResourceCode(cell) : (byte)0);
+                        CrossingResourceCode(cell, (sites & SettlementBuilding.Docks) != 0));
                 }
             productionSites.Apply(false, false);
             material.SetTexture("_ProductionSites", productionSites);
             resourceMapCampaign = influenceCampaign;
+        }
+
+        // Alpha stores crossing codes and whether this cell offers waterfront construction.
+        private byte CrossingResourceCode(int cell, bool waterfront)
+        {
+            if (Map.IsFord(cell)) return FordResourceCode(cell);
+            if (Map.IsMountainPass(cell)) return waterfront ? (byte)224 : (byte)48;
+            return waterfront ? (byte)255 : (byte)0;
         }
 
         private byte FordResourceCode(int cell)
@@ -1423,8 +1431,7 @@ namespace GrandStrategy.WorldGeneration
                             && (campaign.CanUseSupplyFord(cell) || campaign.CanUseSupplyFord(next));
                         var infrastructureCost = useClanFords ? campaign.InfluenceInfrastructureCost(cell, next) : null;
                         var travelCost = infrastructureCost ?? (securedCrossing ? 1f
-                            : 1f + Mathf.Abs(elevations[next] - elevations[cell]) * (.16f * Map.Height)
-                                + (IsRiver(next) ? 5f : 0f));
+                            : 1f + Map.InfluenceElevationCost(cell, next) + (IsRiver(next) ? 5f : 0f));
                         var cost = step.Cost + travelCost;
                         if (cost > budget) return;
                         if (costs.TryGetValue(next, out var previous))
