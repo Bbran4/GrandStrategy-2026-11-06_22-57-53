@@ -823,7 +823,12 @@ internal static class Program
         valley.IndependentVillageSiteResolver = _ => mineSite + 1;
         valley.IndependentTerritoryResolver = cell => cell == mineSite;
         valley.Paused = false;
-        valley.Advance(44);
+        valley.Advance(43);
+        Require(valley.TrySetLocalFoodTarget(mineSite, 5), "The valley village needs a food reserve order.");
+        valley.Advance(1);
+        var valleyFoodCargo = valley.LocalFoodShipment(mineSite);
+        Require(valleyFoodCargo == (5, valleyFoodCargo.Days, true) && valley.FoodHeldAtFord(fordCell) == (1, 5L),
+            "A rival takeover must hold the village's incoming food as well as outgoing supplies.");
         var valleyCargo = valley.IronShipment(mineSite);
         var deliveredBeforeClosure = valley.Iron;
         Require(valley.IsFordHeldByRival(fordCell) && valley.IsIronShipmentHeld(mineSite) && valleyCargo.Amount > 0
@@ -835,6 +840,8 @@ internal static class Program
         valley.Advance(valleyCargo.Days);
         Require(valley.Iron == deliveredBeforeClosure + valleyCargo.Amount,
             "The reopened crossing must deliver precisely the previously held cargo.");
+        Require(valley.LocalFoodStock(mineSite) == 5 && valley.LocalFoodShipment(mineSite).Amount == 0,
+            "Negotiated passage must allow the village's food to arrive.");
 
         var isolatedFood = CampaignState.Found(supplyMap, "isolated-food", fordCell - 1, "Isolated food", 0);
         Require(isolatedFood.TryFoundSettlement(mineSite) && isolatedFood.IsFoodIsolated(mineSite),
@@ -872,8 +879,33 @@ internal static class Program
             "Only valid reserve targets may be set.");
         stocked.Paused = false;
         stocked.Advance(4);
-        Require(stocked.LocalFoodTarget(mineSite) == 10 && stocked.LocalFoodStock(mineSite) == 10,
-            "A connected village must receive surplus food for its reserve.");
+        var foodCargo = stocked.LocalFoodShipment(mineSite);
+        Require(stocked.LocalFoodTarget(mineSite) == 10 && stocked.LocalFoodStock(mineSite) == 0
+            && foodCargo.Amount == 10 && foodCargo.Days > 0 && !foodCargo.Held,
+            "Capital food should be dispatched before it reaches the village reserve.");
+        Require(stocked.TryChangeFordAccess(fordCell) && stocked.FoodHeldAtFord(fordCell) == (1, 10L),
+            "Closing the ford must hold the food in transit.");
+        var heldFoodSave = JsonSerializer.Serialize(stocked.ToSave(), json);
+        var alternateFoodSave = JsonSerializer.Deserialize<CampaignSave>(heldFoodSave, json);
+        alternateFoodSave.SecuredFords.Add(alternateFord);
+        var reroutedFood = CampaignState.Restore(supplyMap, "stocked", alternateFoodSave, 5);
+        Require(!stocked.TryRerouteHeldFoodShipment(mineSite) && reroutedFood.TryRerouteHeldFoodShipment(mineSite)
+            && reroutedFood.IsFordClosed(fordCell), "Food rerouting must require an open alternate ford.");
+        reroutedFood.Paused = false;
+        reroutedFood.Advance(reroutedFood.LocalFoodShipment(mineSite).Days);
+        Require(reroutedFood.LocalFoodStock(mineSite) == 10 && reroutedFood.LocalFoodShipment(mineSite).Amount == 0,
+            "The alternate route must deliver the held food exactly once.");
+        stocked = CampaignState.Restore(supplyMap, "stocked", JsonSerializer.Deserialize<CampaignSave>(heldFoodSave, json), 5);
+        stocked.Paused = false;
+        stocked.Advance(foodCargo.Days + 1);
+        Require(stocked.LocalFoodStock(mineSite) == 0
+            && stocked.LocalFoodShipment(mineSite) == (foodCargo.Amount, foodCargo.Days, true),
+            "A saved delivery must stay held beyond its original arrival date.");
+        Require(stocked.TryChangeFordAccess(fordCell) && stocked.FoodHeldAtFord(fordCell).Shipments == 0,
+            "Reopening the crossing must release the delivery.");
+        stocked.Advance(foodCargo.Days);
+        Require(stocked.LocalFoodStock(mineSite) == 10 && stocked.LocalFoodShipment(mineSite).Amount == 0,
+            "The released cargo must reach the reserve exactly once.");
         Require(stocked.TryChangeFordAccess(fordCell) && stocked.IsFoodIsolated(mineSite),
             "The reserve fixture needs loss of supply access.");
         var blockedStock = stocked.ToSave();

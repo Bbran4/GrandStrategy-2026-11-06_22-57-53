@@ -118,6 +118,9 @@ namespace GrandStrategy.WorldGeneration
         public int Food;
         public int Target;
         public int LastShortfall;
+        public int InTransit;
+        public int DepartureDay, ArrivalDay, HoldDay;
+        public int[] OverlandPath;
     }
 
     [Serializable]
@@ -914,8 +917,13 @@ namespace GrandStrategy.WorldGeneration
             var path = shipment.IronTravelPath;
             if (shipment.IronTransport != IronSupplyRoute.Overland || path == null) return -1;
 
-            var elapsed = positionDay - shipment.IronDepartureDay;
-            var duration = shipment.IronTravelEndDay - shipment.IronDepartureDay;
+            return BlockingFord(path, positionDay, shipment.IronDepartureDay, shipment.IronTravelEndDay);
+        }
+
+        private int BlockingFord(int[] path, int positionDay, int departureDay, int arrivalDay)
+        {
+            var elapsed = positionDay - departureDay;
+            var duration = arrivalDay - departureDay;
             for (var step = 1; step < path.Length - 1; step++)
                 if ((long)step * duration >= (long)elapsed * (path.Length - 1) && IsFordClosed(path[step]))
                     return path[step];
@@ -936,12 +944,49 @@ namespace GrandStrategy.WorldGeneration
             return (count, cargo);
         }
 
+        public (int Shipments, long Cargo) FoodHeldAtFord(int ford)
+        {
+            var count = 0;
+            long cargo = 0;
+            foreach (var reserve in data.SettlementFood)
+            {
+                if (reserve.HoldDay == 0
+                    || BlockingFord(reserve.OverlandPath, reserve.HoldDay, reserve.DepartureDay, reserve.ArrivalDay) != ford)
+                    continue;
+                count++;
+                cargo += reserve.InTransit;
+            }
+            return (count, cargo);
+        }
+
+        private void UpdateHeldFoodShipments()
+        {
+            for (var i = 0; i < data.SettlementFood.Count; i++)
+            {
+                var reserve = data.SettlementFood[i];
+                if (reserve.OverlandPath == null || (reserve.HoldDay == 0 && Day >= reserve.ArrivalDay)) continue;
+                var positionDay = reserve.HoldDay > 0 ? reserve.HoldDay : Day;
+                var blocked = BlockingFord(reserve.OverlandPath, positionDay, reserve.DepartureDay, reserve.ArrivalDay) >= 0;
+                if (blocked && reserve.HoldDay == 0)
+                    reserve.HoldDay = Day;
+                else if (!blocked && reserve.HoldDay > 0)
+                {
+                    var delay = Day - reserve.HoldDay;
+                    reserve.DepartureDay += delay;
+                    reserve.ArrivalDay = (int)Math.Min(int.MaxValue, (long)reserve.ArrivalDay + delay);
+                    reserve.HoldDay = 0;
+                }
+                data.SettlementFood[i] = reserve;
+            }
+        }
+
         private void RefreshFordAccess()
         {
             ironSupplyRoutes.Clear();
             InfluenceRevision++;
             FordAccessRevision++;
             UpdateHeldShipments();
+            UpdateHeldFoodShipments();
         }
 
         public int ObjectiveOccupiedDays => data.ObjectiveOccupiedDays;
@@ -1122,6 +1167,15 @@ namespace GrandStrategy.WorldGeneration
             if (index >= 0) data.SettlementFood[index] = reserve;
             else if (target > 0) data.SettlementFood.Add(reserve);
             return true;
+        }
+
+        public (int Amount, int Days, bool Held) LocalFoodShipment(int cell)
+        {
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.Cell == cell && reserve.InTransit > 0)
+                    return (reserve.InTransit, reserve.ArrivalDay - (reserve.HoldDay > 0 ? reserve.HoldDay : Day),
+                        reserve.HoldDay > 0);
+            return default;
         }
 
         public int LocalFoodShortfall(int cell)
@@ -1428,10 +1482,28 @@ namespace GrandStrategy.WorldGeneration
             {
                 var foodSites = new HashSet<int>();
                 foreach (var reserve in save.SettlementFood)
+                {
                     if (!settlementSites.Contains(reserve.Cell) || !foodSites.Add(reserve.Cell)
                         || !ValidStock(reserve.Food) || reserve.LastShortfall < 0
                         || reserve.Target < 0 || reserve.Target > MaxLocalFoodTarget)
                         throw new ArgumentException("The save contains an invalid local food reserve.");
+                    var path = reserve.OverlandPath;
+                    if (reserve.InTransit < 0 || reserve.InTransit > MaxLocalFoodTarget
+                        || (reserve.InTransit == 0 && (path != null || reserve.DepartureDay != 0
+                            || reserve.ArrivalDay != 0 || reserve.HoldDay != 0))
+                        || (reserve.InTransit > 0 && (reserve.DepartureDay < 1 || reserve.DepartureDay > save.Day
+                            || reserve.ArrivalDay <= reserve.DepartureDay
+                            || (reserve.HoldDay == 0 ? reserve.ArrivalDay <= save.Day
+                                : path == null || reserve.HoldDay < reserve.DepartureDay
+                                    || reserve.HoldDay > save.Day || reserve.HoldDay >= reserve.ArrivalDay))))
+                        throw new ArgumentException("The save contains an invalid food delivery.");
+                    if (path == null) continue;
+                    if (path.Length < 2 || path[path.Length - 1] != reserve.Cell)
+                        throw new ArgumentException("The save contains an invalid food delivery route.");
+                    for (var i = 1; i < path.Length; i++)
+                        if (!map.CanMarchBetween(path[i - 1], path[i]))
+                            throw new ArgumentException("The save contains an invalid food delivery segment.");
+                }
             }
 
             if (save.IndependentVillageSite < 0 || (save.IndependentVillageSite > 0
@@ -1869,11 +1941,8 @@ namespace GrandStrategy.WorldGeneration
             var path = shipment.IronTravelPath;
             if (shipment.IronHoldDay <= 0 || path == null || path.Length < 2) return false;
 
-            var elapsed = shipment.IronHoldDay - shipment.IronDepartureDay;
-            var duration = shipment.IronTravelEndDay - shipment.IronDepartureDay;
-            var step = (int)((long)elapsed * (path.Length - 1) / duration);
-            if (step > 0 && IsFordClosed(path[step])) step--;
-            var alternate = map.FindWarbandRoute(path[step], CapitalCell, CanUseSupplyFord, hasBridge: HasBridge, hasRoad: HasRoadEdge);
+            var alternate = FindAlternateSupplyRoute(path, shipment.IronHoldDay, shipment.IronDepartureDay,
+                shipment.IronTravelEndDay, CapitalCell);
             if (alternate == null) return false;
 
             SetIronJourney(ref shipment, alternate, IronSupplyRoute.Overland);
@@ -1881,16 +1950,48 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        public bool TryRerouteHeldFoodShipment(int cell)
+        {
+            if (Day == int.MaxValue) return false;
+            var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == cell);
+            if (index < 0) return false;
+            var reserve = data.SettlementFood[index];
+            if (reserve.HoldDay == 0) return false;
+
+            var alternate = FindAlternateSupplyRoute(reserve.OverlandPath, reserve.HoldDay,
+                reserve.DepartureDay, reserve.ArrivalDay, cell);
+            if (alternate == null) return false;
+
+            reserve.OverlandPath = alternate.ToArray();
+            reserve.DepartureDay = Day;
+            reserve.ArrivalDay = SupplyArrivalDay(alternate, IronSupplyRoute.Overland);
+            reserve.HoldDay = 0;
+            data.SettlementFood[index] = reserve;
+            return true;
+        }
+
+        private List<int> FindAlternateSupplyRoute(int[] path, int holdDay, int departureDay, int arrivalDay, int destination)
+        {
+            var step = (int)((long)(holdDay - departureDay) * (path.Length - 1) / (arrivalDay - departureDay));
+            if (step > 0 && IsFordClosed(path[step])) step--;
+            return map.FindWarbandRoute(path[step], destination, CanUseSupplyFord, hasBridge: HasBridge, hasRoad: HasRoadEdge);
+        }
+
         private void SetIronJourney(ref SettlementConstruction shipment, IReadOnlyList<int> route, IronSupplyRoute mode)
         {
-            var cellsPerDay = Math.Max(1, map.Height / (mode == IronSupplyRoute.Waterway ? 32 : 64));
-            var travelDays = Math.Max(1, (route.Count - 2) / cellsPerDay + 1);
-            shipment.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + travelDays);
+            shipment.IronArrivalDay = SupplyArrivalDay(route, mode);
             shipment.IronDepartureDay = Day;
             shipment.IronTravelEndDay = shipment.IronArrivalDay;
             shipment.IronTransport = mode;
             shipment.IronTravelPath = new List<int>(route).ToArray();
             shipment.IronHoldDay = 0;
+        }
+
+        private int SupplyArrivalDay(IReadOnlyList<int> route, IronSupplyRoute mode)
+        {
+            var cellsPerDay = Math.Max(1, map.Height / (mode == IronSupplyRoute.Waterway ? 32 : 64));
+            var travelDays = Math.Max(1, (route.Count - 2) / cellsPerDay + 1);
+            return (int)Math.Min(int.MaxValue, (long)Day + travelDays);
         }
 
         public (IReadOnlyList<int> Path, IronSupplyRoute Transport, float Progress) IronShipmentJourney(int cell)
@@ -2363,6 +2464,13 @@ namespace GrandStrategy.WorldGeneration
                     span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
                     if (site.IronInTransit > 0 && site.IronHoldDay == 0) span = Math.Min(span, site.IronArrivalDay - Day);
                 }
+                foreach (var reserve in data.SettlementFood)
+                {
+                    if (reserve.Target > reserve.Food && reserve.InTransit == 0)
+                        span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
+                    if (reserve.InTransit > 0 && reserve.HoldDay == 0)
+                        span = Math.Min(span, reserve.ArrivalDay - Day);
+                }
                 if (MilitaryObjectiveCell >= 0) span = Math.Min(span, 1);
                 if (WarbandCommitted && IntegrationDaysLeft > ForceDuration - RivalFordResponseDays
                     && data.PassagePartners.Contains(IntegrationTarget + 1))
@@ -2384,6 +2492,7 @@ namespace GrandStrategy.WorldGeneration
         private void ApplyEconomy(int previousDay)
         {
             ReceiveIronShipments();
+            ReceiveFoodShipments();
             var periods = Day / ProductionInterval - previousDay / ProductionInterval;
             var taxes = Day / TaxInterval - previousDay / TaxInterval;
             if (periods > 0)
@@ -2477,16 +2586,11 @@ namespace GrandStrategy.WorldGeneration
                         AddFood(returned);
                         reserve.Food -= returned;
                     }
-                    else if (reserve.Food < reserve.Target)
-                    {
-                        // Only set aside food the clan can spare after its next meal and protected reserve.
-                        var surplus = Math.Max(0, Food - FoodUpkeep - FoodReserve);
-                        var stored = (int)Math.Min(surplus, reserve.Target - reserve.Food);
-                        AddFood(-stored);
-                        reserve.Food += stored;
-                    }
+                    else if (reserve.Food < reserve.Target && reserve.InTransit == 0)
+                        DispatchFoodShipment(ref reserve);
                     reserve.LastShortfall = 0;
-                    if (reserve.Food == 0 && reserve.Target == 0) data.SettlementFood.RemoveAt(index);
+                    if (reserve.Food == 0 && reserve.Target == 0 && reserve.InTransit == 0)
+                        data.SettlementFood.RemoveAt(index);
                     else data.SettlementFood[index] = reserve;
                     continue;
                 }
@@ -2498,6 +2602,61 @@ namespace GrandStrategy.WorldGeneration
                     local.Food + (long)periods * SettlementFarmYield(cell) + subsistencePeriods);
                 if (index >= 0) data.SettlementFood[index] = local;
                 else data.SettlementFood.Add(local);
+            }
+        }
+
+        private void DispatchFoodShipment(ref SettlementFoodReserve reserve)
+        {
+            // Reserve the next clan meal and the protected stock before committing a delivery.
+            var surplus = Math.Max(0, Food - FoodUpkeep - FoodReserve);
+            var amount = (int)Math.Min(surplus, reserve.Target - reserve.Food);
+            if (amount == 0) return;
+
+            var mode = GetIronSupplyRoute(reserve.Cell);
+            if (!map.HasMarchTerrain && mode == IronSupplyRoute.Overland)
+            {
+                reserve.Food += amount;
+                AddFood(-amount);
+                return;
+            }
+
+            var route = mode == IronSupplyRoute.Waterway
+                ? GetWaterwayIronRoute(reserve.Cell) : GetOverlandIronRoute(reserve.Cell);
+            if (route == null || Day == int.MaxValue) return;
+            reserve.InTransit = amount;
+            reserve.DepartureDay = Day;
+            reserve.ArrivalDay = SupplyArrivalDay(route, mode);
+            if (mode == IronSupplyRoute.Overland)
+            {
+                reserve.OverlandPath = new List<int>(route).ToArray();
+                Array.Reverse(reserve.OverlandPath);
+            }
+            AddFood(-amount);
+        }
+
+        private void ReceiveFoodShipments()
+        {
+            for (var i = 0; i < data.SettlementFood.Count; i++)
+            {
+                var reserve = data.SettlementFood[i];
+                if (reserve.InTransit == 0 || reserve.HoldDay > 0 || reserve.ArrivalDay > Day) continue;
+
+                var unloaded = Math.Min(ResourceLimit - reserve.Food, reserve.InTransit);
+                reserve.Food += unloaded;
+                reserve.InTransit -= unloaded;
+                if (reserve.InTransit == 0 || Day == int.MaxValue)
+                {
+                    if (reserve.InTransit > 0) AddFood(reserve.InTransit);
+                    reserve.InTransit = reserve.DepartureDay = reserve.ArrivalDay = 0;
+                    reserve.OverlandPath = null;
+                }
+                else
+                {
+                    // The cargo is already at the village. Retry unloading without rechecking the crossing.
+                    reserve.OverlandPath = null;
+                    reserve.ArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + ProductionInterval);
+                }
+                data.SettlementFood[i] = reserve;
             }
         }
 

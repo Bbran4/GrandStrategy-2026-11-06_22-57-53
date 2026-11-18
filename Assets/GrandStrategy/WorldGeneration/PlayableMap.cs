@@ -524,8 +524,8 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label(food > upkeep ? "Surplus food supports growth at current stock."
                     : food == upkeep ? "Current stock covers upkeep with no surplus for growth."
                     : "Current stock falls short of upkeep. Population may decline.");
-                if (site != campaign.CapitalCell) DrawLocalFoodReserve(site, isolated);
             }
+            if (site != campaign.CapitalCell) DrawLocalFoodReserve(site, campaign.IsFoodIsolated(site));
             DrawTownUpgrade(site);
             DrawSettlementGarrison(site);
             DrawSettlementRoad(site);
@@ -538,6 +538,13 @@ namespace GrandStrategy.WorldGeneration
             const int step = 5;
             var target = campaign.LocalFoodTarget(site);
             GUILayout.Label($"Local reserve {campaign.LocalFoodStock(site):N0}/{target:N0}");
+            var shipment = campaign.LocalFoodShipment(site);
+            if (shipment.Amount > 0)
+                GUILayout.Label(shipment.Held ? $"{shipment.Amount:N0} food waiting at a closed crossing."
+                    : $"{shipment.Amount:N0} food due in {shipment.Days:N0}d.");
+            if (shipment.Held && GUILayout.Button("Reroute held food delivery"))
+                saveStatus = campaign.TryRerouteHeldFoodShipment(site) ? "Food delivery rerouted overland."
+                    : "No alternate overland route is open.";
             GUILayout.BeginHorizontal();
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && target > 0;
@@ -549,7 +556,7 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.EndHorizontal();
             if (target > 0)
                 GUILayout.Label(isolated ? "Reserve replenishment waits for an open route."
-                    : "Filled from clan food after upkeep and protected reserves.");
+                    : "Supplies travel from the capital when the clan has food to spare.");
         }
 
         private void DrawSettlementRoad(int site)
@@ -1011,6 +1018,9 @@ namespace GrandStrategy.WorldGeneration
                 var held = campaign.SuppliesHeldAtFord(ford);
                 if (held.Shipments > 0)
                     GUILayout.Label($"{held.Shipments:N0} {(held.Shipments == 1 ? "shipment" : "shipments")} waiting | {held.Cargo:N0} iron");
+                var food = campaign.FoodHeldAtFord(ford);
+                if (food.Shipments > 0)
+                    GUILayout.Label($"{food.Shipments:N0} {(food.Shipments == 1 ? "shipment" : "shipments")} waiting | {food.Cargo:N0} food");
             }
         }
 
