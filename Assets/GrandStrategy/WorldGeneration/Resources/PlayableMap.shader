@@ -56,6 +56,7 @@ Shader "GrandStrategy/Playable Map"
         _ProvinceIndices ("Province indices", 2D) = "black" {}
         _ProvinceCorners ("Province corner offsets", 2D) = "black" {}
         _ProvinceGrid ("Province grid dimensions", Vector) = (1, 1, 0.5, 0.5)
+        [HideInInspector] _IndependentInfluence ("Independent influence", 2D) = "black" {}
         [HideInInspector] _OwnershipMask ("Active campaign ownership", 2D) = "black" {}
         [HideInInspector] _OwnershipColour ("Ownership colour", Vector) = (0, 0, 0, 1)
         [HideInInspector] _ShowOwnership ("Show ownership", Float) = 0
@@ -141,6 +142,7 @@ Shader "GrandStrategy/Playable Map"
             TEXTURE2D(_ProvinceIndices);
             SAMPLER(sampler_ProvinceIndices);
             TEXTURE2D(_ProductionSites);
+            TEXTURE2D(_IndependentInfluence);
             TEXTURE2D(_OwnershipMask); SAMPLER(sampler_OwnershipMask);
             TEXTURE2D(_ProvinceCorners);
             SAMPLER(sampler_ProvinceCorners);
@@ -873,6 +875,8 @@ Shader "GrandStrategy/Playable Map"
                 if (_ShowOwnership > 0.5)
                 {
                     float4 claim = SAMPLE_TEXTURE2D_LOD(_OwnershipMask, sampler_OwnershipMask, input.uv, 0);
+                    float independent = SAMPLE_TEXTURE2D_LOD(_IndependentInfluence, sampler_OwnershipMask, input.uv, 0).r;
+                    ground = lerp(ground, float3(0.65, 0.35, 0.76), independent * politicalCoverage * 0.55);
                     ground = lerp(ground, _OwnershipColour.rgb, claim.r * politicalCoverage * 0.48);
                     ground = lerp(ground, float3(1.0, 0.78, 0.26), claim.b * politicalCoverage * 0.32);
                     float border = saturate(claim.g * 1.4);

@@ -261,7 +261,8 @@ namespace GrandStrategy.WorldGeneration
                 clickedMapUv = hit.textureCoord;
                 clickedCell = surface.CellAt(clickedMapUv);
                 selectedCell = surface.ProvinceCellAt(hit.textureCoord);
-                selected = surface.Map.ProvinceAt[selectedCell];
+                selected = mapView == MapViewMode.Ownership && surface.IsIndependentTerritory(clickedCell)
+                    ? campaign.IndependentVillageRegion : surface.Map.ProvinceAt[selectedCell];
             }
 
             if (selected != previous || mapView == MapViewMode.Ownership)
@@ -544,7 +545,9 @@ namespace GrandStrategy.WorldGeneration
             var root = surface.InfluenceProvinceAt(clickedCell);
             if (root < 0)
             {
-                GUILayout.Label(clickedCell < 0 ? "Select a province" : "Outside settlement influence", hudHeading);
+                GUILayout.Label(clickedCell < 0 ? "Select a province"
+                    : surface.IsIndependentTerritory(clickedCell) ? "Independent village territory"
+                    : "Outside settlement influence", hudHeading);
                 return;
             }
 
@@ -1088,7 +1091,9 @@ namespace GrandStrategy.WorldGeneration
         private void DrawFoundSettlement()
         {
             var wasEnabled = GUI.enabled;
-            var validSite = clickedCell >= 0 && surface.Map.ProvinceAt[clickedCell] == selected
+            var rivalTerritory = surface.IsIndependentTerritory(clickedCell);
+            if (rivalTerritory) GUILayout.Label("An independent village claims this land.");
+            var validSite = !rivalTerritory && clickedCell >= 0 && surface.Map.ProvinceAt[clickedCell] == selected
                 && surface.CanSiteVillage(campaign, clickedCell);
             var provinceRoot = validSite ? surface.InfluenceProvinceAt(clickedCell) : -1;
             var party = validSite ? campaign.FoundingParty(clickedCell, provinceRoot) : (Origin: -1, People: 0);

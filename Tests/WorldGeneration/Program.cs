@@ -513,6 +513,11 @@ internal static class Program
             && highland.SettlementPopulation(0) == 100 - CampaignState.WarbandRecruits,
             "Highland clans must trade starting wood for coin and cheaper recruitment without reducing population cost.");
 
+        var frontierClaim = CampaignState.Found(map, key, 0, "Claims", 0, localCapitalClaim: true);
+        frontierClaim.IndependentTerritoryResolver = cell => cell == 1;
+        Require(!frontierClaim.TryFoundSettlement(1) && frontierClaim.Coin == CampaignState.StartingCoin
+            && frontierClaim.TryFoundSettlement(2), "Independent claims must prevent founding without charging resources.");
+
         var localIntegration = CampaignState.Found(map, key, 0, "Local integration", 0, localCapitalClaim: true);
         Require(!localIntegration.TryStartIntegration(1)
             && localIntegration.TryStartIntegration(1, ExpansionApproach.Diplomacy, settlementCell: 1),

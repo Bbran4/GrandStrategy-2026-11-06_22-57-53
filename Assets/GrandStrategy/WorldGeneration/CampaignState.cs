@@ -228,6 +228,7 @@ namespace GrandStrategy.WorldGeneration
         internal Func<int, bool> LandContactResolver { get; set; }
         internal Func<int, int> IndependentVillageSiteResolver { get; set; }
         internal Func<int, int> IndependentFarmSiteResolver { get; set; }
+        internal Func<int, bool> IndependentTerritoryResolver { get; set; }
         public int InfluenceRevision { get; private set; }
         public int FordAccessRevision { get; private set; }
 
@@ -320,7 +321,8 @@ namespace GrandStrategy.WorldGeneration
         {
             var province = SettlementProvince(cell);
             return cell != CapitalCell && cell != IndependentVillageCell && IsLand(map, province) && province != IntegrationTarget
-                && !data.SettlementCells.Contains(cell) && Coin >= SettlementCoin && Wood >= SettlementWoodCost;
+                && !data.SettlementCells.Contains(cell) && Coin >= SettlementCoin && Wood >= SettlementWoodCost
+                && IndependentTerritoryResolver?.Invoke(cell) != true;
         }
 
         public bool TryFoundSettlement(int cell, int provinceRoot = -1)
@@ -1961,7 +1963,9 @@ namespace GrandStrategy.WorldGeneration
                 var region = IndependentVillageRegion;
                 var population = IndependentPopulation(region);
                 if (population <= 0) return;
-                data.Pop[region] += Math.Min(int.MaxValue - data.Pop[region], Math.Max(1, population / 100));
+                var growth = Math.Min(int.MaxValue - data.Pop[region], Math.Max(1, population / 100));
+                data.Pop[region] += growth;
+                if (growth > 0) InfluenceRevision++;
                 if (data.IndependentVillageFoundedDay == 0) data.IndependentVillageFoundedDay = Day;
                 if (IndependentFarmCell < 0 && Day - data.IndependentVillageFoundedDay >= FoodInterval
                     && IndependentFarmSiteResolver != null)
@@ -1981,6 +1985,7 @@ namespace GrandStrategy.WorldGeneration
                     continue;
                 data.IndependentVillageSite = cell + 1;
                 data.IndependentVillageFoundedDay = Day;
+                InfluenceRevision++;
                 break;
             }
         }

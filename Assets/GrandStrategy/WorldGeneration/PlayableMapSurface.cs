@@ -37,6 +37,7 @@ namespace GrandStrategy.WorldGeneration
         private Texture2D regions;
         private Texture2D provinceCorners;
         private Texture2D ownership;
+        private Texture2D independentInfluence;
         private Texture2D productionSites;
         private MapViewMode viewMode = MapViewMode.Provinces;
         private readonly ProvinceShape provinceShape;
@@ -1080,6 +1081,7 @@ namespace GrandStrategy.WorldGeneration
             campaign.LandContactResolver = HasLandContact;
             campaign.IndependentVillageSiteResolver = FindIndependentVillageSite;
             campaign.IndependentFarmSiteResolver = FindIndependentFarmSite;
+            campaign.IndependentTerritoryResolver = IsIndependentTerritory;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();
@@ -1111,17 +1113,24 @@ namespace GrandStrategy.WorldGeneration
             return provinceProductionSites.TryGetValue(root + 1, out var sites) ? sites : 0;
         }
 
+        public bool IsIndependentTerritory(int cell)
+        {
+            if (cell < 0 || cell >= Map.ProvinceAt.Length || influenceCampaign == null || influenceCampaign.IndependentVillageCell < 0) return false;
+            RefreshInfluence(true);
+            return influenceRoots != null && influenceRoots[cell] < 0;
+        }
+
         public int InfluenceProvinceAt(int cell)
         {
             if (cell < 0 || cell >= Map.ProvinceAt.Length) return -1;
             RefreshInfluence(true);
-            return influenceRoots == null ? -1 : influenceRoots[cell] - 1;
+            return influenceRoots == null || influenceRoots[cell] <= 0 ? -1 : influenceRoots[cell] - 1;
         }
 
         public void HighlightInfluenceAt(int cell)
         {
             if (viewMode != MapViewMode.Ownership || influenceRoots == null) return;
-            var root = cell >= 0 && cell < influenceRoots.Length ? influenceRoots[cell] : 0;
+            var root = cell >= 0 && cell < influenceRoots.Length ? Mathf.Max(0, influenceRoots[cell]) : 0;
             if (root == highlightedInfluenceRoot) return;
 
             var pixels = ownership.GetRawTextureData<Color32>();
@@ -1147,6 +1156,16 @@ namespace GrandStrategy.WorldGeneration
 
             ownership ??= CreateTexture("Settlement influence", true, FilterMode.Bilinear, false);
             var pixels = ownership.GetRawTextureData<Color32>();
+            if (campaign.IndependentVillageCell >= 0 && independentInfluence == null)
+            {
+                independentInfluence = new Texture2D(Map.Width, Map.Height, TextureFormat.R8, false, true)
+                {
+                    name = "Independent village influence", hideFlags = HideFlags.DontSave,
+                    filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp
+                };
+                material.SetTexture("_IndependentInfluence", independentInfluence);
+            }
+            var independentPixels = independentInfluence == null ? default : independentInfluence.GetRawTextureData<byte>();
             influenceRoots ??= new int[pixels.Length];
             influenceCosts ??= new float[pixels.Length];
             Array.Clear(influenceRoots, 0, influenceRoots.Length);
@@ -1157,10 +1176,14 @@ namespace GrandStrategy.WorldGeneration
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
                 Spread(campaign.SettlementCells[i], campaign.SettlementProvinceRoots[i]);
 
+            if (campaign.IndependentVillageCell >= 0)
+                Spread(campaign.IndependentVillageCell, -1, campaign.IndependentPopulation(campaign.IndependentVillageRegion));
+
             for (var cell = 0; cell < pixels.Length; cell++)
             {
                 var root = influenceRoots[cell];
-                if (root == 0)
+                if (independentPixels.IsCreated) independentPixels[cell] = root < 0 ? (byte)255 : (byte)0;
+                if (root <= 0)
                 {
                     pixels[cell] = default;
                     continue;
@@ -1183,7 +1206,7 @@ namespace GrandStrategy.WorldGeneration
                 var east = x + 1 < Map.Width ? influenceRoots[cell + 1] : 0;
                 var south = cell >= Map.Width ? influenceRoots[cell - Map.Width] : 0;
                 var north = cell + Map.Width < pixels.Length ? influenceRoots[cell + Map.Width] : 0;
-                var frontier = west == 0 || east == 0 || south == 0 || north == 0;
+                var frontier = west <= 0 || east <= 0 || south <= 0 || north <= 0;
                 var internalBorder = west != root || east != root || south != root || north != root;
                 var border = frontier ? (byte)255 : internalBorder ? (byte)115 : (byte)0;
                 pixels[cell] = new Color32(255, border, root == highlightedInfluenceRoot ? (byte)255 : (byte)0, 0);
@@ -1202,26 +1225,27 @@ namespace GrandStrategy.WorldGeneration
             }
 
             ownership.Apply(false, false);
+            if (independentInfluence != null) independentInfluence.Apply(false, false);
             material.SetTexture("_OwnershipMask", ownership);
             displayedMilitaryPressure = pressure;
             influenceRevision = revision;
             UpdateOwnershipVisibility();
 
-            void Spread(int origin, int provinceRoot)
+            void Spread(int origin, int provinceRoot, int? residents = null)
             {
-                var population = campaign.SettlementPopulation(origin);
+                var population = residents ?? campaign.SettlementPopulation(origin);
                 // Express the reach in map units so the same world has comparable reach at higher raster resolutions.
                 var budget = Map.Height * Mathf.Clamp(.014f + .0014f * Mathf.Sqrt(population), .014f, .085f);
                 Flood(origin, budget, -1, (cell, cost) =>
                 {
                     var distance = cost / budget;
                     if (influenceRoots[cell] != 0 && distance >= influenceCosts[cell]) return;
-                    influenceRoots[cell] = provinceRoot + 1;
+                    influenceRoots[cell] = provinceRoot >= 0 ? provinceRoot + 1 : -1;
                     influenceCosts[cell] = distance;
-                });
+                }, useClanFords: provinceRoot >= 0);
             }
 
-            void Flood(int origin, float budget, int restrictedRegion, Action<int, float> paint)
+            void Flood(int origin, float budget, int restrictedRegion, Action<int, float> paint, bool useClanFords = false)
             {
                 var costs = new Dictionary<int, float> { [origin] = 0f };
                 var frontier = new SortedSet<(float Cost, int Cell)> { (0f, origin) };
@@ -1244,7 +1268,7 @@ namespace GrandStrategy.WorldGeneration
                         if (water[next] != WaterKind.Land
                             || (restrictedRegion < 0 && Map.IsFord(next) && campaign.IsFordClosed(next))
                             || (restrictedRegion >= 0 && (Map.ProvinceAt[next] != restrictedRegion || IsRiver(next)))) return;
-                        var securedCrossing = restrictedRegion < 0 && (Map.IsFord(cell) || Map.IsFord(next))
+                        var securedCrossing = useClanFords && (Map.IsFord(cell) || Map.IsFord(next))
                             && Map.CanMarchBetween(cell, next)
                             && (campaign.CanUseSupplyFord(cell) || campaign.CanUseSupplyFord(next));
                         var cost = step.Cost + (securedCrossing ? 1f
@@ -1301,6 +1325,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
             UnityEngine.Object.Destroy(ownership);
+            UnityEngine.Object.Destroy(independentInfluence);
             UnityEngine.Object.Destroy(productionSites);
             UnityEngine.Object.Destroy(biomeSurface);
             UnityEngine.Object.Destroy(riverFlow);
