@@ -1356,8 +1356,10 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.EndHorizontal();
             GUILayout.Label($"Field rations {campaign.WarbandRations}/{CampaignState.WarbandRationCapacity} | "
                 + $"{campaign.WarbandFoodCost} food / {CampaignState.ProductionInterval} days");
-            if (campaign.WarbandShortOnFood && campaign.WarbandSupply != WarbandSupplyPolicy.Forage)
-                GUILayout.Label("Short on rations | Moving at foraging pace");
+            if (campaign.WarbandShortOnFood)
+                GUILayout.Label(campaign.WarbandSupply == WarbandSupplyPolicy.Forage
+                    ? "Foraging | Recover at the next upkeep on dry ground"
+                    : "Short on rations | Moving at foraging pace");
             var packable = campaign.PackableWarbandRations;
             var packEnabled = GUI.enabled;
             GUI.enabled = packEnabled && packable > 0;
@@ -1377,9 +1379,12 @@ namespace GrandStrategy.WorldGeneration
             if (campaign.WarbandCommitted)
             {
                 GUILayout.Label("Warband committed | Trade with the target is suspended");
+                if (campaign.WarbandSupply == WarbandSupplyPolicy.Forage)
+                    GUILayout.Label("Foraging reduces the reach of occupation.");
                 if (campaign.MilitaryObjectiveCell >= 0)
                 {
-                    GUILayout.Label(campaign.IndependentVillageOccupied
+                    GUILayout.Label(campaign.WarbandShortOnFood ? "Short on rations | Objective hold broken"
+                        : campaign.IndependentVillageOccupied
                         ? $"Objective occupied | {Math.Min(campaign.ObjectiveOccupiedDays, campaign.ObjectiveHoldDaysRequired)}/{campaign.ObjectiveHoldDaysRequired} days held"
                         : $"Objective beyond occupation | Requires {campaign.ObjectiveHoldDaysRequired} consecutive days held");
                     if (GUILayout.Button("View objective village"))

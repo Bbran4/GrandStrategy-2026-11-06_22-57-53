@@ -705,7 +705,7 @@ namespace GrandStrategy.WorldGeneration
         public int IndependentOutpostCell => data.IndependentOutpostSite - 1;
         public int IndependentVillageCell => data.IndependentVillageSite - 1;
         public bool IndependentVillageOccupied => IndependentVillageCell >= 0 && WarbandCommitted
-            && MilitaryOccupationResolver?.Invoke(IndependentVillageCell) == true;
+            && !WarbandShortOnFood && MilitaryOccupationResolver?.Invoke(IndependentVillageCell) == true;
         public bool IndependentVillageGuarded => data.IndependentVillageGuarded;
         public int IndependentFarmCell => data.IndependentFarmSite - 1;
         public int IndependentVillageRegion => SettlementProvince(IndependentVillageCell);
@@ -1223,7 +1223,15 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
-        public float MilitaryPressure => WarbandCommitted ? (ForceDuration - IntegrationDaysLeft + 1f) / ForceDuration : 0f;
+        public float MilitaryPressure
+        {
+            get
+            {
+                if (!WarbandCommitted) return 0f;
+                var supplyMultiplier = WarbandShortOnFood ? .40f : WarbandSupply == WarbandSupplyPolicy.Forage ? .75f : 1f;
+                return (ForceDuration - IntegrationDaysLeft + 1f) / ForceDuration * supplyMultiplier;
+            }
+        }
         public bool WarbandAt(int province) => HasWarband && WarbandTravelDays == 0
             && province >= 0 && ProvinceAt(map, WarbandCell) == province;
         public int WarbandHomeCell => data.WarbandHomeSite > 0 ? data.WarbandHomeSite - 1 : CapitalCell;
@@ -1280,13 +1288,19 @@ namespace GrandStrategy.WorldGeneration
         private void SupplyWarband()
         {
             var need = WarbandFoodCost;
-            if (need == 0) return;
+            if (need == 0)
+            {
+                if (WarbandShortOnFood && map.IsMarchCell(WarbandCell) && !map.IsFord(WarbandCell))
+                    data.WarbandShortOnFood = false;
+                return;
+            }
 
             var site = WarbandSupplySettlement;
             if (site >= 0) need -= DrawWarbandFood(site, need);
             var carried = Math.Min(data.WarbandRations, need);
             data.WarbandRations -= carried;
             data.WarbandShortOnFood = carried < need;
+            if (WarbandShortOnFood) data.ObjectiveOccupiedDays = 0;
         }
 
         private int DrawWarbandFood(int site, int need)
@@ -2094,6 +2108,7 @@ namespace GrandStrategy.WorldGeneration
             else
                 state.ValidateTradeAgreements();
             state.ReplaceVacantProvinceSeats();
+            if (state.WarbandShortOnFood) save.ObjectiveOccupiedDays = 0;
             if (state.Day < int.MaxValue) state.UpdateSupplyWaits();
             return state;
         }
@@ -2990,7 +3005,8 @@ namespace GrandStrategy.WorldGeneration
                 var previousDay = Day;
                 var interval = Day >= WinterStart && Day < WinterEnd ? ProductionInterval : FoodInterval;
                 var span = Math.Min(destination - Day, interval - Day % interval);
-                if (WarbandFoodCost > 0) span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
+                if (WarbandFoodCost > 0 || WarbandShortOnFood)
+                    span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
                 foreach (var site in data.Construction)
                 {
                     if (site.Cell == CapitalCell || (site.Buildings & (int)SettlementBuilding.IronMine) == 0) continue;

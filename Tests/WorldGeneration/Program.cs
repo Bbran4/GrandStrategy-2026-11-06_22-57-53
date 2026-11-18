@@ -672,10 +672,13 @@ internal static class Program
         var occupied = CampaignState.Found(map, key, 0, "Occupation", 0, localCapitalClaim: true);
         occupied.IndependentVillageSiteResolver = region => region == 1 ? 1 : -1;
         occupied.MilitaryOccupationResolver = cell => cell == 1;
-        Require(occupied.TryRecruitWarband() && occupied.TryMarchWarband(new List<int> { 0, 1 }),
-            "The occupation fixture requires a warband in the target region.");
+        Require(occupied.TryRecruitWarband() && occupied.TryPackWarbandRations()
+            && occupied.TryMarchWarband(new List<int> { 0, 1 }),
+            "The occupation fixture requires a provisioned warband in the target region.");
+        occupied.SetWarbandSupply(WarbandSupplyPolicy.Forage);
         occupied.Paused = false;
         occupied.Advance(27);
+        occupied.SetWarbandSupply(WarbandSupplyPolicy.Standard);
         var beforeOccupation = occupied.IndependentPopulation(1);
         Require(occupied.TryStartIntegration(1, ExpansionApproach.Force) && occupied.IndependentVillageOccupied,
             "The independent village must detect occupation in the target region.");
@@ -714,6 +717,46 @@ internal static class Program
         guarded.Paused = false;
         Require(guarded.Advance(1) && guarded.SettlementCells.Contains(1),
             "A third consecutive day of restored occupation must capture the guarded village.");
+        var shortOperationSave = JsonSerializer.Deserialize<CampaignSave>(operationSave, json);
+        shortOperationSave.WarbandRations = 0;
+        shortOperationSave.IndependentVillageGuarded = true;
+        var shortOperation = CampaignState.Restore(map, key, shortOperationSave, 5);
+        shortOperation.MilitaryOccupationResolver = _ => true;
+        shortOperation.Paused = false;
+        shortOperation.Advance(1);
+        var pressureBeforeShortage = shortOperation.MilitaryPressure;
+        Require(shortOperation.ObjectiveOccupiedDays == 1 && shortOperation.IndependentVillageOccupied,
+            "An objective can be held before the first missed ration.");
+        shortOperation.Advance(1);
+        Require(shortOperation.WarbandShortOnFood && shortOperation.ObjectiveOccupiedDays == 0
+            && !shortOperation.IndependentVillageOccupied && shortOperation.MilitaryPressure < pressureBeforeShortage,
+            "Missing supply must immediately break the hold streak and shrink the occupation.");
+
+        var hungryOperationSave = JsonSerializer.Serialize(shortOperation.ToSave(), json);
+        var stillShort = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(hungryOperationSave, json), 5);
+        stillShort.MilitaryOccupationResolver = _ => true;
+        stillShort.Paused = false;
+        Require(!stillShort.Advance(stillShort.IntegrationDaysLeft) && stillShort.OperationMissedObjective,
+            "A hungry warband must fail to capture the objective even when the village stays within reach.");
+        shortOperation = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(hungryOperationSave, json), 5);
+        shortOperation.MilitaryOccupationResolver = _ => true;
+        shortOperation.SetWarbandSupply(WarbandSupplyPolicy.Forage);
+        shortOperation.Paused = false;
+        shortOperation.Advance(4);
+        Require(shortOperation.WarbandShortOnFood && shortOperation.ObjectiveOccupiedDays == 0,
+            "Switching to forage must wait for the next upkeep to restore the hold.");
+        shortOperation.Advance(1);
+        Require(!shortOperation.WarbandShortOnFood && shortOperation.IndependentVillageOccupied
+            && shortOperation.ObjectiveOccupiedDays == 0
+            && shortOperation.MilitaryPressure < 1f,
+            "Foraging at upkeep must recover the unit with reduced occupation reach.");
+        var foragingPressure = shortOperation.MilitaryPressure;
+        shortOperation.SetWarbandSupply(WarbandSupplyPolicy.Standard);
+        Require(shortOperation.MilitaryPressure > foragingPressure, "A supplied stance must extend occupation beyond forage.");
+        shortOperation.SetWarbandSupply(WarbandSupplyPolicy.Forage);
+        Require(shortOperation.Advance(3) && shortOperation.SettlementCells.Contains(1),
+            "A recovered warband must hold the objective for three fresh consecutive days.");
+
         occupied.Advance(2);
         Require(occupied.IndependentPopulation(1) == beforeOccupation && occupied.TryWithdrawWarband()
             && !occupied.IndependentVillageOccupied, "Occupation must suspend village growth and end on withdrawal.");
