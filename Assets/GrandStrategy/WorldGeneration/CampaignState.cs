@@ -216,13 +216,13 @@ namespace GrandStrategy.WorldGeneration
             if (!CanFoundSettlement(cell)
                 || (provinceRoot != -1 && provinceRoot != CapitalCell
                     && !data.SettlementProvinceRoots.Contains(provinceRoot))) return false;
-            var donor = provinceRoot == -1 ? -1 : FindSettlerDonor(cell, provinceRoot);
-            if (provinceRoot != -1 && (donor < 0 || data.SettlementPopulations[donor] < 2)) return false;
+            var party = PlanFoundingParty(cell, provinceRoot);
+            if (party.People == 0) return false;
             data.Coin -= SettlementCoin;
             data.Wood -= SettlementWood;
             data.SettlementCells.Add(cell);
             data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
-            AllocateSettlers(cell, donor);
+            AllocateSettlers(cell, party.Donor, party.People);
             var province = SettlementProvince(cell);
             if (!Owns(province))
             {
@@ -256,13 +256,49 @@ namespace GrandStrategy.WorldGeneration
             return donor;
         }
 
-        private void AllocateSettlers(int cell, int donor = -1)
+        public (int Origin, int People) FoundingParty(int cell, int provinceRoot)
+        {
+            var party = PlanFoundingParty(cell, provinceRoot);
+            return party.People == 0 ? (-1, 0) : (SettlementCellAt(party.Donor), party.People);
+        }
+
+        private (int Donor, int People) PlanFoundingParty(int cell, int provinceRoot)
+        {
+            var region = SettlementProvince(cell);
+            if (!IsLand(map, region)) return (-1, 0);
+
+            var donor = provinceRoot >= 0 ? FindSettlerDonor(cell, provinceRoot) : -1;
+            if (provinceRoot < 0)
+            {
+                var nearest = long.MaxValue;
+                for (var i = 0; i < data.SettlementPopulations.Count; i++)
+                {
+                    if (data.SettlementPopulations[i] < 2) continue;
+                    var origin = SettlementCellAt(i);
+                    var x = (long)(origin % map.Width - cell % map.Width);
+                    var y = (long)(origin / map.Width - cell / map.Width);
+                    var distance = x * x + y * y;
+                    if (distance >= nearest) continue;
+                    nearest = distance;
+                    donor = i;
+                }
+            }
+            if (donor < 0 || data.SettlementPopulations[donor] < 2) return (-1, 0);
+
+            var population = data.SettlementPopulations[donor];
+            var people = provinceRoot >= 0 ? population / 2 : Math.Min(50, Math.Max(1, population / 4));
+            if (SettlementProvince(SettlementCellAt(donor)) != region)
+                people = Math.Min(people, int.MaxValue - data.Pop[region]);
+            return (donor, people);
+        }
+
+        private void AllocateSettlers(int cell, int donor = -1, int plannedPeople = -1)
         {
             var region = SettlementProvince(cell);
             var localDonor = FindSettlerDonor(cell, -1);
             if (donor < 0) donor = localDonor;
             var residents = localDonor < 0 ? data.Pop[region] : 0;
-            var settlers = donor < 0 ? 0 : data.SettlementPopulations[donor] / 2;
+            var settlers = donor < 0 ? 0 : plannedPeople >= 0 ? plannedPeople : data.SettlementPopulations[donor] / 2;
             if (donor >= 0)
             {
                 var source = SettlementProvince(SettlementCellAt(donor));

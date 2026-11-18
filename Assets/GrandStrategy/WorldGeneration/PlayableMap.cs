@@ -766,20 +766,27 @@ namespace GrandStrategy.WorldGeneration
         private void DrawFoundSettlement()
         {
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanFoundSettlement(clickedCell)
-                && surface.Map.ProvinceAt[clickedCell] == selected
+            var validSite = clickedCell >= 0 && surface.Map.ProvinceAt[clickedCell] == selected
                 && surface.CanSiteVillage(settlement, clickedCell);
+            var provinceRoot = validSite ? surface.InfluenceProvinceAt(clickedCell) : -1;
+            var party = validSite ? campaign.FoundingParty(clickedCell, provinceRoot) : (Origin: -1, People: 0);
             if (clickedCell >= 0 && surface.IsDryLand(clickedCell) && SelectedConstructionSite < 0)
             {
                 var sites = surface.SurveyProductionSites(clickedCell);
                 GUILayout.Label("Nearby production sites");
                 GUILayout.Label(sites == 0 ? "None within city limits" : DescribeProductionSites(sites));
             }
+            if (validSite)
+            {
+                GUILayout.Label(party.People == 0 ? "No settlement can send people to this site."
+                    : $"{party.People:N0} settlers from {(party.Origin == campaign.CapitalCell ? "the capital" : "a village")} | "
+                        + (provinceRoot < 0 ? "New province" : "Joins existing province"));
+            }
+            GUI.enabled = wasEnabled && validSite && party.People > 0 && campaign.CanFoundSettlement(clickedCell);
             var claimed = !campaign.Owns(selected);
-            var action = claimed ? "Found and claim region" : "Found settlement";
+            var action = provinceRoot < 0 ? "Found new province" : "Found village";
             if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)"))
             {
-                var provinceRoot = surface.InfluenceProvinceAt(clickedCell);
                 if (campaign.TryFoundSettlement(clickedCell, provinceRoot))
                 {
                     surface.RefreshVillage(campaign, clickedCell);

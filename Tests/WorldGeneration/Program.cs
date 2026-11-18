@@ -537,7 +537,11 @@ internal static class Program
         var settlers = CampaignState.Found(map, key, 0, "Settlers", 0);
         Require(!settlers.TryFoundSettlement(recipe.Width) && settlers.Coin == CampaignState.StartingCoin,
             "Founding on water must leave resources untouched.");
-        Require(settlers.TryFoundSettlement(1) && settlers.Owns(1) && settlers.SettlementCells.Contains(1)
+        var colonists = settlers.FoundingParty(1, -1);
+        Require(colonists.Origin == 0 && colonists.People > 0
+            && settlers.TryFoundSettlement(1) && settlers.Owns(1) && settlers.SettlementCells.Contains(1)
+            && settlers.SettlementPopulation(0) == originalCapital - colonists.People
+            && settlers.SettlementPopulation(1) == originalResidents + colonists.People
             && settlers.Coin == CampaignState.StartingCoin - CampaignState.SettlementCoin,
             "Founding on independent land must register the settlement and claim its region.");
         Require(settlers.TryBuildAtSettlement(1, SettlementBuilding.Farm, 1)
