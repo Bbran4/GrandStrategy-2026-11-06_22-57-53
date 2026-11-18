@@ -637,11 +637,27 @@ internal static class Program
         Require(passage.TryRecruitWarband() && passage.TryStartIntegration(0, ExpansionApproach.Force)
             && passage.IsPassageSuspended(fordCell) && passage.GetOverlandIronRoute(mineSite) == null,
             "A passage partner must suspend access and invalidate civilian routes during hostilities.");
-        var hostilePassage = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(passage.ToSave(), json), json);
-        passage = CampaignState.Restore(portsMap, "passage", hostilePassage, 5);
+        var hostilePassage = JsonSerializer.Serialize(passage.ToSave(), json);
+        passage = CampaignState.Restore(portsMap, "passage", JsonSerializer.Deserialize<CampaignSave>(hostilePassage, json), 5);
         Require(passage.IsPassageSuspended(fordCell) && passage.TryWithdrawWarband()
             && !passage.IsPassageSuspended(fordCell) && passage.GetOverlandIronRoute(mineSite).Contains(fordCell),
             "Suspension must restore with hostilities and lift when the operation ends.");
+        var contest = CampaignState.Restore(portsMap, "passage", JsonSerializer.Deserialize<CampaignSave>(
+            hostilePassage, json), 5);
+        contest.Paused = false;
+        contest.Advance(2);
+        Require(!contest.IsFordHeldByRival(fordCell), "Suspension must precede a rival takeover.");
+        contest.Advance(1);
+        Require(contest.IsFordHeldByRival(fordCell) && contest.TryWithdrawWarband() && contest.IsFordClosed(fordCell)
+            && contest.GetOverlandIronRoute(mineSite) == null, "A rival takeover must outlast a withdrawal.");
+        var contested = JsonSerializer.Serialize(contest.ToSave(), json);
+        var retake = CampaignState.Restore(portsMap, "passage", JsonSerializer.Deserialize<CampaignSave>(contested, json), 5);
+        Require(retake.TrySecureFord(fordCell) && retake.IsFordSecured(fordCell) && !retake.IsFordHeldByRival(fordCell)
+            && retake.GetOverlandIronRoute(mineSite).Contains(fordCell), "A warband on the bank must be able to retake the crossing.");
+        var renewed = CampaignState.Restore(portsMap, "passage", JsonSerializer.Deserialize<CampaignSave>(contested, json), 5);
+        Require(renewed.TryNegotiateFordPassage(fordCell) && !renewed.IsFordHeldByRival(fordCell)
+            && !renewed.IsFordSecured(fordCell) && renewed.GetOverlandIronRoute(mineSite).Contains(fordCell),
+            "Renewed passage must reopen a rival-held crossing without a military claim.");
 
         var portsSave = CampaignState.Found(portsMap, "ports", fordCell - 1, "Ports", 0).ToSave();
         portsSave.Coin = portsSave.Wood = 200;

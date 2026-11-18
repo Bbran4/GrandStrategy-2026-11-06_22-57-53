@@ -143,6 +143,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> SecuredFords;
         public List<int> ClosedFords;
         public List<int> PassageFords;
+        public List<int> RivalHeldFords;
         public List<int> PassagePartners; // Region index plus one. Zero represents older agreements.
         public bool IronWarband;
         public int FoodReserve;
@@ -211,6 +212,7 @@ namespace GrandStrategy.WorldGeneration
         public const int PactCost = 12;
         private const int PactDuration = 20;
         private const int ForceDuration = 10;
+        private const int RivalFordResponseDays = 3;
 
         private readonly ProvinceMap map;
         private readonly CampaignSave data;
@@ -221,6 +223,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly Dictionary<int, List<int>> ironSupplyRoutes = new Dictionary<int, List<int>>();
         internal Func<int, bool> LandContactResolver { get; set; }
         public int InfluenceRevision { get; private set; }
+        public int FordAccessRevision { get; private set; }
 
         private CampaignState(ProvinceMap map, CampaignSave data)
         {
@@ -260,6 +263,15 @@ namespace GrandStrategy.WorldGeneration
             foreach (var partner in data.PassagePartners)
                 if (partner < 0 || (partner > 0 && !IsLand(map, partner - 1)))
                     throw new ArgumentException("The save contains an invalid passage partner.");
+
+            data.RivalHeldFords ??= new List<int>();
+            var rivalFords = new HashSet<int>();
+            foreach (var ford in data.RivalHeldFords)
+            {
+                var index = data.PassageFords.IndexOf(ford);
+                if (index < 0 || data.PassagePartners[index] == 0 || IsFordSecured(ford) || !rivalFords.Add(ford))
+                    throw new ArgumentException("The save contains invalid rival ford control.");
+            }
 
             data.Towns ??= new List<int>();
             data.TownSpecialisations ??= new List<TownSpecialisation>();
@@ -523,13 +535,23 @@ namespace GrandStrategy.WorldGeneration
             return index >= 0 && data.PassagePartners[index] == IntegrationTarget + 1;
         }
 
-        public bool IsFordClosed(int cell) => data.ClosedFords.Contains(cell) || IsPassageSuspended(cell);
+        public bool IsFordHeldByRival(int cell) => data.RivalHeldFords.Contains(cell);
+        public bool IsFordClosed(int cell)
+            => data.ClosedFords.Contains(cell) || IsPassageSuspended(cell) || IsFordHeldByRival(cell);
         public bool HasFordPassage(int cell) => data.PassageFords.Contains(cell);
         public bool CanUseSupplyFord(int cell) => !IsFordClosed(cell) && (IsFordSecured(cell) || HasFordPassage(cell));
 
         public int FordPassagePartner(int ford)
         {
-            if (!map.IsFord(ford) || IsFordSecured(ford) || HasFordPassage(ford)) return -1;
+            if (!map.IsFord(ford) || IsFordSecured(ford)) return -1;
+            var agreement = data.PassageFords.IndexOf(ford);
+            if (agreement >= 0)
+            {
+                if (!IsFordHeldByRival(ford)) return -1;
+                var holder = data.PassagePartners[agreement] - 1;
+                return CanReachIndependentProvince(holder) && (!WarbandCommitted || IntegrationTarget != holder)
+                    ? holder : -1;
+            }
             var x = ford % map.Width;
             var candidates = new[]
             {
@@ -551,8 +573,11 @@ namespace GrandStrategy.WorldGeneration
             var partner = FordPassagePartner(ford);
             if (Coin < FordPassageCoin || partner < 0) return false;
             data.Coin -= FordPassageCoin;
-            data.PassageFords.Add(ford);
-            data.PassagePartners.Add(partner + 1);
+            if (!data.RivalHeldFords.Remove(ford))
+            {
+                data.PassageFords.Add(ford);
+                data.PassagePartners.Add(partner + 1);
+            }
             RefreshFordAccess();
             return true;
         }
@@ -568,6 +593,7 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!CanSecureFord(cell)) return false;
             data.SecuredFords.Add(cell);
+            data.RivalHeldFords.Remove(cell);
             RefreshFordAccess();
             return true;
         }
@@ -619,6 +645,7 @@ namespace GrandStrategy.WorldGeneration
         {
             ironSupplyRoutes.Clear();
             InfluenceRevision++;
+            FordAccessRevision++;
             UpdateHeldShipments();
         }
 
@@ -1847,6 +1874,9 @@ namespace GrandStrategy.WorldGeneration
                     span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
                     if (site.IronInTransit > 0 && site.IronHoldDay == 0) span = Math.Min(span, site.IronArrivalDay - Day);
                 }
+                if (WarbandCommitted && IntegrationDaysLeft > ForceDuration - RivalFordResponseDays
+                    && data.PassagePartners.Contains(IntegrationTarget + 1))
+                    span = Math.Min(span, IntegrationDaysLeft - (ForceDuration - RivalFordResponseDays));
                 if (IntegrationTarget >= 0 && IntegrationDaysLeft <= span)
                     span = Math.Max(1, IntegrationDaysLeft - 1);
                 data.Day += span;
@@ -1938,6 +1968,8 @@ namespace GrandStrategy.WorldGeneration
         {
             if (IntegrationTarget == -1) return false;
             data.IntegrationDaysLeft = Math.Max(0, IntegrationDaysLeft - days);
+            if (WarbandCommitted && IntegrationDaysLeft <= ForceDuration - RivalFordResponseDays)
+                ContestPassageFords(IntegrationTarget);
             if (IntegrationDaysLeft > 0) return false;
 
             var target = IntegrationTarget;
@@ -1971,11 +2003,26 @@ namespace GrandStrategy.WorldGeneration
             if (!UsesLocalIntegration || destination < 0) data.Owned[target] = true;
             InfluenceRevision++;
             CancelTradeAgreement(target);
-            ClearIntegration();
+            var releasedFords = data.RivalHeldFords.RemoveAll(
+                ford => data.PassagePartners[data.PassageFords.IndexOf(ford)] == target + 1);
+            ClearIntegration(releasedFords > 0);
             return true;
         }
 
-        private void ClearIntegration()
+        private void ContestPassageFords(int region)
+        {
+            var changed = false;
+            for (var i = 0; i < data.PassageFords.Count; i++)
+            {
+                var ford = data.PassageFords[i];
+                if (data.PassagePartners[i] != region + 1 || IsFordSecured(ford) || IsFordHeldByRival(ford)) continue;
+                data.RivalHeldFords.Add(ford);
+                changed = true;
+            }
+            if (changed) RefreshFordAccess();
+        }
+
+        private void ClearIntegration(bool fordControlChanged = false)
         {
             var passageSuspended = WarbandCommitted && data.PassagePartners.Contains(IntegrationTarget + 1);
             data.IntegrationTarget = -1;
@@ -1983,7 +2030,7 @@ namespace GrandStrategy.WorldGeneration
             data.IntegrationSettlementSite = 0;
             data.IntegrationProvinceRoot = 0;
             data.PendingApproach = ExpansionApproach.None;
-            if (passageSuspended) RefreshFordAccess();
+            if (passageSuspended || fordControlChanged) RefreshFordAccess();
         }
 
         private void AddFood(long amount) => data.Food = (int)Math.Min(ResourceLimit, Math.Max(0, Food + amount));

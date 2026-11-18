@@ -67,7 +67,7 @@ namespace GrandStrategy.WorldGeneration
         private float[] influenceCosts;
         private float displayedMilitaryPressure;
         private CampaignState resourceMapCampaign;
-        private int fordDisplayOperation = -1;
+        private int fordDisplayRevision = -1;
         private int influenceRevision = -1;
         private readonly Dictionary<int, SettlementBuilding> provinceProductionSites = new Dictionary<int, SettlementBuilding>();
         private readonly HashSet<int> landContacts = new HashSet<int>();
@@ -604,9 +604,9 @@ namespace GrandStrategy.WorldGeneration
         public void RefreshPassageDisplay()
         {
             if (productionSites == null || influenceCampaign == null) return;
-            var operation = influenceCampaign.WarbandCommitted ? influenceCampaign.IntegrationTarget : -1;
-            if (operation == fordDisplayOperation) return;
-            fordDisplayOperation = operation;
+            var revision = influenceCampaign.FordAccessRevision;
+            if (revision == fordDisplayRevision) return;
+            fordDisplayRevision = revision;
             if (influenceCampaign.PassageFords.Count == 0) return;
             var pixels = productionSites.GetRawTextureData<Color32>();
             foreach (var ford in influenceCampaign.PassageFords)

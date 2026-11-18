@@ -439,7 +439,8 @@ namespace GrandStrategy.WorldGeneration
 
         private void DrawFordDetails()
         {
-            GUILayout.Label(campaign?.IsPassageSuspended(clickedCell) == true ? "Community suspended civilian passage"
+            GUILayout.Label(campaign?.IsFordHeldByRival(clickedCell) == true ? "Ford held by a rival community"
+                : campaign?.IsPassageSuspended(clickedCell) == true ? "Community suspended civilian passage"
                 : campaign?.IsFordClosed(clickedCell) == true ? "Ford closed to civilian traffic"
                 : campaign?.IsFordSecured(clickedCell) == true ? "Secured ford | Open to civilian traffic"
                 : campaign?.HasFordPassage(clickedCell) == true ? "Ford | Negotiated civilian passage"
@@ -992,7 +993,8 @@ namespace GrandStrategy.WorldGeneration
                 var canIssueOrder = secured ? campaign.CanChangeFordAccess(clickedCell) : campaign.CanSecureFord(clickedCell);
                 var enabled = GUI.enabled;
                 GUI.enabled = enabled && canIssueOrder;
-                var order = secured ? (closed ? "Reopen ford" : "Close ford to civilian traffic") : "Secure ford";
+                var order = secured ? (closed ? "Reopen ford" : "Close ford to civilian traffic")
+                    : campaign.IsFordHeldByRival(clickedCell) ? "Retake ford" : "Secure ford";
                 if (GUILayout.Button(order) && (secured ? campaign.TryChangeFordAccess(clickedCell) : campaign.TrySecureFord(clickedCell)))
                 {
                     surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
