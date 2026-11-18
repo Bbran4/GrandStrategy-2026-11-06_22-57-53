@@ -509,6 +509,15 @@ internal static class Program
         Require(march.WarbandCell == 1 && march.WarbandTravelDays == 0,
             "A marching warband must reach its destination on the campaign clock.");
 
+        var frontier = CampaignState.Found(map, key, 0, "Frontier", 0);
+        frontier.LandContactResolver = province => province == 2;
+        Require(!frontier.CanTradeWith(1) && !frontier.TryStartIntegration(1)
+            && frontier.CanTradeWith(2) && frontier.TryStartIntegration(2),
+            "Settlement contact must govern land trade and integration even across authored boundaries.");
+        var frontierSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(frontier.ToSave(), json), json);
+        Require(CampaignState.Restore(map, key, frontierSave, 5).IntegrationTarget == 2,
+            "An integration opened by settlement contact must survive save and load.");
+
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);
         heavyTaxes.SetTaxPolicy(TaxPolicy.Heavy);

@@ -157,6 +157,8 @@ namespace GrandStrategy.WorldGeneration
         private readonly CampaignSave data;
         private double fractionOfDay;
         private HashSet<int> dockWaterways;
+        internal Func<int, bool> LandContactResolver { get; set; }
+        public int InfluenceRevision { get; private set; }
 
         private CampaignState(ProvinceMap map, CampaignSave data)
         {
@@ -223,6 +225,7 @@ namespace GrandStrategy.WorldGeneration
             data.SettlementCells.Add(cell);
             data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
             AllocateSettlers(cell, party.Donor, party.People);
+            InfluenceRevision++;
             var province = SettlementProvince(cell);
             if (!Owns(province))
             {
@@ -383,6 +386,7 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!CanSecureFord(cell)) return false;
             data.SecuredFords.Add(cell);
+            InfluenceRevision++;
             return true;
         }
 
@@ -617,7 +621,7 @@ namespace GrandStrategy.WorldGeneration
             if (target == -1 ? save.IntegrationDaysLeft != 0 || pending != ExpansionApproach.None
                 : pending == ExpansionApproach.None || !Enum.IsDefined(typeof(ExpansionApproach), pending)
                     || save.IntegrationDaysLeft < 1 || save.IntegrationDaysLeft > DaysFor(pending)
-                    || !state.CanReachIndependentProvince(target))
+                    || !IsLand(map, target) || state.Owns(target))
                 throw new ArgumentException("The save contains invalid integration progress.");
 
             if (legacy)
@@ -672,6 +676,7 @@ namespace GrandStrategy.WorldGeneration
         public bool CanReachIndependentProvince(int province)
         {
             if (!IsLand(map, province) || Owns(province)) return false;
+            if (LandContactResolver != null) return LandContactResolver(province);
             var neighbours = map.Provinces[province].Neighbours;
             if (neighbours != null)
                 foreach (var neighbour in neighbours)
@@ -1205,6 +1210,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 ProcessTradeAgreements();
                 FeedPopulation();
+                if (data.LastPopulationChange != 0) InfluenceRevision++;
             }
             if (taxes > 0)
             {
@@ -1284,6 +1290,7 @@ namespace GrandStrategy.WorldGeneration
         {
             var loss = Math.Min(amount, Math.Max(0, data.Pop[province] - 1));
             data.Pop[province] -= loss;
+            if (loss > 0) InfluenceRevision++;
             for (var i = 0; i < data.SettlementPopulations.Count && loss > 0; i++)
             {
                 if (SettlementProvince(SettlementCellAt(i)) != province) continue;

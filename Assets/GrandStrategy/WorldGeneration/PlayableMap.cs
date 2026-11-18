@@ -552,7 +552,7 @@ namespace GrandStrategy.WorldGeneration
             }
             if (!campaign.CanReachIndependentProvince(selected))
             {
-                GUILayout.Label("Integration requires a land border with a province you own.");
+                GUILayout.Label("Settlement influence must reach this region for land trade or integration.");
                 return;
             }
             if (selected == campaign.IntegrationTarget)
@@ -929,9 +929,8 @@ namespace GrandStrategy.WorldGeneration
         private void DrawNearbyCommunities()
         {
             var map = surface.Map;
-            var neighbours = map.Provinces[campaign.Capital].Neighbours ?? Array.Empty<int>();
             var listed = 0;
-            foreach (var neighbour in neighbours)
+            for (var neighbour = 0; neighbour < map.Provinces.Length; neighbour++)
             {
                 if (!campaign.CanReachIndependentProvince(neighbour)) continue;
                 if (listed++ == 0) GUILayout.Label("Nearby independent communities");

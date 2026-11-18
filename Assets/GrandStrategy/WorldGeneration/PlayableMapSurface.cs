@@ -55,7 +55,8 @@ namespace GrandStrategy.WorldGeneration
         private float[] influenceCosts;
         private float displayedMilitaryPressure;
         private CampaignState resourceMapCampaign;
-        private int influenceFoodPeriod = -1;
+        private int influenceRevision = -1;
+        private readonly HashSet<int> landContacts = new HashSet<int>();
 
         public ProvinceMap Map { get; }
         public bool HasTerritories => borders.HasTerritories;
@@ -832,6 +833,7 @@ namespace GrandStrategy.WorldGeneration
         public void SetOwnership(CampaignState campaign, Color colour)
         {
             influenceCampaign = campaign;
+            campaign.LandContactResolver = HasLandContact;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();
@@ -845,9 +847,15 @@ namespace GrandStrategy.WorldGeneration
                 productionSites.Apply(false, false);
                 resourceMapCampaign = campaign;
             }
-            influenceFoodPeriod = -1;
+            influenceRevision = -1;
             material.SetVector("_OwnershipColour", QualitySettings.activeColorSpace == ColorSpace.Linear ? colour.linear : colour);
             RefreshInfluence();
+        }
+
+        private bool HasLandContact(int province)
+        {
+            RefreshInfluence(true);
+            return landContacts.Contains(province);
         }
 
         public int InfluenceProvinceAt(int cell)
@@ -880,15 +888,16 @@ namespace GrandStrategy.WorldGeneration
         {
             var campaign = influenceCampaign;
             if (campaign == null || (!force && viewMode != MapViewMode.Ownership)) return;
-            var foodPeriod = campaign.Day / CampaignState.FoodInterval;
+            var revision = campaign.InfluenceRevision;
             var pressure = campaign.MilitaryPressure;
-            if (foodPeriod == influenceFoodPeriod && pressure == displayedMilitaryPressure) return;
+            if (revision == influenceRevision && pressure == displayedMilitaryPressure) return;
 
             ownership ??= CreateTexture("Settlement influence", true, FilterMode.Bilinear, false);
             var pixels = ownership.GetRawTextureData<Color32>();
             influenceRoots ??= new int[pixels.Length];
             influenceCosts ??= new float[pixels.Length];
             Array.Clear(influenceRoots, 0, influenceRoots.Length);
+            landContacts.Clear();
 
             Spread(campaign.CapitalCell, campaign.CapitalCell);
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
@@ -903,6 +912,17 @@ namespace GrandStrategy.WorldGeneration
                     continue;
                 }
                 var x = cell % Map.Width;
+                landContacts.Add(Map.ProvinceAt[cell]);
+                if (x > 0) RecordContact(cell - 1);
+                if (x + 1 < Map.Width) RecordContact(cell + 1);
+                if (cell >= Map.Width) RecordContact(cell - Map.Width);
+                if (cell + Map.Width < pixels.Length) RecordContact(cell + Map.Width);
+
+                void RecordContact(int adjacent)
+                {
+                    if (IsDryLand(adjacent)) landContacts.Add(Map.ProvinceAt[adjacent]);
+                }
+
                 var west = x > 0 ? influenceRoots[cell - 1] : 0;
                 var east = x + 1 < Map.Width ? influenceRoots[cell + 1] : 0;
                 var south = cell >= Map.Width ? influenceRoots[cell - Map.Width] : 0;
@@ -928,7 +948,7 @@ namespace GrandStrategy.WorldGeneration
             ownership.Apply(false, false);
             material.SetTexture("_OwnershipMask", ownership);
             displayedMilitaryPressure = pressure;
-            influenceFoodPeriod = foodPeriod;
+            influenceRevision = revision;
             UpdateOwnershipVisibility();
 
             void Spread(int origin, int provinceRoot)
