@@ -24,6 +24,7 @@ namespace GrandStrategy.WorldGeneration
     internal enum ClanTradition { Standard, River, Highland }
 
     internal enum TaxPolicy { Standard, Relief, Heavy }
+    internal enum SettlementLaw { Customary, VillageCommons, TownCharters }
 
     internal enum TradeResource { Coin, Food, Wood, Iron }
 
@@ -156,6 +157,8 @@ namespace GrandStrategy.WorldGeneration
         public int Speed;
         public int Coin;
         public TaxPolicy Taxes;
+        public SettlementLaw SettlementLaw;
+        public int SettlementLawChangedDay;
         public WarbandSupplyPolicy WarbandSupply;
         public bool[] Owned;
         public int[] Pop;
@@ -233,6 +236,9 @@ namespace GrandStrategy.WorldGeneration
         public const int FordGuaranteeCoin = 10;
         public const int FordPassageCoin = 15;
         public const int RegionalCouncilCoin = 60;
+        public const int SettlementLawCoin = 15;
+        public const int SettlementLawReviewDays = 30;
+        private const int SettlementLawWoodShift = 5;
         public const int TradeMilestoneDeliveries = 3;
         public const int DiplomacyMilestoneIntegrations = 2;
         public const int MilitaryMilestoneOperations = 2;
@@ -243,8 +249,8 @@ namespace GrandStrategy.WorldGeneration
         public const int SettlementWood = 25;
         public const int StartingCoin = 100;
         public const int IntegrationCost = 25;
-        public int SettlementWoodCost => HasPerk(CampaignPerk.Stewardship) ? SettlementWood - 5 : SettlementWood;
-        public int TownWoodCost => HasPerk(CampaignPerk.TownPlanning) ? TownWood - 5 : TownWood;
+        public int SettlementWoodCost => SettlementWoodCosts(ActiveSettlementLaw).Village;
+        public int TownWoodCost => SettlementWoodCosts(ActiveSettlementLaw).Town;
         public int NegotiationCoinCost => HasPerk(CampaignPerk.Envoys) ? IntegrationCost - 5 : IntegrationCost;
         public const int IntegrationDuration = 30;
         public const int MaxNameLength = 32;
@@ -1413,6 +1419,36 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public bool HasRegionalCouncil => data.RegionalCouncil;
+        public SettlementLaw ActiveSettlementLaw => data.SettlementLaw;
+        public int SettlementLawReviewIn => data.SettlementLawChangedDay == 0
+            ? 0 : Math.Max(0, SettlementLawReviewDays - (Day - data.SettlementLawChangedDay));
+
+        public (int Village, int Town) SettlementWoodCosts(SettlementLaw law)
+        {
+            var shift = law switch
+            {
+                SettlementLaw.VillageCommons => -SettlementLawWoodShift,
+                SettlementLaw.TownCharters => SettlementLawWoodShift,
+                _ => 0
+            };
+            var village = SettlementWood + shift - (HasPerk(CampaignPerk.Stewardship) ? 5 : 0);
+            var town = TownWood - shift - (HasPerk(CampaignPerk.TownPlanning) ? 5 : 0);
+            return (village, town);
+        }
+
+        public bool CanEnactSettlementLaw(SettlementLaw law)
+            => HasRegionalCouncil && law != ActiveSettlementLaw && Enum.IsDefined(typeof(SettlementLaw), law)
+                && SettlementLawReviewIn == 0 && Coin >= SettlementLawCoin;
+
+        public bool TryEnactSettlementLaw(SettlementLaw law)
+        {
+            if (!CanEnactSettlementLaw(law)) return false;
+            data.Coin -= SettlementLawCoin;
+            data.SettlementLaw = law;
+            data.SettlementLawChangedDay = Day;
+            return true;
+        }
+
         public int ResearchPoints => data.ResearchPoints;
         public bool HasTechnology(CampaignTechnology technology) => (data.Technologies & technology) != 0;
         public int ResearchProductionBonus(SettlementBuilding building)
@@ -1549,6 +1585,12 @@ namespace GrandStrategy.WorldGeneration
                 || save.CompletedTradeDeliveries < 0 || save.NegotiatedIntegrations < 0 || save.SuccessfulOperations < 0
                 || !Enum.IsDefined(typeof(WarbandSupplyPolicy), save.WarbandSupply))
                 throw new ArgumentException("The save contains invalid campaign data.");
+
+            if (!Enum.IsDefined(typeof(SettlementLaw), save.SettlementLaw)
+                || save.SettlementLawChangedDay < 0 || save.SettlementLawChangedDay > save.Day
+                || (save.SettlementLawChangedDay != 0 && !save.RegionalCouncil)
+                || (save.SettlementLaw != SettlementLaw.Customary && save.SettlementLawChangedDay == 0))
+                throw new ArgumentException("The save contains an invalid settlement law.");
 
             if (save.SettlementProvinceRoots != null)
             {
@@ -2674,6 +2716,9 @@ namespace GrandStrategy.WorldGeneration
             {
                 var days = Day < WinterStart ? WinterStart - Day : Day < WinterEnd ? WinterEnd - Day : 0;
                 if (WarbandTravelDays > 0) days = days == 0 ? WarbandTravelDays : Math.Min(days, WarbandTravelDays);
+                var lawReview = SettlementLawReviewIn;
+                if (lawReview > 0 && lawReview <= int.MaxValue - Day)
+                    days = days == 0 ? lawReview : Math.Min(days, lawReview);
                 if (IntegrationTarget < 0) return days;
                 return days == 0 ? IntegrationDaysLeft : Math.Min(days, IntegrationDaysLeft);
             }

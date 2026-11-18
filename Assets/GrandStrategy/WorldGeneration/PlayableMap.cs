@@ -1173,6 +1173,7 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.Label(campaign.HasRegionalCouncil ? "Regional council | +1 trade agreement slot" : "Founding clan");
             if (campaign.HasRegionalCouncil)
             {
+                DrawSettlementLaws();
                 GUILayout.Label($"Research {campaign.ResearchPoints} | +1 every {CampaignState.TaxInterval} days");
                 DrawResearch(CampaignTechnology.Agronomy, "Agronomy | +1 food per farm");
                 DrawResearch(CampaignTechnology.MarchLogistics, "March logistics | Faster warband movement");
@@ -1185,6 +1186,33 @@ namespace GrandStrategy.WorldGeneration
             if (GUILayout.Button($"Establish regional council ({CampaignState.RegionalCouncilCoin} coin)")
                 && campaign.TryEstablishRegionalCouncil())
                 saveStatus = "Regional council established. One additional trade agreement is available.";
+            GUI.enabled = wasEnabled;
+        }
+
+        private void DrawSettlementLaws()
+        {
+            var review = campaign.SettlementLawReviewIn;
+            GUILayout.Label(review > 0 ? $"Settlement law | Review in {review:N0}d"
+                : $"Settlement law | {CampaignState.SettlementLawCoin:N0} coin to change");
+            DrawSettlementLaw(SettlementLaw.Customary, "Customary");
+            DrawSettlementLaw(SettlementLaw.VillageCommons, "Village commons");
+            DrawSettlementLaw(SettlementLaw.TownCharters, "Town charters");
+        }
+
+        private void DrawSettlementLaw(SettlementLaw law, string name)
+        {
+            var costs = campaign.SettlementWoodCosts(law);
+            var label = $"{name} | Village {costs.Village} wood | Town upgrade {costs.Town} wood";
+            if (campaign.ActiveSettlementLaw == law)
+            {
+                GUILayout.Label(label + " | Active");
+                return;
+            }
+
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanEnactSettlementLaw(law);
+            if (GUILayout.Button(label) && campaign.TryEnactSettlementLaw(law))
+                saveStatus = $"The council enacted {name.ToLowerInvariant()}.";
             GUI.enabled = wasEnabled;
         }
 

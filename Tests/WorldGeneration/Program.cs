@@ -1367,6 +1367,8 @@ internal static class Program
             "Town specialisation must survive save and load.");
 
         Require(!town.TryEstablishRegionalCouncil(), "A town alone must not qualify for a regional council.");
+        Require(!town.TryEnactSettlementLaw(SettlementLaw.VillageCommons),
+            "A clan without a regional council cannot enact a settlement law.");
         var councilSave = town.ToSave();
         councilSave.Coin = councilSave.Wood = 200;
         councilSave.CompletedTradeDeliveries = CampaignState.TradeMilestoneDeliveries;
@@ -1379,6 +1381,40 @@ internal static class Program
             JsonSerializer.Serialize(council.ToSave(), json), json), 5);
         Require(council.HasRegionalCouncil && council.TradeCapacity == 2,
             "The regional council and its agreement slot must survive save and load.");
+        var charterSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(council.ToSave(), json), json);
+        charterSave.Wood = 20;
+        var charterClan = CampaignState.Restore(map, key, charterSave, 5);
+        var lawBudget = charterClan.Coin;
+        Require(charterClan.ActiveSettlementLaw == SettlementLaw.Customary && !charterClan.CanFoundSettlement(2)
+            && !charterClan.TryEnactSettlementLaw(SettlementLaw.Customary)
+            && !charterClan.TryEnactSettlementLaw((SettlementLaw)99) && charterClan.Coin == lawBudget,
+            "Old saves use customary costs and invalid or duplicate changes cannot spend coin.");
+        Require(charterClan.TryEnactSettlementLaw(SettlementLaw.VillageCommons)
+            && charterClan.Coin == lawBudget - CampaignState.SettlementLawCoin
+            && charterClan.SettlementWoodCost == 20 && charterClan.TownWoodCost == 25
+            && charterClan.TryFoundSettlement(2) && charterClan.Wood == 0,
+            "Village Commons must reduce the real cost to found a village and raise the town cost.");
+        var commonsSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(charterClan.ToSave(), json), json);
+        commonsSave.Wood = 25;
+        commonsSave.Coin = 100;
+        commonsSave.SettlementPopulations[1] = CampaignState.TownPopulation;
+        commonsSave.Pop[1] = CampaignState.TownPopulation;
+        charterClan = CampaignState.Restore(map, key, commonsSave, 5);
+        Require(charterClan.ActiveSettlementLaw == SettlementLaw.VillageCommons
+            && charterClan.SettlementLawReviewIn == CampaignState.SettlementLawReviewDays
+            && !charterClan.TryEnactSettlementLaw(SettlementLaw.TownCharters)
+            && charterClan.DaysToNextDecision == CampaignState.SettlementLawReviewDays,
+            "A saved settlement law must retain its review period and offer a calendar stop.");
+        var reviewDay = charterClan.Day + CampaignState.SettlementLawReviewDays;
+        charterClan.AdvanceToNextDecision();
+        Require(charterClan.Paused && charterClan.Day == reviewDay && charterClan.SettlementLawReviewIn == 0
+            && charterClan.TryEnactSettlementLaw(SettlementLaw.TownCharters)
+            && charterClan.SettlementWoodCost == 30 && charterClan.TownWoodCost == 15,
+            "Town Charters must lower the upgrade cost while making new villages dearer.");
+        var woodBeforeCharteredTown = charterClan.Wood;
+        Require(charterClan.TryUpgradeTown(1) && charterClan.Wood == woodBeforeCharteredTown - 15,
+            "The selected law must apply when the village upgrades to a town.");
+
         Require(!council.TryResearch(CampaignTechnology.Agronomy), "Research must wait for the council to earn points.");
         council.Paused = false;
         council.Advance(29);
