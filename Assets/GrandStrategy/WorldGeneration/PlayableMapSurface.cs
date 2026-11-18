@@ -411,35 +411,47 @@ namespace GrandStrategy.WorldGeneration
                 villages.Add(cell, village);
             }
 
-            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell), building => ProductionPoint(campaign, cell, building), DockWaterPoint(campaign, cell));
+            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell), building => ProductionPoint(campaign, cell, building), DockWaterPoint(campaign, cell), BuildRadius(campaign, cell));
         }
 
-        public bool IsWithinVillageLimits(int cell, Vector2 uv)
-            => IsWithinCityLimits(geometry.Sample(CellCentre(cell), out _), uv);
+        private static float BuildRadius(CampaignState campaign, int cell)
+            => campaign?.IsTown(cell) == true ? MapSettlement.TownBuildRadius : MapSettlement.BuildRadius;
 
-        public bool CanSiteVillage(Vector3 capital, int cell)
+        public bool IsWithinSettlementLimits(CampaignState campaign, int site, Vector2 uv)
+            => IsDryLandAt(uv) && MapSettlement.Contains(geometry.Sample(CellCentre(site), out _),
+                new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f), BuildRadius(campaign, site));
+
+        public bool CanSiteVillage(CampaignState campaign, int cell)
+            => HasRoom(campaign, cell, MapSettlement.BuildRadius);
+
+        public bool CanExpandTown(CampaignState campaign, int cell)
+            => HasRoom(campaign, cell, MapSettlement.TownBuildRadius);
+
+        private bool HasRoom(CampaignState campaign, int cell, float radius)
         {
             if (cell < 0 || !IsDryLand(cell)) return false;
-            var uv = CellCentre(cell);
-            var point = new Vector2(uv.x * Aspect, uv.y);
-            var diameter = 2f * MapSettlement.BuildRadius;
-            var capitalPoint = new Vector2(capital.x + Aspect * .5f, capital.z + .5f);
-            if ((point - capitalPoint).sqrMagnitude < diameter * diameter) return false;
-            foreach (var site in villages.Keys)
-            {
-                var other = CellCentre(site);
-                var separation = point - new Vector2(other.x * Aspect, other.y);
-                if (separation.sqrMagnitude < diameter * diameter) return false;
-            }
+            var centre = CellCentre(cell);
+            if (Conflicts(campaign.CapitalCell)) return false;
+            foreach (var other in campaign.SettlementCells)
+                if (Conflicts(other)) return false;
             return true;
+
+            bool Conflicts(int other)
+            {
+                if (cell == other) return false;
+                var offset = centre - CellCentre(other);
+                offset.x *= Aspect;
+                var required = radius + BuildRadius(campaign, other);
+                return offset.sqrMagnitude < required * required;
+            }
         }
 
-        public SettlementBuilding SurveyProductionSites(int centreCell)
+        public SettlementBuilding SurveyProductionSites(int centreCell, CampaignState campaign = null)
         {
             if (centreCell < 0 || !IsDryLand(centreCell)) return 0;
             var centreX = centreCell % Map.Width;
             var centreY = centreCell / Map.Width;
-            var radius = MapSettlement.BuildRadius * Map.Height;
+            var radius = BuildRadius(campaign, centreCell) * Map.Height;
             var reach = Mathf.CeilToInt(radius);
             SettlementBuilding result = 0;
 
@@ -564,10 +576,6 @@ namespace GrandStrategy.WorldGeneration
             material.SetTexture("_ProductionSites", productionSites);
             resourceMapCampaign = influenceCampaign;
         }
-
-        public bool IsWithinCityLimits(Vector3 capital, Vector2 uv)
-            => IsDryLandAt(uv) && MapSettlement.Contains(capital,
-                new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f));
 
         private byte FordResourceCode(int cell)
             => influenceCampaign?.IsFordSecured(cell) == true ? (byte)176 : (byte)128;
@@ -770,7 +778,7 @@ namespace GrandStrategy.WorldGeneration
             if (cell < 0 || !IsDryLand(cell)) return false;
             var centre = geometry.Sample(CellCentre(site), out _);
             var anchor = geometry.Sample(CellCentre(cell), out _);
-            if (!MapSettlement.FitsGranary(centre, anchor) || !HasDryFootprint(CellCentre(cell), MapSettlement.ProductionHalfWidth)
+            if (!MapSettlement.FitsGranary(centre, anchor, BuildRadius(campaign, site)) || !HasDryFootprint(CellCentre(cell), MapSettlement.ProductionHalfWidth)
                 || ConflictsWithProduction(campaign, site, cell, MapSettlement.ProductionHalfWidth)) return false;
 
             if (site == campaign.CapitalCell && campaign.HasGranary)
@@ -807,12 +815,12 @@ namespace GrandStrategy.WorldGeneration
             return Mathf.Abs(offset.x * Aspect) < width && Mathf.Abs(offset.y) < width * .77f;
         }
 
-        public bool CanPlaceGranary(Vector3 capital, int cell)
+        public bool CanPlaceGranary(CampaignState campaign, Vector3 capital, int cell)
         {
             if (cell < 0 || cell >= Map.ProvinceAt.Length || !IsDryLand(cell)) return false;
             var uv = CellCentre(cell);
             var site = geometry.Sample(uv, out _);
-            return MapSettlement.FitsGranary(capital, site) && HasDryFootprint(uv, MapSettlement.GranaryHalfWidth);
+            return MapSettlement.FitsGranary(capital, site, BuildRadius(campaign, campaign.CapitalCell)) && HasDryFootprint(uv, MapSettlement.GranaryHalfWidth);
         }
 
         public bool IsBuildSiteTooSteep(int cell, SettlementBuilding? building = null)
@@ -861,11 +869,11 @@ namespace GrandStrategy.WorldGeneration
         {
             settlement ??= new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
             Vector3? granarySite = null;
-            if (campaign.HasGranary && CanPlaceGranary(point, campaign.GranaryCell))
+            if (campaign.HasGranary && CanPlaceGranary(campaign, point, campaign.GranaryCell))
                 granarySite = geometry.Sample(CellCentre(campaign.GranaryCell), out _);
             settlement.Show(point, campaign.HasGranary, campaign.FirstExpansion != ExpansionApproach.None,
                 granarySite, campaign.SettlementBuildings(campaign.CapitalCell),
-                building => ProductionPoint(campaign, campaign.CapitalCell, building), DockWaterPoint(campaign, campaign.CapitalCell));
+                building => ProductionPoint(campaign, campaign.CapitalCell, building), DockWaterPoint(campaign, campaign.CapitalCell), BuildRadius(campaign, campaign.CapitalCell));
             nature.SetCapital(point);
             material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));
         }

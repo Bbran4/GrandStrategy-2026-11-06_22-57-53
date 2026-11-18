@@ -9,6 +9,7 @@ namespace GrandStrategy.WorldGeneration
     {
         public const float ProductionHalfWidth = .0010f;
         public const float BuildRadius = .008f;
+        public const float TownBuildRadius = .012f;
         public const float GranaryHalfWidth = .00125f;
         private static readonly Vector2 FirstHut = new Vector2(-.0019f, .0014f);
         private static readonly Vector2 SecondHut = new Vector2(.0005f, -.0021f);
@@ -24,11 +25,11 @@ namespace GrandStrategy.WorldGeneration
         private readonly LineRenderer boundary;
         private readonly Material boundaryMaterial;
 
-        public static bool Contains(Vector3 capital, Vector3 point)
+        public static bool Contains(Vector3 capital, Vector3 point, float radius)
         {
             var x = point.x - capital.x;
             var z = point.z - capital.z;
-            return x * x + z * z <= BuildRadius * BuildRadius;
+            return x * x + z * z <= radius * radius;
         }
 
         public MapSettlement(Transform parent, MapTerrainGeometry terrain, Texture2D shadow, float aspect,
@@ -68,11 +69,11 @@ namespace GrandStrategy.WorldGeneration
             boundary.enabled = false;
         }
 
-        public static bool FitsGranary(Vector3 capital, Vector3 site)
+        public static bool FitsGranary(Vector3 capital, Vector3 site, float radius)
         {
             var offset = new Vector2(site.x - capital.x, site.z - capital.z);
             const float clearance = GranaryHalfWidth * 1.42f;
-            return offset.magnitude + clearance <= BuildRadius
+            return offset.magnitude + clearance <= radius
                 && ClearOf(Vector2.zero, .00108f)
                 && ClearOf(FirstHut, .00078f)
                 && ClearOf(SecondHut, .00078f)
@@ -86,15 +87,15 @@ namespace GrandStrategy.WorldGeneration
         public void SetBoundaryVisible(bool visible) => boundary.enabled = visible;
 
         // Place or refresh settlement models on the sampled terrain surface.
-        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production, Func<SettlementBuilding, Vector3?> placement, Vector3? dockWater)
+        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production, Func<SettlementBuilding, Vector3?> placement, Vector3? dockWater, float radius)
         {
             const int segments = 96;
             boundary.positionCount = segments;
             for (var i = 0; i < segments; i++)
             {
                 var angle = i * Mathf.PI * 2f / segments;
-                var x = capital.x + Mathf.Cos(angle) * BuildRadius;
-                var z = capital.z + Mathf.Sin(angle) * BuildRadius;
+                var x = capital.x + Mathf.Cos(angle) * radius;
+                var z = capital.z + Mathf.Sin(angle) * radius;
                 var uv = new Vector2(Mathf.Clamp01(x / aspect + .5f), Mathf.Clamp01(z + .5f));
                 boundary.SetPosition(i, terrain.Sample(uv, out _) + Vector3.up * .0007f);
             }
@@ -261,7 +262,7 @@ namespace GrandStrategy.WorldGeneration
                 bool SamplePath(Vector2 offset, out Vector3 point)
                 {
                     point = default;
-                    if (offset.sqrMagnitude > BuildRadius * BuildRadius || !TryAnchor(offset, out point))
+                    if (offset.sqrMagnitude > radius * radius || !TryAnchor(offset, out point))
                         return false;
                     foreach (var building in occupied)
                     {
@@ -324,7 +325,7 @@ namespace GrandStrategy.WorldGeneration
                                 var width = Mathf.Lerp(-halfWidth, halfWidth, row / (float)rows);
                                 var length = Mathf.Lerp(-halfLength, halfLength, interval / (float)intervals);
                                 var offset = centre + across * width + along * length;
-                                if (offset.sqrMagnitude > BuildRadius * BuildRadius || !TryAnchor(offset, out var point))
+                                if (offset.sqrMagnitude > radius * radius || !TryAnchor(offset, out var point))
                                     return false;
                                 foreach (var building in occupied)
                                     if (Mathf.Abs(building.x - point.x) < GranaryHalfWidth

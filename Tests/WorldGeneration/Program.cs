@@ -520,6 +520,16 @@ internal static class Program
         Require(CampaignState.Restore(map, key, frontierSave, 5).IntegrationTarget == 2,
             "An integration opened by settlement contact must survive save and load.");
 
+        var townSave = CampaignState.Found(map, key, 0, "Town", 0).ToSave();
+        townSave.Pop[0] = townSave.SettlementPopulations[0] = CampaignState.TownPopulation;
+        var town = CampaignState.Restore(map, key, townSave, 5);
+        Require(town.TryUpgradeTown(0) && town.IsTown(0) && !town.TryUpgradeTown(0)
+            && town.Coin == CampaignState.StartingCoin - CampaignState.TownCoin,
+            "A populous settlement should pay for a town upgrade only once.");
+        Require(CampaignState.Restore(map, key,
+            JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(town.ToSave(), json), json), 5).IsTown(0),
+            "Town upgrades must survive save and load.");
+
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);
         heavyTaxes.SetTaxPolicy(TaxPolicy.Heavy);

@@ -85,6 +85,7 @@ namespace GrandStrategy.WorldGeneration
         public int CapitalCell;
         public List<int> SettlementCells;
         public List<int> SettlementProvinceRoots;
+        public List<int> Towns;
         public List<int> SettlementPopulations; // Capital first, then villages in founding order.
         public int SecondSettlementSite; // Cell index plus one. Zero means no second settlement.
         public int Day;
@@ -120,6 +121,9 @@ namespace GrandStrategy.WorldGeneration
 
     internal sealed class CampaignState
     {
+        public const int TownPopulation = 150;
+        public const int TownCoin = 40;
+        public const int TownWood = 20;
         public const int SettlementCoin = 40;
         public const int SettlementWood = 25;
         public const int StartingCoin = 100;
@@ -174,6 +178,7 @@ namespace GrandStrategy.WorldGeneration
                 if (!map.IsFord(ford) || !uniqueFords.Add(ford))
                     throw new ArgumentException("The save contains an invalid secured ford.");
 
+            data.Towns ??= new List<int>();
             data.Construction ??= new List<SettlementConstruction>();
             data.SettlementCells ??= new List<int>();
             if (data.SecondSettlementSite > 0)
@@ -233,6 +238,18 @@ namespace GrandStrategy.WorldGeneration
                 data.Owned[province] = true;
                 CancelTradeAgreement(province);
             }
+            return true;
+        }
+
+        public bool IsTown(int cell) => data.Towns.Contains(cell);
+
+        public bool TryUpgradeTown(int cell)
+        {
+            if (IsTown(cell) || SettlementPopulation(cell) < TownPopulation || Coin < TownCoin || Wood < TownWood)
+                return false;
+            data.Coin -= TownCoin;
+            data.Wood -= TownWood;
+            data.Towns.Add(cell);
             return true;
         }
 
@@ -563,6 +580,14 @@ namespace GrandStrategy.WorldGeneration
                         || !settlementSites.Add(site))
                         throw new ArgumentException("The save contains an invalid settlement site.");
                 }
+
+            if (save.Towns != null)
+            {
+                var towns = new HashSet<int>();
+                foreach (var cell in save.Towns)
+                    if ((cell != save.CapitalCell && !settlementSites.Contains(cell)) || !towns.Add(cell))
+                        throw new ArgumentException("The save contains an invalid town.");
+            }
 
             if (save.SettlementPopulations != null)
             {

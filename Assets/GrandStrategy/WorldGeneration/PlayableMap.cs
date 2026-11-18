@@ -427,8 +427,33 @@ namespace GrandStrategy.WorldGeneration
                     : campaign.Food == campaign.FoodUpkeep ? "Current stock covers upkeep with no surplus for growth."
                     : "Current stock falls short of upkeep. Population may decline.");
             }
+            DrawTownUpgrade(site);
             DrawConstruction(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
+        }
+
+        private void DrawTownUpgrade(int site)
+        {
+            if (campaign.IsTown(site))
+            {
+                GUILayout.Label("Town | Expanded city limits");
+                return;
+            }
+
+            var enoughPeople = campaign.SettlementPopulation(site) >= CampaignState.TownPopulation;
+            var hasRoom = surface.CanExpandTown(campaign, site);
+            if (!enoughPeople) GUILayout.Label($"Town upgrade requires {CampaignState.TownPopulation} people.");
+            else if (!hasRoom) GUILayout.Label("A nearby settlement limits expansion.");
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && enoughPeople && hasRoom
+                && campaign.Coin >= CampaignState.TownCoin && campaign.Wood >= CampaignState.TownWood;
+            if (GUILayout.Button($"Upgrade to town ({CampaignState.TownCoin} coin, {CampaignState.TownWood} wood)")
+                && campaign.TryUpgradeTown(site))
+            {
+                if (site == campaign.CapitalCell) surface.SetCapital(settlement, campaign);
+                else surface.RefreshVillage(campaign, site);
+            }
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawInfluenceProvince()
@@ -448,7 +473,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 count++;
                 population += campaign.SettlementPopulation(root);
-                reachableSites |= surface.SurveyProductionSites(root);
+                reachableSites |= surface.SurveyProductionSites(root, campaign);
             }
 
             var nextNumber = 1;
@@ -464,7 +489,7 @@ namespace GrandStrategy.WorldGeneration
                 if (province != root) continue;
                 count++;
                 population += campaign.SettlementPopulation(site);
-                reachableSites |= surface.SurveyProductionSites(site);
+                reachableSites |= surface.SurveyProductionSites(site, campaign);
             }
 
             GUILayout.Label(root == campaign.CapitalCell ? "Capital province" : $"Province {number}", hudHeading);
@@ -791,7 +816,7 @@ namespace GrandStrategy.WorldGeneration
         }
 
         private bool InCapitalLimits => clickedCell >= 0
-            && surface.IsWithinCityLimits(settlement, clickedMapUv);
+            && surface.IsWithinSettlementLimits(campaign, campaign.CapitalCell, clickedMapUv);
 
         private int SelectedConstructionSite
         {
@@ -800,7 +825,7 @@ namespace GrandStrategy.WorldGeneration
                 if (clickedCell < 0) return -1;
                 if (InCapitalLimits) return campaign.CapitalCell;
                 foreach (var site in campaign.SettlementCells)
-                    if (surface.IsWithinVillageLimits(site, clickedMapUv))
+                    if (surface.IsWithinSettlementLimits(campaign, site, clickedMapUv))
                         return site;
                 return -1;
             }
@@ -810,7 +835,7 @@ namespace GrandStrategy.WorldGeneration
         {
             var wasEnabled = GUI.enabled;
             var validSite = clickedCell >= 0 && surface.Map.ProvinceAt[clickedCell] == selected
-                && surface.CanSiteVillage(settlement, clickedCell);
+                && surface.CanSiteVillage(campaign, clickedCell);
             var provinceRoot = validSite ? surface.InfluenceProvinceAt(clickedCell) : -1;
             var party = validSite ? campaign.FoundingParty(clickedCell, provinceRoot) : (Origin: -1, People: 0);
             if (clickedCell >= 0 && surface.IsDryLand(clickedCell) && SelectedConstructionSite < 0)
@@ -861,7 +886,7 @@ namespace GrandStrategy.WorldGeneration
                 previewHalfWidth = MapSettlement.ProductionHalfWidth;
                 previewColour = HudGold;
             }
-            var sites = surface.SurveyProductionSites(site);
+            var sites = surface.SurveyProductionSites(site, campaign);
             DrawBuilding(site, SettlementBuilding.Farm, sites);
             DrawBuilding(site, SettlementBuilding.LumberCamp, sites);
             DrawBuilding(site, SettlementBuilding.IronMine, sites);
@@ -921,7 +946,7 @@ namespace GrandStrategy.WorldGeneration
         private void DrawCapitalActions()
         {
             var wasEnabled = GUI.enabled;
-            var fitsGranary = InCapitalLimits && surface.CanPlaceGranary(settlement, clickedCell)
+            var fitsGranary = InCapitalLimits && surface.CanPlaceGranary(campaign, settlement, clickedCell)
                 && !surface.ConflictsWithProduction(campaign, campaign.CapitalCell, clickedCell, MapSettlement.GranaryHalfWidth);
             if (!campaign.HasGranary && fitsGranary && surface.IsBuildSiteTooSteep(clickedCell))
             {
