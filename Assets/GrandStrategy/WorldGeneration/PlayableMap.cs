@@ -691,7 +691,8 @@ namespace GrandStrategy.WorldGeneration
             }
 
             if (selected == campaign.IndependentVillageRegion)
-                GUILayout.Label("Independent village | Population growing");
+                GUILayout.Label(campaign.IndependentFarmCell >= 0 ? "Independent farming village | Larger food market"
+                    : "Independent village | Population growing");
             GUILayout.Label(population == 0 ? "No independent community here"
                 : selected == campaign.Capital || HasVillageHere ? "Clan settlement nearby | Independent community"
                 : "Independent community");

@@ -53,6 +53,7 @@ namespace GrandStrategy.WorldGeneration
         private MapSettlement settlement;
         private MapSettlement independentVillage;
         private int displayedIndependentVillage = -1;
+        private int displayedIndependentFarm = -1;
         private readonly Dictionary<int, MapSettlement> villages = new Dictionary<int, MapSettlement>();
         private float groundDetail;
         private MapBorderOverlay borders;
@@ -442,15 +443,44 @@ namespace GrandStrategy.WorldGeneration
         public void ShowIndependentVillage(CampaignState campaign)
         {
             var cell = campaign?.IndependentVillageCell ?? -1;
-            if (cell == displayedIndependentVillage) return;
+            var farm = campaign?.IndependentFarmCell ?? -1;
+            if (cell == displayedIndependentVillage && farm == displayedIndependentFarm) return;
             independentVillage?.Dispose();
             independentVillage = null;
             displayedIndependentVillage = cell;
+            displayedIndependentFarm = farm;
             if (cell < 0 || !IsDryLand(cell)) return;
 
             independentVillage = new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
-            independentVillage.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, 0,
-                _ => null, null, MapSettlement.BuildRadius, independent: true);
+            Vector3? farmPoint = farm >= 0 ? geometry.Sample(CellCentre(farm), out _) : (Vector3?)null;
+            independentVillage.Show(geometry.Sample(CellCentre(cell), out _), false, false, null,
+                farmPoint.HasValue ? SettlementBuilding.Farm : 0,
+                building => building == SettlementBuilding.Farm ? farmPoint : null, null, MapSettlement.BuildRadius, independent: true);
+        }
+
+        private int FindIndependentFarmSite(int village)
+        {
+            var centre = geometry.Sample(CellCentre(village), out _);
+            var reach = Mathf.CeilToInt(MapSettlement.BuildRadius * Map.Height);
+            var x = village % Map.Width;
+            var y = village / Map.Width;
+            var selected = -1;
+            var bestYield = 0;
+            for (var row = Mathf.Max(0, y - reach); row <= Mathf.Min(Map.Height - 1, y + reach); row++)
+                for (var column = Mathf.Max(0, x - reach); column <= Mathf.Min(Map.Width - 1, x + reach); column++)
+                {
+                    var cell = row * Map.Width + column;
+                    if (Map.ProvinceAt[cell] != Map.ProvinceAt[village]) continue;
+                    var yield = LocalProductionYield(cell, SettlementBuilding.Farm) ?? 0;
+                    if (yield <= bestYield) continue;
+                    var uv = CellCentre(cell);
+                    if (!MapSettlement.FitsGranary(centre, geometry.Sample(uv, out _), MapSettlement.BuildRadius)
+                        || !HasDryFootprint(uv, MapSettlement.ProductionHalfWidth)
+                        || IsBuildSiteTooSteep(cell, SettlementBuilding.Farm)) continue;
+                    selected = cell;
+                    bestYield = yield;
+                }
+            return selected;
         }
 
         private int FindIndependentVillageSite(int region)
@@ -1049,6 +1079,7 @@ namespace GrandStrategy.WorldGeneration
             influenceCampaign = campaign;
             campaign.LandContactResolver = HasLandContact;
             campaign.IndependentVillageSiteResolver = FindIndependentVillageSite;
+            campaign.IndependentFarmSiteResolver = FindIndependentFarmSite;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();

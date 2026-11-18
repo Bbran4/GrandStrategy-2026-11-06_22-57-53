@@ -526,20 +526,26 @@ internal static class Program
 
         var independent = CampaignState.Found(map, key, 0, "Independent", 0, localCapitalClaim: true);
         independent.IndependentVillageSiteResolver = region => region == 1 ? 1 : -1;
+        independent.IndependentFarmSiteResolver = cell => cell;
         independent.Paused = false;
         independent.Advance(14);
         var villagePopulation = independent.IndependentPopulation(1);
+        var foodOffer = new TradeOffer(TradeResource.Coin, 1, TradeResource.Food, 1);
+        var openingStock = independent.EvaluateTrade(1, foodOffer).Stock;
         Require(independent.IndependentVillageCell == 1 && !independent.TryFoundSettlement(1),
             "An independent community must establish its own village and reserve the site.");
         independent.Advance(15);
-        Require(independent.IndependentPopulation(1) > villagePopulation,
-            "The independent village must grow on its own.");
+        Require(independent.IndependentPopulation(1) > villagePopulation && independent.IndependentFarmCell == 1
+            && independent.EvaluateTrade(1, foodOffer).Stock > openingStock,
+            "The independent village must grow and develop a larger food market when it builds a farm.");
         independent = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(independent.ToSave(), json), json), 5);
         Require(independent.IndependentVillageCell == 1 && independent.TryStartIntegration(1)
             && independent.AdvanceToNextDecision() && independent.IndependentVillageCell == -1
-            && independent.SettlementCells.Contains(1) && independent.IndependentPopulation(1) == 0,
-            "Integration must bring the existing independent village into the clan at its saved location.");
+            && independent.SettlementCells.Contains(1) && independent.IndependentPopulation(1) == 0
+            && independent.HasSettlementBuilding(1, SettlementBuilding.Farm)
+            && independent.BuildingPlacement(1, SettlementBuilding.Farm) == 1,
+            "Integration must bring the existing independent village and its farm into the clan at their saved locations.");
 
         var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
         Require(fordMap.IsFord(fordCell) && !fordCampaign.TrySecureFord(fordCell)

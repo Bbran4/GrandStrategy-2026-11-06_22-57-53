@@ -128,6 +128,8 @@ namespace GrandStrategy.WorldGeneration
         public bool LocalIntegration;
         public int IntegrationSettlementSite;
         public int IndependentVillageSite;
+        public int IndependentVillageFoundedDay;
+        public int IndependentFarmSite;
         public int IntegrationProvinceRoot;
         public int IntegrationDaysLeft;
         public int Food;
@@ -225,6 +227,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly Dictionary<int, List<int>> ironSupplyRoutes = new Dictionary<int, List<int>>();
         internal Func<int, bool> LandContactResolver { get; set; }
         internal Func<int, int> IndependentVillageSiteResolver { get; set; }
+        internal Func<int, int> IndependentFarmSiteResolver { get; set; }
         public int InfluenceRevision { get; private set; }
         public int FordAccessRevision { get; private set; }
 
@@ -450,6 +453,7 @@ namespace GrandStrategy.WorldGeneration
         public int Coin => data.Coin;
         public bool UsesLocalIntegration => data.LocalIntegration;
         public int IndependentVillageCell => data.IndependentVillageSite - 1;
+        public int IndependentFarmCell => data.IndependentFarmSite - 1;
         public int IndependentVillageRegion => SettlementProvince(IndependentVillageCell);
 
         public int IntegrationCommunitySite(int region)
@@ -1014,6 +1018,12 @@ namespace GrandStrategy.WorldGeneration
                     || settlementSites.Contains(save.IndependentVillageSite - 1)
                     || save.Owned[ProvinceAt(map, save.IndependentVillageSite - 1)])))
                 throw new ArgumentException("The save contains an invalid independent village.");
+
+            if (save.IndependentVillageFoundedDay < 0 || save.IndependentVillageFoundedDay > save.Day
+                || save.IndependentFarmSite < 0 || (save.IndependentVillageSite == 0
+                    && (save.IndependentVillageFoundedDay != 0 || save.IndependentFarmSite != 0))
+                || (save.IndependentFarmSite > 0 && !IsLand(map, ProvinceAt(map, save.IndependentFarmSite - 1))))
+                throw new ArgumentException("The save contains invalid independent village development.");
 
             if (save.RegionalCouncil && (save.Towns?.Contains(save.CapitalCell) != true || settlementSites.Count == 0))
                 throw new ArgumentException("The save contains an invalid regional council.");
@@ -1714,6 +1724,7 @@ namespace GrandStrategy.WorldGeneration
             var info = map.Provinces[province];
             var coin = HasTradeAccess(info) ? 36 : 24;
             var food = 8 + 8 * Fertility(info);
+            if (province == IndependentVillageRegion && IndependentFarmCell >= 0) food += 8;
             var wood = HasTimber(info) ? 28 : 12;
             var iron = IsMountain(info) ? 16 : 0;
             var elapsed = period - market.Period;
@@ -1949,7 +1960,15 @@ namespace GrandStrategy.WorldGeneration
             {
                 var region = IndependentVillageRegion;
                 var population = IndependentPopulation(region);
-                if (population > 0) data.Pop[region] += Math.Min(int.MaxValue - data.Pop[region], Math.Max(1, population / 100));
+                if (population <= 0) return;
+                data.Pop[region] += Math.Min(int.MaxValue - data.Pop[region], Math.Max(1, population / 100));
+                if (data.IndependentVillageFoundedDay == 0) data.IndependentVillageFoundedDay = Day;
+                if (IndependentFarmCell < 0 && Day - data.IndependentVillageFoundedDay >= FoodInterval
+                    && IndependentFarmSiteResolver != null)
+                {
+                    var farm = IndependentFarmSiteResolver(IndependentVillageCell);
+                    if (IsLand(map, ProvinceAt(map, farm))) data.IndependentFarmSite = farm + 1;
+                }
                 return;
             }
             if (!UsesLocalIntegration || IndependentVillageSiteResolver == null) return;
@@ -1961,6 +1980,7 @@ namespace GrandStrategy.WorldGeneration
                 if (cell < 0 || SettlementProvince(cell) != region || cell == CapitalCell || data.SettlementCells.Contains(cell))
                     continue;
                 data.IndependentVillageSite = cell + 1;
+                data.IndependentVillageFoundedDay = Day;
                 break;
             }
         }
@@ -2040,11 +2060,17 @@ namespace GrandStrategy.WorldGeneration
                     var root = data.IntegrationProvinceRoot - 1;
                     data.SettlementProvinceRoots.Add(root >= 0 ? root : destination);
                     data.SettlementPopulations.Add(remainingResidents);
+                    if (destination == IndependentVillageCell && IndependentFarmCell >= 0)
+                        data.Construction.Add(new SettlementConstruction
+                        {
+                            Cell = destination, Buildings = (int)SettlementBuilding.Farm, FarmSite = data.IndependentFarmSite
+                        });
                 }
                 else data.SettlementPopulations[index] += remainingResidents;
             }
             if (!UsesLocalIntegration || destination < 0) data.Owned[target] = true;
-            if (IndependentVillageRegion == target) data.IndependentVillageSite = 0;
+            if (IndependentVillageRegion == target)
+                data.IndependentVillageSite = data.IndependentVillageFoundedDay = data.IndependentFarmSite = 0;
             InfluenceRevision++;
             CancelTradeAgreement(target);
             var releasedFords = data.RivalHeldFords.RemoveAll(
