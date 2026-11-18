@@ -742,6 +742,11 @@ namespace GrandStrategy.WorldGeneration
             SettlementBuildingInfo(int cell, SettlementBuilding building, int placement)
         {
             var regional = BuildingInfo(SettlementProvince(cell), building);
+            if (building == SettlementBuilding.Docks && placement >= 0 && map.HasDockWaterwayData)
+            {
+                regional.SiteIssue = map.DockWaterwayAt(placement) > 0 ? null : "Select a site beside a navigable waterfront.";
+                return regional;
+            }
             var localYield = placement >= 0 ? map.LocalProductionYield?.Invoke(placement, building) : null;
             if (!localYield.HasValue) return regional;
             regional.Yield = localYield.Value;
@@ -844,8 +849,14 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var site in data.Construction)
                 {
                     if ((site.Buildings & (int)SettlementBuilding.Docks) == 0) continue;
-                    var waterways = map.Provinces[SettlementProvince(site.Cell)].TradeWaterways;
-                    if (waterways != null) dockWaterways.UnionWith(waterways);
+                    var placement = site.Placement(SettlementBuilding.Docks) - 1;
+                    var localWaterway = map.DockWaterwayAt(placement);
+                    if (localWaterway > 0) dockWaterways.Add(localWaterway);
+                    else
+                    {
+                        var regionalWaterways = map.Provinces[SettlementProvince(site.Cell)].TradeWaterways;
+                        if (regionalWaterways != null) dockWaterways.UnionWith(regionalWaterways);
+                    }
                 }
             }
             foreach (var route in waterways)

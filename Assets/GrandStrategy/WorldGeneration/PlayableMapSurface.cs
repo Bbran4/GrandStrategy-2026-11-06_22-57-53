@@ -445,6 +445,8 @@ namespace GrandStrategy.WorldGeneration
                     if (dx * dx + dy * dy > radius * radius) continue;
                     var cell = y * Map.Width + x;
                     result |= ProductionSitesAt(cell, x, y);
+                    if ((result & SettlementBuilding.Docks) == 0 && IsDryLand(cell) && Map.DockWaterwayAt(cell) > 0)
+                        result |= SettlementBuilding.Docks;
                 }
             return result;
         }
@@ -742,9 +744,8 @@ namespace GrandStrategy.WorldGeneration
                     return false;
             }
 
-            // The regional survey already checks the waterfront. The building itself needs dry ground.
-            return building == SettlementBuilding.Docks
-                || (ProductionSitesAt(cell, cell % Map.Width, cell / Map.Width) & building) != 0;
+            return building == SettlementBuilding.Docks ? Map.DockWaterwayAt(cell) > 0
+                : (ProductionSitesAt(cell, cell % Map.Width, cell / Map.Width) & building) != 0;
         }
 
         public bool ConflictsWithProduction(CampaignState campaign, int site, int cell, float halfWidth)

@@ -58,6 +58,30 @@ namespace GrandStrategy.WorldGeneration
         private const byte FordEastWest = 2;
         private const byte FordNorthSouth = 4;
         [NonSerialized] private byte[] marchTerrain;
+        [NonSerialized] private int[] waterwayAt;
+        internal bool HasDockWaterwayData => waterwayAt != null;
+
+        internal int DockWaterwayAt(int cell)
+        {
+            if (waterwayAt == null || cell < 0 || cell >= waterwayAt.Length) return 0;
+            var x = cell % Width;
+            var y = cell / Width;
+            var reach = (int)Math.Ceiling(Height * .001f) + 1;
+            var nearest = reach * reach + 1;
+            var waterway = 0;
+            for (var row = Math.Max(0, y - reach); row <= Math.Min(Height - 1, y + reach); row++)
+                for (var column = Math.Max(0, x - reach); column <= Math.Min(Width - 1, x + reach); column++)
+                {
+                    var channel = waterwayAt[row * Width + column];
+                    var dx = x - column;
+                    var dy = y - row;
+                    var distance = dx * dx + dy * dy;
+                    if (channel == 0 || distance == 0 || distance >= nearest) continue;
+                    nearest = distance;
+                    waterway = channel;
+                }
+            return waterway;
+        }
         [NonSerialized] internal Func<int, SettlementBuilding, int?> LocalProductionYield;
 
         internal void BuildMarchTerrain(WaterMap water, byte[] rivers, float[] elevations)
@@ -199,7 +223,7 @@ namespace GrandStrategy.WorldGeneration
             var waterways = new HashSet<int>[Provinces.Length];
             var land = Array.ConvertAll(Provinces, p => string.Equals(p.Type, "land", StringComparison.OrdinalIgnoreCase));
             var length = ProvinceAt.Length;
-            var visited = new bool[length];
+            var channelsAt = new int[length];
             var queue = new int[length];
             var component = 0;
             if (biomes != null)
@@ -218,11 +242,11 @@ namespace GrandStrategy.WorldGeneration
                         result.Provinces[province].BiomeCounts[biomes[cell]]++;
                     continue;
                 }
-                if (visited[cell]) continue;
+                if (channelsAt[cell] != 0) continue;
                 component++;
                 var tail = 1;
                 queue[0] = cell;
-                visited[cell] = true;
+                channelsAt[cell] = component;
                 for (var head = 0; head < tail; head++)
                 {
                     var current = queue[head];
@@ -244,8 +268,8 @@ namespace GrandStrategy.WorldGeneration
                 {
                     if (IsWaterway(next))
                     {
-                        if (visited[next]) return;
-                        visited[next] = true;
+                        if (channelsAt[next] != 0) return;
+                        channelsAt[next] = component;
                         queue[tail++] = next;
                         return;
                     }
@@ -263,6 +287,16 @@ namespace GrandStrategy.WorldGeneration
                 Array.Sort(ids);
                 result.Provinces[i].TradeWaterways = ids;
             }
+            // A dock can launch onto sea or an authored navigable river, while the component
+            // IDs preserve the original trade network and community connections.
+            for (var cell = 0; cell < length; cell++)
+            {
+                if (channelsAt[cell] == 0 || water[cell] == WaterKind.Ocean) continue;
+                var province = ProvinceAt[cell];
+                if (province < 0 || !string.Equals(Provinces[province].Type, "ocean", StringComparison.OrdinalIgnoreCase))
+                    channelsAt[cell] = 0;
+            }
+            result.waterwayAt = channelsAt;
             return result;
 
             bool IsRiver(int cell) => water[cell] == WaterKind.Land && rivers != null && rivers[cell] != 0;
