@@ -49,6 +49,7 @@ namespace GrandStrategy.WorldGeneration
         private bool editingName;
         private bool showProvinceSettlements;
         private bool showHappinessDetails;
+        private bool showIronSupplyRoute;
         private System.Collections.Generic.List<int> plannedMarch;
         private int plannedMarchDestination = -1;
         private int selected = -1;
@@ -138,7 +139,12 @@ namespace GrandStrategy.WorldGeneration
             surface.ShowWarband(campaign);
             surface.RefreshInfluence();
             surface.HighlightInfluenceAt(clickedCell);
-            surface.SetCityLimitsVisible(campaign, selected, campaign == null ? -1 : SelectedConstructionSite);
+            var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
+            surface.SetCityLimitsVisible(campaign, selected, constructionSite);
+            var showSupply = showIronSupplyRoute && constructionSite >= 0
+                && campaign.HasSettlementBuilding(constructionSite, SettlementBuilding.IronMine)
+                && campaign.GetIronSupplyRoute(constructionSite) == IronSupplyRoute.Overland;
+            surface.ShowIronSupplyRoute(showSupply ? campaign.GetOverlandIronRoute(constructionSite) : null);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -995,7 +1001,8 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label($"{info.Name} | {output}");
                 if (building == SettlementBuilding.IronMine && placement >= 0)
                 {
-                    var route = campaign.GetIronSupplyRoute(site) switch
+                    var supply = campaign.GetIronSupplyRoute(site);
+                    var route = supply switch
                     {
                         IronSupplyRoute.Local => "Feeds capital stock directly",
                         IronSupplyRoute.Overland => "Overland route to capital open",
@@ -1003,6 +1010,8 @@ namespace GrandStrategy.WorldGeneration
                         _ => "No supply route to the capital"
                     };
                     GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | {route}");
+                    if (supply == IronSupplyRoute.Overland)
+                        showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show overland supply route");
                 }
                 return;
             }

@@ -178,7 +178,7 @@ namespace GrandStrategy.WorldGeneration
         private double fractionOfDay;
         private HashSet<int> dockWaterways;
         private long remainingMarchCost;
-        private readonly Dictionary<int, bool> ironSupplyRoutes = new Dictionary<int, bool>();
+        private readonly Dictionary<int, List<int>> ironSupplyRoutes = new Dictionary<int, List<int>>();
         internal Func<int, bool> LandContactResolver { get; set; }
         public int InfluenceRevision { get; private set; }
 
@@ -1022,13 +1022,19 @@ namespace GrandStrategy.WorldGeneration
             if (dock > 0 && dock == map.DockWaterwayAt(BuildingPlacement(CapitalCell, SettlementBuilding.Docks)))
                 return IronSupplyRoute.Waterway;
 
-            if (!map.HasMarchTerrain) return IronSupplyRoute.Overland;
-            if (!ironSupplyRoutes.TryGetValue(cell, out var hasRoute))
+            return !map.HasMarchTerrain || GetOverlandIronRoute(cell) != null
+                ? IronSupplyRoute.Overland : IronSupplyRoute.None;
+        }
+
+        public IReadOnlyList<int> GetOverlandIronRoute(int cell)
+        {
+            if (cell == CapitalCell || !map.HasMarchTerrain) return null;
+            if (!ironSupplyRoutes.TryGetValue(cell, out var route))
             {
-                hasRoute = map.FindWarbandRoute(cell, CapitalCell, IsFordSecured) != null;
-                ironSupplyRoutes[cell] = hasRoute;
+                route = map.FindWarbandRoute(cell, CapitalCell, IsFordSecured);
+                ironSupplyRoutes[cell] = route;
             }
-            return hasRoute ? IronSupplyRoute.Overland : IronSupplyRoute.None;
+            return route;
         }
 
         public bool HasIronSupplyRoute(int cell) => GetIronSupplyRoute(cell) != IronSupplyRoute.None;

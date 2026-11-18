@@ -512,7 +512,8 @@ internal static class Program
         var storedIron = supply.SettlementIronStock(mineSite);
         supplySave.SecuredFords.Add(fordCell);
         supply = CampaignState.Restore(supplyMap, "supply", supplySave, 5);
-        Require(supply.SettlementIronStock(mineSite) == storedIron && supply.HasIronSupplyRoute(mineSite),
+        Require(supply.SettlementIronStock(mineSite) == storedIron && supply.HasIronSupplyRoute(mineSite)
+            && supply.GetOverlandIronRoute(mineSite).Contains(fordCell),
             "Saved stockpiles and secured fords must restore.");
         supply.Paused = false;
         supply.Advance(5);

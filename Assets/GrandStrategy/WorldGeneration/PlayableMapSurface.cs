@@ -22,6 +22,9 @@ namespace GrandStrategy.WorldGeneration
         private int markerHeadingCell = -1;
         public Vector3 WarbandGroundPosition { get; private set; }
         private LineRenderer marchLine;
+        private LineRenderer ironSupplyLine;
+        private Material ironSupplyMaterial;
+        private IReadOnlyList<int> displayedIronSupplyRoute;
         private IReadOnlyList<int> displayedMarchRoute;
         private int displayedMarchIndex = -1;
         private int markerCell = -1;
@@ -693,6 +696,39 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        public void ShowIronSupplyRoute(IReadOnlyList<int> route)
+        {
+            if (route == null || route.Count < 2)
+            {
+                if (ironSupplyLine != null) ironSupplyLine.enabled = false;
+                displayedIronSupplyRoute = null;
+                return;
+            }
+
+            if (ReferenceEquals(route, displayedIronSupplyRoute)) return;
+            if (ironSupplyLine == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null || !shader.isSupported) return;
+                ironSupplyMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+                ironSupplyMaterial.SetColor("_BaseColor", new Color(.37f, .91f, .56f));
+                var path = new GameObject("Overland iron supply route", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
+                path.transform.SetParent(surface.transform, false);
+                ironSupplyLine = path.GetComponent<LineRenderer>();
+                ironSupplyLine.useWorldSpace = false;
+                ironSupplyLine.widthMultiplier = .00038f;
+                ironSupplyLine.sharedMaterial = ironSupplyMaterial;
+            }
+
+            var positions = new Vector3[route.Count];
+            for (var i = 0; i < route.Count; i++)
+                positions[i] = geometry.Sample(CellCentre(route[i]), out _) + Vector3.up * .00135f;
+            ironSupplyLine.positionCount = positions.Length;
+            ironSupplyLine.SetPositions(positions);
+            ironSupplyLine.enabled = true;
+            displayedIronSupplyRoute = route;
+        }
+
         private void UpdateMarchLine(IReadOnlyList<int> route, int index)
         {
             if (warbandMaterial == null) return;
@@ -1124,6 +1160,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(footprintMaterial);
             UnityEngine.Object.Destroy(warbandMaterial);
             UnityEngine.Object.Destroy(warbandArmour);
+            UnityEngine.Object.Destroy(ironSupplyMaterial);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
