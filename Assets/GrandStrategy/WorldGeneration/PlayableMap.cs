@@ -388,7 +388,10 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label("Territory: " + (string.IsNullOrEmpty(territory) ? "None" : territory));
                 }
             }
-            if (surface.Map.IsFord(clickedCell)) GUILayout.Label("River ford | Warbands can cross here.");
+            if (surface.Map.IsFord(clickedCell))
+                GUILayout.Label(campaign?.IsFordSecured(clickedCell) == true
+                    ? "Secured ford | Settlement influence crosses more easily"
+                    : "River ford | Warbands can cross here");
             if (selected >= 0)
                 DrawProvince(surface.Map.Provinces[selected]);
             else if (selectedCell >= 0)
@@ -696,6 +699,20 @@ namespace GrandStrategy.WorldGeneration
             {
                 GUILayout.Label("Warband committed | Trade with the target is suspended");
                 return;
+            }
+            if (surface.Map.IsFord(clickedCell) && !campaign.IsFordSecured(clickedCell))
+            {
+                var canSecure = campaign.CanSecureFord(clickedCell);
+                var enabled = GUI.enabled;
+                GUI.enabled = enabled && canSecure;
+                if (GUILayout.Button("Secure ford") && campaign.TrySecureFord(clickedCell))
+                {
+                    surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
+                    surface.RefreshSecuredFord(clickedCell);
+                    saveStatus = "Ford secured. Settlement influence can cross more easily.";
+                }
+                GUI.enabled = enabled;
+                if (!canSecure) GUILayout.Label("Stop the warband on a bank beside this ford.");
             }
             GUILayout.Label(campaign.WarbandTravelDays > 0
                 ? $"Warband marching | {campaign.WarbandTravelDays} days"
@@ -1053,7 +1070,7 @@ namespace GrandStrategy.WorldGeneration
 
             var status = mapView switch
             {
-                MapViewMode.Resources when resourceFilter == 0 => "Highlighted fords allow warband crossings",
+                MapViewMode.Resources when resourceFilter == 0 => "White shows fords | Green shows secured crossings",
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",

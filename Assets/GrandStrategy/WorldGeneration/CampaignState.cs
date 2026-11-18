@@ -105,6 +105,7 @@ namespace GrandStrategy.WorldGeneration
         public bool Warband;
         public int WarbandRouteIndex;
         public List<int> WarbandRoute;
+        public List<int> SecuredFords;
         public bool IronWarband;
         public int FoodReserve;
         public List<TradeAgreement> Agreements;
@@ -164,6 +165,12 @@ namespace GrandStrategy.WorldGeneration
             if (data.WarbandRoute != null && (!data.Warband || data.WarbandRouteIndex < 0
                 || data.WarbandRouteIndex >= data.WarbandRoute.Count || !IsWarbandRoute(data.WarbandRoute)))
                 throw new ArgumentException("The save contains an invalid warband route.");
+            data.SecuredFords ??= new List<int>();
+            var uniqueFords = new HashSet<int>();
+            foreach (var ford in data.SecuredFords)
+                if (!map.IsFord(ford) || !uniqueFords.Add(ford))
+                    throw new ArgumentException("The save contains an invalid secured ford.");
+
             data.Construction ??= new List<SettlementConstruction>();
             data.SettlementCells ??= new List<int>();
             if (data.SecondSettlementSite > 0)
@@ -330,6 +337,19 @@ namespace GrandStrategy.WorldGeneration
         public bool HasGranary => data.Granary;
         public int GranaryCell => data.GranarySite - 1;
         public bool HasWarband => data.Warband;
+        public bool IsFordSecured(int cell) => data.SecuredFords.Contains(cell);
+
+        public bool CanSecureFord(int cell)
+            => HasWarband && !WarbandCommitted && WarbandTravelDays == 0 && map.IsFord(cell)
+                && !IsFordSecured(cell) && map.CanMarchBetween(WarbandCell, cell);
+
+        public bool TrySecureFord(int cell)
+        {
+            if (!CanSecureFord(cell)) return false;
+            data.SecuredFords.Add(cell);
+            return true;
+        }
+
         public bool WarbandCommitted => PendingApproach == ExpansionApproach.Force;
         public float MilitaryPressure => WarbandCommitted ? (ForceDuration - IntegrationDaysLeft + 1f) / ForceDuration : 0f;
         public bool WarbandAt(int province) => HasWarband && WarbandTravelDays == 0

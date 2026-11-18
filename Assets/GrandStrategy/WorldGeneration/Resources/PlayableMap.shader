@@ -854,9 +854,13 @@ Shader "GrandStrategy/Playable Map"
                     float4 sites = SAMPLE_TEXTURE2D_LOD(_ProductionSites, sampler_ProvinceIndices, input.uv, 0);
                     float coverage = dot(sites.rgb, _ResourceFilter.rgb);
                     if (_ResourceFilter.a > 0.5) coverage = step(0.75, sites.a);
+                    float3 tint = _ResourceTint.rgb;
                     if (dot(_ResourceFilter, float4(1, 1, 1, 1)) < 0.5)
+                    {
                         coverage = step(0.25, sites.a) * (1.0 - step(0.75, sites.a));
-                    return half4(lerp(ground * 0.64, _ResourceTint.rgb, coverage * 0.78), 1);
+                        tint = lerp(tint, float3(0.27, 0.85, 0.36), step(0.60, sites.a));
+                    }
+                    return half4(lerp(ground * 0.64, tint, coverage * 0.78), 1);
                 }
                 float politicalCoverage = _ShowPolitics * smoothstep(0.52, 0.95, map.a);
                 if (politicalCoverage <= 0.0) return half4(ground, 1);

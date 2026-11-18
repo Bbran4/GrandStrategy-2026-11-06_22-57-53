@@ -472,6 +472,21 @@ internal static class Program
             "Integration must transfer ownership on the scheduled day.");
         Require(restored.TryStartIntegration(2), "A new border must open further integration.");
 
+        var fordTerrain = Enumerable.Repeat(1f, raster.Length).ToArray();
+        var fordRivers = new byte[raster.Length];
+        var fordCell = recipe.Width + 1;
+        fordRivers[fordCell] = 1;
+        var fordMap = ProvinceMap.Build(recipe, Enumerable.Repeat(1, raster.Length).ToArray(),
+            new[] { new ProvinceInfo { Id = "Banks", Rgb = 1, Type = "land" } });
+        fordMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, fordTerrain)), fordRivers, fordTerrain);
+        var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
+        Require(fordMap.IsFord(fordCell) && !fordCampaign.TrySecureFord(fordCell)
+            && fordCampaign.TryRecruitWarband() && fordCampaign.TrySecureFord(fordCell)
+            && !fordCampaign.TrySecureFord(fordCell), "A stationary warband must secure an adjacent ford only once.");
+        var fordSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(fordCampaign.ToSave(), json), json);
+        Require(CampaignState.Restore(fordMap, "ford", fordSave, 5).IsFordSecured(fordCell),
+            "Secured fords must survive save and load.");
+
         var march = CampaignState.Found(map, key, 0, "March", 0);
         Require(march.TryRecruitWarband() && march.WarbandCell == 0
             && !march.TryMarchWarband(new List<int> { 0, 2 })

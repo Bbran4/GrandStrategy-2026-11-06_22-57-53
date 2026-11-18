@@ -51,6 +51,7 @@ namespace GrandStrategy.WorldGeneration
         private int highlightedInfluenceRoot;
         private float[] influenceCosts;
         private float displayedMilitaryPressure;
+        private CampaignState resourceMapCampaign;
         private int influenceFoodPeriod = -1;
 
         public ProvinceMap Map { get; }
@@ -500,15 +501,29 @@ namespace GrandStrategy.WorldGeneration
                         (sites & SettlementBuilding.Farm) != 0 ? (byte)255 : (byte)0,
                         (sites & SettlementBuilding.LumberCamp) != 0 ? (byte)255 : (byte)0,
                         (sites & SettlementBuilding.IronMine) != 0 ? (byte)255 : (byte)0,
-                        (sites & SettlementBuilding.Docks) != 0 ? (byte)255 : Map.IsFord(cell) ? (byte)128 : (byte)0);
+                        (sites & SettlementBuilding.Docks) != 0 ? (byte)255 : Map.IsFord(cell) ? FordResourceCode(cell) : (byte)0);
                 }
-            productionSites.Apply(false, true);
+            productionSites.Apply(false, false);
             material.SetTexture("_ProductionSites", productionSites);
+            resourceMapCampaign = influenceCampaign;
         }
 
         public bool IsWithinCityLimits(Vector3 capital, Vector2 uv)
             => IsDryLandAt(uv) && MapSettlement.Contains(capital,
                 new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f));
+
+        private byte FordResourceCode(int cell)
+            => influenceCampaign?.IsFordSecured(cell) == true ? (byte)176 : (byte)128;
+
+        public void RefreshSecuredFord(int cell)
+        {
+            if (productionSites == null) return;
+            var pixels = productionSites.GetRawTextureData<Color32>();
+            var pixel = pixels[cell];
+            pixel.a = FordResourceCode(cell);
+            pixels[cell] = pixel;
+            productionSites.Apply(false, false);
+        }
 
         public List<int> FindWarbandRoute(int start, int goal)
         {
@@ -751,6 +766,19 @@ namespace GrandStrategy.WorldGeneration
         public void SetOwnership(CampaignState campaign, Color colour)
         {
             influenceCampaign = campaign;
+            if (productionSites != null && resourceMapCampaign != campaign)
+            {
+                var pixels = productionSites.GetRawTextureData<Color32>();
+                for (var cell = 0; cell < pixels.Length; cell++)
+                {
+                    if (!Map.IsFord(cell)) continue;
+                    var pixel = pixels[cell];
+                    pixel.a = FordResourceCode(cell);
+                    pixels[cell] = pixel;
+                }
+                productionSites.Apply(false, false);
+                resourceMapCampaign = campaign;
+            }
             influenceFoodPeriod = -1;
             material.SetVector("_OwnershipColour", QualitySettings.activeColorSpace == ColorSpace.Linear ? colour.linear : colour);
             RefreshInfluence();
@@ -873,8 +901,12 @@ namespace GrandStrategy.WorldGeneration
                     {
                         if (water[next] != WaterKind.Land
                             || (restrictedRegion >= 0 && (Map.ProvinceAt[next] != restrictedRegion || IsRiver(next)))) return;
-                        var cost = step.Cost + 1f + Mathf.Abs(elevations[next] - elevations[cell]) * (.16f * Map.Height)
-                            + (IsRiver(next) ? 5f : 0f);
+                        var securedCrossing = restrictedRegion < 0 && (Map.IsFord(cell) || Map.IsFord(next))
+                            && Map.CanMarchBetween(cell, next)
+                            && (campaign.IsFordSecured(cell) || campaign.IsFordSecured(next));
+                        var cost = step.Cost + (securedCrossing ? 1f
+                            : 1f + Mathf.Abs(elevations[next] - elevations[cell]) * (.16f * Map.Height)
+                                + (IsRiver(next) ? 5f : 0f));
                         if (cost > budget) return;
                         if (costs.TryGetValue(next, out var previous))
                         {
