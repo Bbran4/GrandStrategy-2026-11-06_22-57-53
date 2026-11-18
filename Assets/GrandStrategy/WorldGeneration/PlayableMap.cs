@@ -789,6 +789,7 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label(campaign.IndependentVillageOccupied ? "Independent village occupied | Growth and development paused"
                     : campaign.IndependentFarmCell >= 0 ? "Independent farming village | Larger food market"
                     : "Independent village | Population growing");
+                if (campaign.IndependentOutpostCell >= 0) GUILayout.Label("Independent village and frontier outpost");
                 if (campaign.IndependentVillageGuarded)
                     GUILayout.Label("Village guards | Hold the objective for 3 consecutive days to capture it");
             }

@@ -57,6 +57,8 @@ namespace GrandStrategy.WorldGeneration
         private MapTerrainGeometry geometry;
         private MapSettlement settlement;
         private MapSettlement independentVillage;
+        private MapSettlement independentOutpost;
+        private int displayedIndependentOutpost = -1;
         private int displayedIndependentVillage = -1;
         private int displayedIndependentFarm = -1;
         private readonly Dictionary<int, MapSettlement> villages = new Dictionary<int, MapSettlement>();
@@ -448,6 +450,19 @@ namespace GrandStrategy.WorldGeneration
 
         public void ShowIndependentVillage(CampaignState campaign)
         {
+            var outpost = campaign?.IndependentOutpostCell ?? -1;
+            if (outpost != displayedIndependentOutpost)
+            {
+                independentOutpost?.Dispose();
+                independentOutpost = null;
+                displayedIndependentOutpost = outpost;
+                if (outpost >= 0 && IsDryLand(outpost))
+                {
+                    independentOutpost = new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
+                    independentOutpost.Show(geometry.Sample(CellCentre(outpost), out _), false, false, null, 0,
+                        _ => null, null, MapSettlement.BuildRadius, independent: true);
+                }
+            }
             var cell = campaign?.IndependentVillageCell ?? -1;
             var farm = campaign?.IndependentFarmCell ?? -1;
             if (cell == displayedIndependentVillage && farm == displayedIndependentFarm) return;
@@ -489,6 +504,26 @@ namespace GrandStrategy.WorldGeneration
             return selected;
         }
 
+        private int FindIndependentOutpostSite(int village)
+        {
+            RefreshInfluence(true);
+            var region = Map.ProvinceAt[village];
+            var capital = CellCentre(influenceCampaign.CapitalCell);
+            var nearest = float.PositiveInfinity;
+            var candidate = -1;
+            for (var cell = 0; cell < Map.ProvinceAt.Length; cell++)
+            {
+                if (Map.ProvinceAt[cell] != region || influenceRoots[cell] >= 0) continue;
+                var offset = CellCentre(cell) - capital;
+                offset.x *= Aspect;
+                var distance = offset.sqrMagnitude;
+                if (distance >= nearest || !HasRoom(influenceCampaign, cell, MapSettlement.BuildRadius)) continue;
+                nearest = distance;
+                candidate = cell;
+            }
+            return candidate;
+        }
+
         private int FindIndependentVillageSite(int region)
         {
             RefreshInfluence(true);
@@ -521,6 +556,8 @@ namespace GrandStrategy.WorldGeneration
             if (Conflicts(campaign.CapitalCell)) return false;
             var independent = campaign.IndependentVillageCell;
             if (independent >= 0 && (cell == independent || Conflicts(independent))) return false;
+            var outpost = campaign.IndependentOutpostCell;
+            if (outpost >= 0 && (cell == outpost || Conflicts(outpost))) return false;
             var proposed = campaign.IntegrationSettlementCell;
             if (proposed >= 0 && proposed != campaign.CapitalCell && !villages.ContainsKey(proposed)
                 && Conflicts(proposed)) return false;
@@ -1143,6 +1180,7 @@ namespace GrandStrategy.WorldGeneration
             influenceCampaign = campaign;
             campaign.LandContactResolver = HasLandContact;
             campaign.IndependentVillageSiteResolver = FindIndependentVillageSite;
+            campaign.IndependentOutpostSiteResolver = FindIndependentOutpostSite;
             campaign.IndependentFarmSiteResolver = FindIndependentFarmSite;
             campaign.IndependentTerritoryResolver = IsIndependentTerritory;
             campaign.MilitaryOccupationResolver = IsMilitaryOccupied;
@@ -1255,7 +1293,12 @@ namespace GrandStrategy.WorldGeneration
                 Spread(campaign.SettlementCells[i], campaign.SettlementProvinceRoots[i]);
 
             if (campaign.IndependentVillageCell >= 0)
-                Spread(campaign.IndependentVillageCell, -1, campaign.IndependentPopulation(campaign.IndependentVillageRegion));
+            {
+                var residents = campaign.IndependentPopulation(campaign.IndependentVillageRegion);
+                var outpostResidents = campaign.IndependentOutpostCell >= 0 ? residents / 3 : 0;
+                Spread(campaign.IndependentVillageCell, -1, residents - outpostResidents);
+                if (campaign.IndependentOutpostCell >= 0) Spread(campaign.IndependentOutpostCell, -1, outpostResidents);
+            }
 
             for (var cell = 0; cell < pixels.Length; cell++)
             {
@@ -1386,6 +1429,7 @@ namespace GrandStrategy.WorldGeneration
         {
             settlement?.Dispose();
             independentVillage?.Dispose();
+            independentOutpost?.Dispose();
             ClearVillages();
             nature?.Dispose();
             borders?.Dispose();

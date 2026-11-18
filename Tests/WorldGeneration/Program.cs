@@ -694,6 +694,25 @@ internal static class Program
         Require(guardedFrontier.IndependentVillageGuarded && guardedFrontier.IsFordSecured(fordCell),
             "A local garrison must prevent an autonomous rival takeover.");
 
+        var expandedRival = CampaignState.Found(fordMap, "outpost", fordCell - 1, "Outpost", 0, localCapitalClaim: true);
+        var rivalVillage = fordCell + 1;
+        var rivalOutpost = rivalVillage + recipe.Width;
+        expandedRival.IndependentVillageSiteResolver = _ => rivalVillage;
+        expandedRival.IndependentFarmSiteResolver = _ => rivalVillage + 1;
+        expandedRival.IndependentOutpostSiteResolver = _ => rivalOutpost;
+        expandedRival.Paused = false;
+        expandedRival.Advance(59);
+        Require(expandedRival.IndependentOutpostCell == rivalOutpost && !expandedRival.TryFoundSettlement(rivalOutpost),
+            "A mature farming community must establish a second site on its frontier.");
+        expandedRival = CampaignState.Restore(fordMap, "outpost", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(expandedRival.ToSave(), json), json), 5);
+        Require(expandedRival.TryStartIntegration(0) && expandedRival.AdvanceToNextDecision()
+            && expandedRival.IndependentOutpostCell == -1 && expandedRival.SettlementCells.Contains(rivalVillage)
+            && expandedRival.SettlementCells.Contains(rivalOutpost)
+            && expandedRival.SettlementPopulation(rivalVillage) > expandedRival.SettlementPopulation(rivalOutpost)
+            && expandedRival.OwnedPopulation == expandedRival.Population(0),
+            "Integrating the community must preserve both sites and distribute its population without duplication.");
+
         var localFarm = CampaignState.Found(fordMap, "local-farm", fordCell - 1, "Local farm", 0);
         fordMap.LocalProductionYield = (cell, building) =>
             building == SettlementBuilding.Farm ? (cell == fordCell + 1 ? 3 : 0) : (int?)null;

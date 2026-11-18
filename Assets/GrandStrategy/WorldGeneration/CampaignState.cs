@@ -146,6 +146,7 @@ namespace GrandStrategy.WorldGeneration
         public bool LocalIntegration;
         public int IntegrationSettlementSite;
         public int IndependentVillageSite;
+        public int IndependentOutpostSite;
         public int IndependentVillageFoundedDay;
         public int IndependentFarmSite;
         public bool IndependentVillageGuarded;
@@ -264,6 +265,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly Dictionary<int, List<int>> ironSupplyRoutes = new Dictionary<int, List<int>>();
         internal Func<int, bool> LandContactResolver { get; set; }
         internal Func<int, int> IndependentVillageSiteResolver { get; set; }
+        internal Func<int, int> IndependentOutpostSiteResolver { get; set; }
         internal Func<int, int> IndependentFarmSiteResolver { get; set; }
         internal Func<int, bool> IndependentTerritoryResolver { get; set; }
         internal Func<int, bool> MilitaryOccupationResolver { get; set; }
@@ -380,7 +382,7 @@ namespace GrandStrategy.WorldGeneration
         public bool CanFoundSettlement(int cell)
         {
             var province = SettlementProvince(cell);
-            return cell != CapitalCell && cell != IndependentVillageCell && IsLand(map, province) && province != IntegrationTarget
+            return cell != CapitalCell && cell != IndependentVillageCell && cell != IndependentOutpostCell && IsLand(map, province) && province != IntegrationTarget
                 && !data.SettlementCells.Contains(cell) && Coin >= SettlementCoin && Wood >= SettlementWoodCost
                 && IndependentTerritoryResolver?.Invoke(cell) != true;
         }
@@ -542,6 +544,7 @@ namespace GrandStrategy.WorldGeneration
         public int Speed => data.Speed;
         public int Coin => data.Coin;
         public bool UsesLocalIntegration => data.LocalIntegration;
+        public int IndependentOutpostCell => data.IndependentOutpostSite - 1;
         public int IndependentVillageCell => data.IndependentVillageSite - 1;
         public bool IndependentVillageOccupied => IndependentVillageCell >= 0 && WarbandCommitted
             && MilitaryOccupationResolver?.Invoke(IndependentVillageCell) == true;
@@ -1392,6 +1395,12 @@ namespace GrandStrategy.WorldGeneration
                     || settlementSites.Contains(save.IndependentVillageSite - 1)
                     || save.Owned[ProvinceAt(map, save.IndependentVillageSite - 1)])))
                 throw new ArgumentException("The save contains an invalid independent village.");
+
+            if (save.IndependentOutpostSite < 0 || (save.IndependentOutpostSite > 0
+                && (save.IndependentVillageSite == 0 || save.IndependentOutpostSite == save.IndependentVillageSite
+                    || save.IndependentOutpostSite - 1 == save.CapitalCell || settlementSites.Contains(save.IndependentOutpostSite - 1)
+                    || ProvinceAt(map, save.IndependentOutpostSite - 1) != ProvinceAt(map, save.IndependentVillageSite - 1))))
+                throw new ArgumentException("The save contains an invalid independent outpost.");
 
             if (save.IndependentVillageFoundedDay < 0 || save.IndependentVillageFoundedDay > save.Day
                 || save.IndependentFarmSite < 0 || (save.IndependentVillageSite == 0
@@ -2349,6 +2358,17 @@ namespace GrandStrategy.WorldGeneration
                 if (population >= IndependentGuardPopulation && Day - data.IndependentVillageFoundedDay >= IndependentGuardAge)
                     data.IndependentVillageGuarded = true;
                 if (IndependentVillageGuarded) ContestUnguardedPlayerFord(region);
+                if (IndependentOutpostCell < 0 && IndependentFarmCell >= 0 && population >= 150
+                    && Day - data.IndependentVillageFoundedDay >= FoodInterval * 3 && IndependentOutpostSiteResolver != null)
+                {
+                    var outpost = IndependentOutpostSiteResolver(IndependentVillageCell);
+                    if (outpost != IndependentVillageCell && outpost != CapitalCell && SettlementProvince(outpost) == region
+                        && !data.SettlementCells.Contains(outpost))
+                    {
+                        data.IndependentOutpostSite = outpost + 1;
+                        InfluenceRevision++;
+                    }
+                }
                 if (IndependentFarmCell < 0 && Day - data.IndependentVillageFoundedDay >= FoodInterval
                     && IndependentFarmSiteResolver != null)
                 {
@@ -2505,8 +2525,17 @@ namespace GrandStrategy.WorldGeneration
                 {
                     data.SettlementCells.Add(destination);
                     var root = data.IntegrationProvinceRoot - 1;
-                    data.SettlementProvinceRoots.Add(root >= 0 ? root : destination);
-                    data.SettlementPopulations.Add(remainingResidents);
+                    var provinceRoot = root >= 0 ? root : destination;
+                    data.SettlementProvinceRoots.Add(provinceRoot);
+                    var outpostResidents = destination == IndependentVillageCell && IndependentOutpostCell >= 0
+                        ? remainingResidents / 3 : 0;
+                    data.SettlementPopulations.Add(remainingResidents - outpostResidents);
+                    if (destination == IndependentVillageCell && IndependentOutpostCell >= 0)
+                    {
+                        data.SettlementCells.Add(IndependentOutpostCell);
+                        data.SettlementProvinceRoots.Add(provinceRoot);
+                        data.SettlementPopulations.Add(outpostResidents);
+                    }
                     if (destination == IndependentVillageCell && IndependentFarmCell >= 0)
                         data.Construction.Add(new SettlementConstruction
                         {
@@ -2519,6 +2548,7 @@ namespace GrandStrategy.WorldGeneration
             if (IndependentVillageRegion == target)
             {
                 data.IndependentVillageSite = data.IndependentVillageFoundedDay = data.IndependentFarmSite = 0;
+                data.IndependentOutpostSite = 0;
                 data.IndependentVillageGuarded = false;
             }
             InfluenceRevision++;
