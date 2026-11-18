@@ -439,7 +439,9 @@ namespace GrandStrategy.WorldGeneration
                 villages.Add(cell, village);
             }
 
-            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell), building => ProductionPoint(campaign, cell, building), DockWaterPoint(campaign, cell), BuildRadius(campaign, cell));
+            village.Show(geometry.Sample(CellCentre(cell), out _), campaign.GranaryCellAt(cell) >= 0, false,
+                GranaryPoint(campaign, cell), campaign.SettlementBuildings(cell),
+                building => ProductionPoint(campaign, cell, building), DockWaterPoint(campaign, cell), BuildRadius(campaign, cell));
         }
 
         private static float BuildRadius(CampaignState campaign, int cell)
@@ -1069,9 +1071,9 @@ namespace GrandStrategy.WorldGeneration
             if (!MapSettlement.FitsGranary(centre, anchor, BuildRadius(campaign, site)) || !HasDryFootprint(CellCentre(cell), MapSettlement.ProductionHalfWidth)
                 || ConflictsWithProduction(campaign, site, cell, MapSettlement.ProductionHalfWidth)) return false;
 
-            if (site == campaign.CapitalCell && campaign.HasGranary)
+            var granary = campaign.GranaryCellAt(site);
+            if (granary >= 0 || (site == campaign.CapitalCell && campaign.HasGranary))
             {
-                var granary = campaign.GranaryCell;
                 var granaryUv = granary >= 0
                     ? CellCentre(granary)
                     : CellCentre(site) + new Vector2(MapSettlement.GranaryOffset.x / Aspect, MapSettlement.GranaryOffset.y);
@@ -1103,12 +1105,20 @@ namespace GrandStrategy.WorldGeneration
             return Mathf.Abs(offset.x * Aspect) < width && Mathf.Abs(offset.y) < width * .77f;
         }
 
-        public bool CanPlaceGranary(CampaignState campaign, Vector3 capital, int cell)
+        public bool CanPlaceGranary(CampaignState campaign, int settlementCell, int cell)
         {
             if (cell < 0 || cell >= Map.ProvinceAt.Length || !IsDryLand(cell)) return false;
             var uv = CellCentre(cell);
-            var site = geometry.Sample(uv, out _);
-            return MapSettlement.FitsGranary(capital, site, BuildRadius(campaign, campaign.CapitalCell)) && HasDryFootprint(uv, MapSettlement.GranaryHalfWidth);
+            var centre = geometry.Sample(CellCentre(settlementCell), out _);
+            var anchor = geometry.Sample(uv, out _);
+            return MapSettlement.FitsGranary(centre, anchor, BuildRadius(campaign, settlementCell))
+                && HasDryFootprint(uv, MapSettlement.GranaryHalfWidth);
+        }
+
+        private Vector3? GranaryPoint(CampaignState campaign, int site)
+        {
+            var cell = campaign.GranaryCellAt(site);
+            return CanPlaceGranary(campaign, site, cell) ? geometry.Sample(CellCentre(cell), out _) : (Vector3?)null;
         }
 
         public bool IsBuildSiteTooSteep(int cell, SettlementBuilding? building = null)
@@ -1156,11 +1166,8 @@ namespace GrandStrategy.WorldGeneration
         public void SetCapital(Vector3 point, CampaignState campaign)
         {
             settlement ??= new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
-            Vector3? granarySite = null;
-            if (campaign.HasGranary && CanPlaceGranary(campaign, point, campaign.GranaryCell))
-                granarySite = geometry.Sample(CellCentre(campaign.GranaryCell), out _);
             settlement.Show(point, campaign.HasGranary, campaign.FirstExpansion != ExpansionApproach.None,
-                granarySite, campaign.SettlementBuildings(campaign.CapitalCell),
+                GranaryPoint(campaign, campaign.CapitalCell), campaign.SettlementBuildings(campaign.CapitalCell),
                 building => ProductionPoint(campaign, campaign.CapitalCell, building), DockWaterPoint(campaign, campaign.CapitalCell), BuildRadius(campaign, campaign.CapitalCell));
             nature.SetCapital(point);
             material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));

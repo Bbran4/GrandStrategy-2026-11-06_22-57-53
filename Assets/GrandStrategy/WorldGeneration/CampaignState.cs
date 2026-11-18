@@ -120,6 +120,7 @@ namespace GrandStrategy.WorldGeneration
         public int Target;
         public int LastShortfall;
         public int LastReserveUsed;
+        public int GranarySite; // Cell index plus one.
         public int InTransit;
         public int DepartureDay, ArrivalDay, HoldDay;
         public int[] OverlandPath;
@@ -215,6 +216,9 @@ namespace GrandStrategy.WorldGeneration
         public const int ResearchCost = 2;
         private const int ResearchLimit = 99;
         public const int MaxLocalFoodTarget = 30;
+        public const int VillageGranaryFoodTarget = 60;
+        public const int VillageGranaryWood = 20;
+        public const int VillageGranaryCoin = 25;
         public const int RoadWood = 25;
         public const int RoadCoin = 20;
         public const int BridgeWood = 20;
@@ -643,7 +647,7 @@ namespace GrandStrategy.WorldGeneration
         {
             var tax = Taxes switch { TaxPolicy.Relief => 15, TaxPolicy.Heavy => -30, _ => 0 };
             var farm = HasSettlementBuilding(cell, SettlementBuilding.Farm) ? 5 : 0;
-            var granary = cell == CapitalCell && HasGranary ? 5 : 0;
+            var granary = (cell == CapitalCell ? HasGranary : GranaryCellAt(cell) >= 0) ? 5 : 0;
             return (60, tax, fed ? 0 : -25, farm, granary);
         }
 
@@ -661,6 +665,17 @@ namespace GrandStrategy.WorldGeneration
         public int TradeCapacity => 1 + (HasRegionalCouncil ? 1 : 0) + BuildingTotal(SettlementBuilding.Docks);
         public bool HasGranary => data.Granary;
         public int GranaryCell => data.GranarySite - 1;
+
+        public int GranaryCellAt(int cell)
+        {
+            if (cell == CapitalCell) return GranaryCell;
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.Cell == cell) return reserve.GranarySite - 1;
+            return -1;
+        }
+
+        public int LocalFoodTargetLimit(int cell)
+            => GranaryCellAt(cell) >= 0 && cell != CapitalCell ? VillageGranaryFoodTarget : MaxLocalFoodTarget;
         public bool HasWarband => data.Warband;
         public IReadOnlyList<int> BridgedFords => data.BridgedFords;
         public bool HasBridge(int ford) => data.BridgedFords?.Contains(ford) == true;
@@ -1224,7 +1239,7 @@ namespace GrandStrategy.WorldGeneration
 
         public bool TrySetLocalFoodTarget(int cell, int target)
         {
-            if (target < 0 || target > MaxLocalFoodTarget || !data.SettlementCells.Contains(cell)) return false;
+            if (target < 0 || !data.SettlementCells.Contains(cell) || target > LocalFoodTargetLimit(cell)) return false;
             var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == cell);
             var reserve = index >= 0 ? data.SettlementFood[index] : new SettlementFoodReserve { Cell = cell };
             reserve.Target = target;
@@ -1593,14 +1608,19 @@ namespace GrandStrategy.WorldGeneration
             if (save.SettlementFood != null)
             {
                 var foodSites = new HashSet<int>();
+                var granarySites = new HashSet<int> { save.GranarySite };
                 foreach (var reserve in save.SettlementFood)
                 {
+                    var targetLimit = reserve.GranarySite == 0 ? MaxLocalFoodTarget : VillageGranaryFoodTarget;
                     if (!settlementSites.Contains(reserve.Cell) || !foodSites.Add(reserve.Cell)
                         || !ValidStock(reserve.Food) || !ValidStock(reserve.LastReserveUsed) || reserve.LastShortfall < 0
-                        || reserve.Target < 0 || reserve.Target > MaxLocalFoodTarget)
+                        || reserve.Target < 0 || reserve.Target > targetLimit
+                        || reserve.GranarySite < 0 || (reserve.GranarySite > 0
+                            && (!granarySites.Add(reserve.GranarySite)
+                                || !IsVillageGranaryGround(map, reserve.Cell, reserve.GranarySite - 1))))
                         throw new ArgumentException("The save contains an invalid local food reserve.");
                     var path = reserve.OverlandPath;
-                    if (reserve.InTransit < 0 || reserve.InTransit > MaxLocalFoodTarget
+                    if (reserve.InTransit < 0 || reserve.InTransit > targetLimit
                         || (reserve.WaitingToUnload && (reserve.InTransit == 0 || path != null || reserve.HoldDay != 0))
                         || (reserve.InTransit == 0 && (path != null || reserve.DepartureDay != 0
                             || reserve.ArrivalDay != 0 || reserve.HoldDay != 0))
@@ -2282,10 +2302,37 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        public bool CanBuildVillageGranary(int village)
+            => data.SettlementCells.Contains(village) && GranaryCellAt(village) < 0
+                && Wood >= VillageGranaryWood && Coin >= VillageGranaryCoin;
+
+        public bool TryBuildVillageGranary(int village, int placement)
+        {
+            if (!CanBuildVillageGranary(village) || !IsVillageGranaryGround(map, village, placement)
+                || placement == GranaryCell) return false;
+            foreach (var stored in data.SettlementFood)
+                if (stored.GranarySite == placement + 1) return false;
+
+            var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == village);
+            var local = index >= 0 ? data.SettlementFood[index] : new SettlementFoodReserve { Cell = village };
+            local.GranarySite = placement + 1;
+            if (index >= 0) data.SettlementFood[index] = local;
+            else data.SettlementFood.Add(local);
+            data.Wood -= VillageGranaryWood;
+            data.Coin -= VillageGranaryCoin;
+            return true;
+        }
+
+        private static bool IsVillageGranaryGround(ProvinceMap map, int village, int placement)
+            => placement != village && IsLand(map, ProvinceAt(map, placement))
+                && (!map.HasMarchTerrain || (map.IsMarchCell(placement) && !map.IsFord(placement)));
+
         public bool TryBuildGranary(int cell = -1)
         {
             if (!CanBuildGranary || cell < -1 || cell >= map.ProvinceAt.Length
                 || (cell >= 0 && !IsLand(map, ProvinceAt(map, cell)))) return false;
+            foreach (var stored in data.SettlementFood)
+                if (cell >= 0 && stored.GranarySite == cell + 1) return false;
             data.Wood -= GranaryWood;
             data.Coin -= GranaryCoin;
             data.Granary = true;
@@ -2805,7 +2852,7 @@ namespace GrandStrategy.WorldGeneration
                     else if (reserve.Food < reserve.Target && reserve.InTransit == 0)
                         DispatchFoodShipment(ref reserve);
                     if (reserve.Food == 0 && reserve.Target == 0 && reserve.InTransit == 0
-                        && reserve.LastShortfall == 0 && reserve.LastReserveUsed == 0)
+                        && reserve.LastShortfall == 0 && reserve.LastReserveUsed == 0 && reserve.GranarySite == 0)
                         data.SettlementFood.RemoveAt(index);
                     else data.SettlementFood[index] = reserve;
                     continue;

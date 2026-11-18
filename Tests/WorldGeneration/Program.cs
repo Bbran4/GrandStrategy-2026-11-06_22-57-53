@@ -1042,6 +1042,43 @@ internal static class Program
         stocked.Advance(foodCargo.Days);
         Require(stocked.LocalFoodStock(mineSite) == 10 && stocked.LocalFoodShipment(mineSite).Amount == 0,
             "The released cargo must reach the reserve exactly once.");
+        var granaryVillageSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(stocked.ToSave(), json), json);
+        granaryVillageSave.Coin = granaryVillageSave.Wood = granaryVillageSave.Food = 200;
+        var granaryVillage = CampaignState.Restore(supplyMap, "stocked", granaryVillageSave, 5);
+        var villageGranarySite = mineSite + 1;
+        Require(granaryVillage.GranaryCellAt(mineSite) == -1
+            && !granaryVillage.TrySetLocalFoodTarget(mineSite, 60)
+            && !granaryVillage.TryBuildVillageGranary(mineSite, fordCell)
+            && !granaryVillage.TryBuildVillageGranary(granaryVillage.CapitalCell, villageGranarySite),
+            "An older village keeps its base reserve limit, and cannot build a granary on a ford.");
+        Require(granaryVillage.TryBuildVillageGranary(mineSite, villageGranarySite)
+            && !granaryVillage.TryBuildVillageGranary(mineSite, villageGranarySite + 1)
+            && granaryVillage.Wood == 200 - CampaignState.VillageGranaryWood
+            && granaryVillage.Coin == 200 - CampaignState.VillageGranaryCoin
+            && !granaryVillage.HasGranary && granaryVillage.SettlementHappinessBreakdown(mineSite).Granary == 5,
+            "A village granary charges once, grants local happiness and leaves capital storage independent.");
+        Require(granaryVillage.LocalFoodTargetLimit(mineSite) == 60
+            && granaryVillage.TrySetLocalFoodTarget(mineSite, 60)
+            && !granaryVillage.TrySetLocalFoodTarget(mineSite, 61),
+            "A village granary must double the local reserve target limit.");
+        granaryVillage.Paused = false;
+        granaryVillage.Advance(CampaignState.ProductionInterval - granaryVillage.Day % CampaignState.ProductionInterval);
+        Require(granaryVillage.LocalFoodShipment(mineSite).Amount == 50 && granaryVillage.LocalFoodStock(mineSite) == 10,
+            "The expanded reserve must draw a larger shipment through the usual supply route.");
+        granaryVillage = CampaignState.Restore(supplyMap, "stocked", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(granaryVillage.ToSave(), json), json), 5);
+        Require(granaryVillage.GranaryCellAt(mineSite) == villageGranarySite
+            && granaryVillage.LocalFoodTarget(mineSite) == 60 && granaryVillage.LocalFoodTargetLimit(mineSite) == 60,
+            "A saved village granary must restore its exact site and capacity while a delivery is in flight.");
+        granaryVillage.Paused = false;
+        granaryVillage.Advance(granaryVillage.LocalFoodShipment(mineSite).Days);
+        Require(granaryVillage.LocalFoodStock(mineSite) == 60 && granaryVillage.LocalFoodShipment(mineSite).Amount == 0,
+            "A restored delivery must fill the expanded reserve once.");
+        Require(granaryVillage.TrySetLocalFoodTarget(mineSite, 0), "The village must be able to release its reserve.");
+        granaryVillage.Advance(CampaignState.ProductionInterval);
+        Require(granaryVillage.LocalFoodStock(mineSite) == 0 && granaryVillage.GranaryCellAt(mineSite) == villageGranarySite,
+            "Releasing all local food stock must keep the granary in place.");
+
         var emergencySave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(stocked.ToSave(), json), json);
         emergencySave.Day = 104;
         emergencySave.Granary = true;

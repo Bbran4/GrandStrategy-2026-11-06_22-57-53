@@ -599,7 +599,7 @@ namespace GrandStrategy.WorldGeneration
                 var factors = campaign.SettlementHappinessBreakdown(site);
                 GUILayout.Label($"Base {factors.Base} | {campaign.Taxes} taxes {factors.Tax:+0;-0;0}");
                 if (factors.Farm != 0) GUILayout.Label($"Local farm +{factors.Farm}");
-                if (factors.Granary != 0) GUILayout.Label($"Capital granary +{factors.Granary}");
+                if (factors.Granary != 0) GUILayout.Label($"Granary +{factors.Granary}");
                 if (factors.Food != 0) GUILayout.Label($"Food shortage {factors.Food}");
                 var (food, upkeep, drawsLocalReserve) = campaign.SettlementMealOutlook(site);
                 var stockLabel = campaign.IsFoodIsolated(site) ? "Isolated village food stock"
@@ -614,6 +614,7 @@ namespace GrandStrategy.WorldGeneration
             DrawSettlementGarrison(site);
             DrawSettlementRoad(site);
             DrawConstruction(site);
+            DrawGranary(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
         }
 
@@ -621,7 +622,8 @@ namespace GrandStrategy.WorldGeneration
         {
             const int step = 5;
             var target = campaign.LocalFoodTarget(site);
-            GUILayout.Label($"Local reserve {campaign.LocalFoodStock(site):N0}/{target:N0}");
+            var limit = campaign.LocalFoodTargetLimit(site);
+            GUILayout.Label($"Local reserve {campaign.LocalFoodStock(site):N0}/{target:N0} | Max target {limit:N0}");
             var used = campaign.LocalFoodUsedLastMeal(site);
             var shortfall = campaign.LocalFoodShortfall(site);
             if (used > 0) GUILayout.Label($"Last meal used {used:N0} food from the reserve.");
@@ -646,9 +648,9 @@ namespace GrandStrategy.WorldGeneration
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && target > 0;
             if (GUILayout.Button("Reserve −5")) campaign.TrySetLocalFoodTarget(site, Math.Max(0, target - step));
-            GUI.enabled = wasEnabled && target < CampaignState.MaxLocalFoodTarget;
+            GUI.enabled = wasEnabled && target < limit;
             if (GUILayout.Button("Reserve +5"))
-                campaign.TrySetLocalFoodTarget(site, Math.Min(CampaignState.MaxLocalFoodTarget, target + step));
+                campaign.TrySetLocalFoodTarget(site, Math.Min(limit, target + step));
             GUI.enabled = wasEnabled;
             GUILayout.EndHorizontal();
             if (target > 0)
@@ -1511,27 +1513,45 @@ namespace GrandStrategy.WorldGeneration
             previewColour = canBuild ? new Color(.34f, .95f, .47f) : new Color(1f, .32f, .28f);
         }
 
+        private void DrawGranary(int site)
+        {
+            var capital = site == campaign.CapitalCell;
+            if (capital ? campaign.HasGranary : campaign.GranaryCellAt(site) >= 0) return;
+
+            var available = capital ? campaign.CanBuildGranary : campaign.CanBuildVillageGranary(site);
+            var wood = capital ? CampaignState.GranaryWood : CampaignState.VillageGranaryWood;
+            var coin = capital ? CampaignState.GranaryCoin : CampaignState.VillageGranaryCoin;
+            var fits = surface.CanPlaceGranary(campaign, site, clickedCell)
+                && !surface.ConflictsWithProduction(campaign, site, clickedCell, MapSettlement.GranaryHalfWidth);
+            if (fits && surface.IsBuildSiteTooSteep(clickedCell))
+            {
+                GUILayout.Label("The granary footprint is too steep.");
+                fits = false;
+            }
+            else if (!fits)
+                GUILayout.Label("Select open ground for the granary.");
+
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && available && fits;
+            var build = GUILayout.Button($"Build granary ({wood} wood, {coin} coin)");
+            PreviewWhenHovered(MapSettlement.GranaryHalfWidth, available && fits);
+            GUI.enabled = wasEnabled;
+            if (!build) return;
+            if (capital && campaign.TryBuildGranary(clickedCell))
+            {
+                surface.SetCapital(settlement, campaign);
+                saveStatus = "Capital granary built. Stored food is protected from winter spoilage.";
+            }
+            else if (!capital && campaign.TryBuildVillageGranary(site, clickedCell))
+            {
+                surface.RefreshVillage(campaign, site);
+                saveStatus = $"Village granary built. Set a reserve target up to {campaign.LocalFoodTargetLimit(site)} food.";
+            }
+        }
+
         private void DrawCapitalActions()
         {
             var wasEnabled = GUI.enabled;
-            var fitsGranary = InCapitalLimits && surface.CanPlaceGranary(campaign, settlement, clickedCell)
-                && !surface.ConflictsWithProduction(campaign, campaign.CapitalCell, clickedCell, MapSettlement.GranaryHalfWidth);
-            if (!campaign.HasGranary && fitsGranary && surface.IsBuildSiteTooSteep(clickedCell))
-            {
-                GUILayout.Label("The granary footprint is too steep.");
-                fitsGranary = false;
-            }
-            else if (!campaign.HasGranary && InCapitalLimits && !fitsGranary)
-                GUILayout.Label("Select open ground for the granary.");
-            GUI.enabled = wasEnabled && fitsGranary && campaign.CanBuildGranary;
-            if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)")
-                && campaign.TryBuildGranary(clickedCell))
-            {
-                surface.SetCapital(settlement, campaign);
-                saveStatus = "Granary built. Stored food is protected from winter spoilage.";
-            }
-            if (!campaign.HasGranary)
-                PreviewWhenHovered(MapSettlement.GranaryHalfWidth, fitsGranary && campaign.CanBuildGranary);
             GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
             if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({campaign.WarbandRecruitWood} wood, {campaign.WarbandRecruitCoin} coin, {CampaignState.WarbandRecruits} people)"))
             {
