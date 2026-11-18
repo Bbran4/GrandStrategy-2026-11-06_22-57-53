@@ -443,10 +443,12 @@ namespace GrandStrategy.WorldGeneration
             var number = 1;
             var count = 0;
             long population = 0;
+            SettlementBuilding reachableSites = 0;
             if (root == campaign.CapitalCell)
             {
                 count++;
                 population += campaign.SettlementPopulation(root);
+                reachableSites |= surface.SurveyProductionSites(root);
             }
 
             var nextNumber = 1;
@@ -462,10 +464,14 @@ namespace GrandStrategy.WorldGeneration
                 if (province != root) continue;
                 count++;
                 population += campaign.SettlementPopulation(site);
+                reachableSites |= surface.SurveyProductionSites(site);
             }
 
             GUILayout.Label(root == campaign.CapitalCell ? "Capital province" : $"Province {number}", hudHeading);
             GUILayout.Label($"{campaign.TribeName} | {count} {(count == 1 ? "settlement" : "settlements")} | {population:N0} people");
+            var claimSites = surface.InfluenceProvinceResources(root);
+            GUILayout.Label($"Province terrain: {(claimSites == 0 ? "No production sites" : DescribeProductionSites(claimSites))}");
+            GUILayout.Label($"Within city limits: {(reachableSites == 0 ? "No production sites" : DescribeProductionSites(reachableSites))}");
             if (selected >= 0)
                 GUILayout.Label($"Local economy region: {surface.Map.Provinces[selected].Id}");
 

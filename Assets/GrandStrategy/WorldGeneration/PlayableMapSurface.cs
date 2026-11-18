@@ -56,6 +56,7 @@ namespace GrandStrategy.WorldGeneration
         private float displayedMilitaryPressure;
         private CampaignState resourceMapCampaign;
         private int influenceRevision = -1;
+        private readonly Dictionary<int, SettlementBuilding> provinceProductionSites = new Dictionary<int, SettlementBuilding>();
         private readonly HashSet<int> landContacts = new HashSet<int>();
 
         public ProvinceMap Map { get; }
@@ -881,6 +882,13 @@ namespace GrandStrategy.WorldGeneration
             return landContacts.Contains(province);
         }
 
+        public SettlementBuilding InfluenceProvinceResources(int root)
+        {
+            if (root < 0) return 0;
+            RefreshInfluence(true);
+            return provinceProductionSites.TryGetValue(root + 1, out var sites) ? sites : 0;
+        }
+
         public int InfluenceProvinceAt(int cell)
         {
             if (cell < 0 || cell >= Map.ProvinceAt.Length) return -1;
@@ -921,6 +929,7 @@ namespace GrandStrategy.WorldGeneration
             influenceCosts ??= new float[pixels.Length];
             Array.Clear(influenceRoots, 0, influenceRoots.Length);
             landContacts.Clear();
+            provinceProductionSites.Clear();
 
             Spread(campaign.CapitalCell, campaign.CapitalCell);
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
@@ -935,6 +944,8 @@ namespace GrandStrategy.WorldGeneration
                     continue;
                 }
                 var x = cell % Map.Width;
+                provinceProductionSites.TryGetValue(root, out var sites);
+                provinceProductionSites[root] = sites | ProductionSitesAt(cell, x, cell / Map.Width);
                 landContacts.Add(Map.ProvinceAt[cell]);
                 if (x > 0) RecordContact(cell - 1);
                 if (x + 1 < Map.Width) RecordContact(cell + 1);
