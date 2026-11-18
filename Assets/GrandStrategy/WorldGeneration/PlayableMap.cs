@@ -43,6 +43,7 @@ namespace GrandStrategy.WorldGeneration
         private float zoom = 1f;
         private float targetZoom = 1f;
         private bool dragging;
+        private bool followingWarband;
         private SettlementBuilding resourceFilter = SettlementBuilding.Farm;
         private MapViewMode mapView = MapViewMode.Provinces;
         private bool editingName;
@@ -144,6 +145,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 if (keyboard.homeKey.wasPressedThisFrame)
                 {
+                    followingWarband = false;
                     focus = Vector3.zero;
                     targetZoom = 1f;
                 }
@@ -154,6 +156,7 @@ namespace GrandStrategy.WorldGeneration
                     0f,
                     Axis(keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed,
                         keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed));
+                if (movement.sqrMagnitude > 0f) followingWarband = false;
                 focus += Vector3.ClampMagnitude(movement, 1f) * mapCamera.orthographicSize * deltaTime;
             }
 
@@ -169,6 +172,7 @@ namespace GrandStrategy.WorldGeneration
                 if (dragging)
                 {
                     var delta = mouse.delta.ReadValue();
+                    if (delta.sqrMagnitude > 0f) followingWarband = false;
                     var units = 2f * mapCamera.orthographicSize / Mathf.Max(1, Screen.height);
                     var groundProjection = mapCamera.transform.up.z;
                     focus -= new Vector3(delta.x, 0f, delta.y / groundProjection) * units;
@@ -196,6 +200,8 @@ namespace GrandStrategy.WorldGeneration
         // to the map.
         private void UpdateCamera(float deltaTime)
         {
+            if (followingWarband && campaign?.HasWarband == true)
+                focus = Vector3.Lerp(focus, surface.WarbandGroundPosition, 1f - Mathf.Exp(-ZoomResponse * deltaTime));
             zoom = Mathf.Lerp(zoom, targetZoom, 1f - Mathf.Exp(-ZoomResponse * deltaTime));
             if (Mathf.Abs(zoom - targetZoom) < .0001f) zoom = targetZoom;
 
@@ -312,6 +318,7 @@ namespace GrandStrategy.WorldGeneration
             surface.SetVillages(next);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
+            followingWarband = false;
             plannedMarch = null;
             plannedMarchDestination = -1;
             showTrade = showTradeContacts = false;
@@ -549,6 +556,7 @@ namespace GrandStrategy.WorldGeneration
             clickedCell = selectedCell = cell;
             clickedMapUv = new Vector2((cell % map.Width + .5f) / map.Width, (cell / map.Width + .5f) / map.Height);
             selected = map.ProvinceAt[cell];
+            followingWarband = false;
             focus = surface.PointAtCell(cell);
             targetZoom = MinimumZoom;
             showProvinceDetails = showTrade = false;
@@ -796,6 +804,15 @@ namespace GrandStrategy.WorldGeneration
         private void DrawWarbandOrders()
         {
             if (!campaign.HasWarband) return;
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(followingWarband ? "Stop following" : "Follow warband"))
+                followingWarband = !followingWarband;
+            if (GUILayout.Button("View troops"))
+            {
+                followingWarband = true;
+                targetZoom = MinimumZoom;
+            }
+            GUILayout.EndHorizontal();
             GUILayout.Label($"Military supplies | {campaign.WarbandFoodCost} food / {CampaignState.ProductionInterval} days");
             GUILayout.BeginHorizontal();
             foreach (var policy in new[] { WarbandSupplyPolicy.Forage, WarbandSupplyPolicy.Standard, WarbandSupplyPolicy.Provisioned })

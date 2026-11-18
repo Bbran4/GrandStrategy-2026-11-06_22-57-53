@@ -20,6 +20,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly Transform[] warbandFigures = new Transform[8];
         private bool showWarbandFigures;
         private int markerHeadingCell = -1;
+        public Vector3 WarbandGroundPosition { get; private set; }
         private LineRenderer marchLine;
         private IReadOnlyList<int> displayedMarchRoute;
         private int displayedMarchIndex = -1;
@@ -616,10 +617,10 @@ namespace GrandStrategy.WorldGeneration
                 return;
             }
 
+            var centre = geometry.Sample(CellCentre(cell), out _);
+            WarbandGroundPosition = centre;
             if (warbandMarker == null && !CreateWarbandVisuals()) return;
             UpdateMarchLine(route, routeIndex);
-
-            var centre = geometry.Sample(CellCentre(cell), out _);
             var headingCell = next >= 0 ? next : markerCell;
             var forward = headingCell >= 0 && headingCell != cell
                 ? geometry.Sample(CellCentre(headingCell), out _) - centre : Vector3.forward;
