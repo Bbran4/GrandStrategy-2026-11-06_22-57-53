@@ -86,7 +86,7 @@ namespace GrandStrategy.WorldGeneration
         public void SetBoundaryVisible(bool visible) => boundary.enabled = visible;
 
         // Place or refresh settlement models on the sampled terrain surface.
-        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production, Func<SettlementBuilding, Vector3?> placement)
+        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production, Func<SettlementBuilding, Vector3?> placement, Vector3? dockWater)
         {
             const int segments = 96;
             boundary.positionCount = segments;
@@ -177,6 +177,8 @@ namespace GrandStrategy.WorldGeneration
                 if (fixedSite.HasValue)
                 {
                     House(fixedSite.Value, halfWidth, walls, roof);
+                    if (building == SettlementBuilding.Docks && dockWater.HasValue)
+                        Pier(fixedSite.Value, dockWater.Value);
                     return;
                 }
                 for (var i = 0; i < sites; i++)
@@ -202,6 +204,41 @@ namespace GrandStrategy.WorldGeneration
                     House(anchor, halfWidth, walls, roof);
                     occupied.Add(anchor);
                     return;
+                }
+            }
+
+            void Pier(Vector3 dock, Vector3 waterPoint)
+            {
+                var direction = waterPoint - dock;
+                direction.y = 0f;
+                var distance = direction.magnitude;
+                if (distance <= .00001f) return;
+                direction /= distance;
+                var side = Vector3.Cross(Vector3.up, direction) * .00048f;
+                var start = dock + direction * Mathf.Min(distance * .45f, ProductionHalfWidth * .6f);
+                var end = waterPoint + direction * .00055f;
+                const int plankCount = 12;
+                var deck = new Vector3[plankCount + 1];
+                for (var i = 0; i < deck.Length; i++)
+                {
+                    var point = Vector3.Lerp(start, end, i / (float)plankCount);
+                    var uv = new Vector2(Mathf.Clamp01(point.x / aspect + .5f), Mathf.Clamp01(point.z + .5f));
+                    point.y = Mathf.Max(terrain.Sample(uv, out _).y, Mathf.Lerp(dock.y, waterPoint.y, i / (float)plankCount))
+                        + .00032f;
+                    deck[i] = point;
+                }
+                for (var i = 0; i < plankCount; i++)
+                {
+                    var a = deck[i];
+                    var b = deck[i + 1];
+                    var colour = i % 2 == 0 ? timber : storeWalls;
+                    AddTriangle(a - side, b - side, b + side, dock, colour);
+                    AddTriangle(a - side, b + side, a + side, dock, colour);
+                    var down = Vector3.down * .00022f;
+                    AddTriangle(a - side + down, b - side + down, b - side, dock, storeRoof);
+                    AddTriangle(a - side + down, b - side, a - side, dock, storeRoof);
+                    AddTriangle(a + side, b + side, b + side + down, dock, storeRoof);
+                    AddTriangle(a + side, b + side + down, a + side + down, dock, storeRoof);
                 }
             }
 
@@ -249,15 +286,18 @@ namespace GrandStrategy.WorldGeneration
                 }
 
                 void Triangle(Vector3 p, Vector3 q, Vector3 r, Color32 colour)
+                    => AddTriangle(p, q, r, anchor, colour);
+            }
+
+            void AddTriangle(Vector3 p, Vector3 q, Vector3 r, Vector3 anchor, Color32 colour)
+            {
+                Add(p); Add(q); Add(r);
+                void Add(Vector3 point)
                 {
-                    Add(p); Add(q); Add(r);
-                    void Add(Vector3 point)
-                    {
-                        indices.Add(vertices.Count);
-                        vertices.Add(point);
-                        anchors.Add(anchor);
-                        colours.Add(colour);
-                    }
+                    indices.Add(vertices.Count);
+                    vertices.Add(point);
+                    anchors.Add(anchor);
+                    colours.Add(colour);
                 }
             }
         }

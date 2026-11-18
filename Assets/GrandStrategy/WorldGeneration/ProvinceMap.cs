@@ -63,12 +63,18 @@ namespace GrandStrategy.WorldGeneration
 
         internal int DockWaterwayAt(int cell)
         {
-            if (waterwayAt == null || cell < 0 || cell >= waterwayAt.Length) return 0;
+            var water = DockWaterCell(cell);
+            return water < 0 ? 0 : waterwayAt[water];
+        }
+
+        internal int DockWaterCell(int cell)
+        {
+            if (waterwayAt == null || cell < 0 || cell >= waterwayAt.Length) return -1;
             var x = cell % Width;
             var y = cell / Width;
             var reach = (int)Math.Ceiling(Height * .001f) + 1;
             var nearest = reach * reach + 1;
-            var waterway = 0;
+            var waterCell = -1;
             for (var row = Math.Max(0, y - reach); row <= Math.Min(Height - 1, y + reach); row++)
                 for (var column = Math.Max(0, x - reach); column <= Math.Min(Width - 1, x + reach); column++)
                 {
@@ -78,9 +84,9 @@ namespace GrandStrategy.WorldGeneration
                     var distance = dx * dx + dy * dy;
                     if (channel == 0 || distance == 0 || distance >= nearest) continue;
                     nearest = distance;
-                    waterway = channel;
+                    waterCell = row * Width + column;
                 }
-            return waterway;
+            return waterCell;
         }
         [NonSerialized] internal Func<int, SettlementBuilding, int?> LocalProductionYield;
 

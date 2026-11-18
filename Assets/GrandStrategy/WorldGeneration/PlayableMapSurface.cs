@@ -405,7 +405,7 @@ namespace GrandStrategy.WorldGeneration
                 villages.Add(cell, village);
             }
 
-            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell), building => ProductionPoint(campaign, cell, building));
+            village.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, campaign.SettlementBuildings(cell), building => ProductionPoint(campaign, cell, building), DockWaterPoint(campaign, cell));
         }
 
         public bool IsWithinVillageLimits(int cell, Vector2 uv)
@@ -718,6 +718,13 @@ namespace GrandStrategy.WorldGeneration
             footprint.enabled = true;
         }
 
+        private Vector3? DockWaterPoint(CampaignState campaign, int site)
+        {
+            var dock = campaign.BuildingPlacement(site, SettlementBuilding.Docks);
+            var water = Map.DockWaterCell(dock);
+            return water < 0 ? (Vector3?)null : geometry.Sample(CellCentre(water), out _);
+        }
+
         private Vector3? ProductionPoint(CampaignState campaign, int site, SettlementBuilding building)
         {
             var cell = campaign.BuildingPlacement(site, building);
@@ -801,7 +808,7 @@ namespace GrandStrategy.WorldGeneration
                 granarySite = geometry.Sample(CellCentre(campaign.GranaryCell), out _);
             settlement.Show(point, campaign.HasGranary, campaign.FirstExpansion != ExpansionApproach.None,
                 granarySite, campaign.SettlementBuildings(campaign.CapitalCell),
-                building => ProductionPoint(campaign, campaign.CapitalCell, building));
+                building => ProductionPoint(campaign, campaign.CapitalCell, building), DockWaterPoint(campaign, campaign.CapitalCell));
             nature.SetCapital(point);
             material.SetVector("_CapitalClearing", new Vector4(point.x, point.z, MapNature.CapitalRadius, 0f));
         }
