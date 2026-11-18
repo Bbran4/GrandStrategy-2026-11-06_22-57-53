@@ -820,10 +820,13 @@ namespace GrandStrategy.WorldGeneration
 
         private void DrawBuilding(int site, SettlementBuilding building, SettlementBuilding availableSites)
         {
-            var info = campaign.BuildingInfo(selected, building);
+            var built = campaign.HasSettlementBuilding(site, building);
+            var placement = built ? campaign.BuildingPlacement(site, building) : clickedCell;
+            var info = campaign.SettlementBuildingInfo(site, building, placement);
+            if (built && info.Yield == 0) info = campaign.BuildingInfo(campaign.SettlementProvince(site), building);
             var output = building == SettlementBuilding.Docks ? "Water trade access and +1 agreement slot"
                 : $"+{info.Yield} {info.Resource} / {CampaignState.ProductionInterval} days";
-            if (campaign.HasSettlementBuilding(site, building))
+            if (built)
             {
                 GUILayout.Label($"{info.Name} | {output}");
                 return;
@@ -839,7 +842,7 @@ namespace GrandStrategy.WorldGeneration
                 _ => null
             };
             var fits = localIssue == null && surface.CanPlaceProduction(campaign, site, clickedCell, building);
-            var canBuild = fits && campaign.CanBuildAtSettlement(site, building);
+            var canBuild = fits && campaign.CanBuildAtSettlement(site, building, clickedCell);
             GUI.enabled = wasEnabled && canBuild;
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)")
                 && campaign.TryBuildAtSettlement(site, building, clickedCell))

@@ -58,6 +58,7 @@ namespace GrandStrategy.WorldGeneration
         private const byte FordEastWest = 2;
         private const byte FordNorthSouth = 4;
         [NonSerialized] private byte[] marchTerrain;
+        [NonSerialized] internal Func<int, SettlementBuilding, int?> LocalProductionYield;
 
         internal void BuildMarchTerrain(WaterMap water, byte[] rivers, float[] elevations)
         {

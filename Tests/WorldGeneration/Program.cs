@@ -487,6 +487,14 @@ internal static class Program
         Require(CampaignState.Restore(fordMap, "ford", fordSave, 5).IsFordSecured(fordCell),
             "Secured fords must survive save and load.");
 
+        var localFarm = CampaignState.Found(fordMap, "local-farm", fordCell - 1, "Local farm", 0);
+        fordMap.LocalProductionYield = (cell, building) =>
+            building == SettlementBuilding.Farm ? (cell == fordCell + 1 ? 3 : 0) : (int?)null;
+        Require(!localFarm.TryBuildAtSettlement(localFarm.CapitalCell, SettlementBuilding.Farm, fordCell - 1)
+            && localFarm.TryBuildAtSettlement(localFarm.CapitalCell, SettlementBuilding.Farm, fordCell + 1)
+            && localFarm.SettlementBuildingInfo(localFarm.CapitalCell, SettlementBuilding.Farm, fordCell + 1).Yield == 3,
+            "Manual farm construction must use local eligibility and yield.");
+
         var march = CampaignState.Found(map, key, 0, "March", 0);
         Require(march.TryRecruitWarband() && march.WarbandCell == 0
             && !march.TryMarchWarband(new List<int> { 0, 2 })

@@ -82,6 +82,7 @@ namespace GrandStrategy.WorldGeneration
             settlementBiomes = biomes?.Samples;
             Map = provinces.Map.WithSettlementGeography(water, rivers, biomes?.Samples);
             Map.BuildMarchTerrain(water, rivers, elevations);
+            Map.LocalProductionYield = LocalProductionYield;
             provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
 
             try
@@ -464,6 +465,23 @@ namespace GrandStrategy.WorldGeneration
                 || (y + 1 < Map.Height && IsTradeWater(cell + Map.Width)))
                 sites |= SettlementBuilding.Docks;
             return sites;
+        }
+
+        private int? LocalProductionYield(int cell, SettlementBuilding building)
+        {
+            if (building == SettlementBuilding.Docks) return null;
+            if (cell < 0 || cell >= Map.ProvinceAt.Length || !IsDryLand(cell)) return 0;
+            if (settlementBiomes == null && building == SettlementBuilding.LumberCamp) return null;
+            if ((ProductionSitesAt(cell, cell % Map.Width, cell / Map.Width) & building) == 0) return 0;
+
+            var biome = settlementBiomes == null ? BiomeKind.Grassland : (BiomeKind)settlementBiomes[cell];
+            return building switch
+            {
+                SettlementBuilding.Farm => biome == BiomeKind.Wetland ? 3 : biome == BiomeKind.Grassland ? 2 : 1,
+                SettlementBuilding.LumberCamp => biome == BiomeKind.TropicalForest ? 3 : 2,
+                SettlementBuilding.IronMine => elevations[cell] >= Mathf.Lerp(seaLevel, 1f, .78f) ? 2 : 1,
+                _ => null
+            };
         }
 
         private bool IsTradeWater(int cell) => water[cell] == WaterKind.Ocean || IsNavigableRiverCell(cell);

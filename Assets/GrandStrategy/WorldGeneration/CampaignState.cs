@@ -738,12 +738,24 @@ namespace GrandStrategy.WorldGeneration
         public bool HasSettlementBuilding(int cell, SettlementBuilding building)
             => (SettlementBuildings(cell) & building) != 0;
 
-        public bool CanBuildAtSettlement(int cell, SettlementBuilding building)
+        public (string Name, int Coin, int Wood, int Yield, string Resource, string SiteIssue)
+            SettlementBuildingInfo(int cell, SettlementBuilding building, int placement)
+        {
+            var regional = BuildingInfo(SettlementProvince(cell), building);
+            var localYield = placement >= 0 ? map.LocalProductionYield?.Invoke(placement, building) : null;
+            if (!localYield.HasValue) return regional;
+            regional.Yield = localYield.Value;
+            regional.SiteIssue = localYield.Value > 0 ? null : "Select terrain suitable for this building.";
+            return regional;
+        }
+
+        public bool CanBuildAtSettlement(int cell, SettlementBuilding building, int placement = -1)
         {
             if (cell != CapitalCell && !data.SettlementCells.Contains(cell)) return false;
             var province = SettlementProvince(cell);
-            if (!Owns(province) || HasSettlementBuilding(cell, building)) return false;
-            var info = BuildingInfo(province, building);
+            if (!Owns(province) || HasSettlementBuilding(cell, building) || placement < -1
+                || (placement >= 0 && !IsLand(map, ProvinceAt(map, placement)))) return false;
+            var info = SettlementBuildingInfo(cell, building, placement);
             return info.SiteIssue == null && Coin >= info.Coin && Wood >= info.Wood;
         }
 
@@ -756,9 +768,8 @@ namespace GrandStrategy.WorldGeneration
 
         public bool TryBuildAtSettlement(int cell, SettlementBuilding building, int placement = -1)
         {
-            if (!CanBuildAtSettlement(cell, building) || placement < -1
-                || (placement >= 0 && !IsLand(map, ProvinceAt(map, placement)))) return false;
-            var info = BuildingInfo(SettlementProvince(cell), building);
+            if (!CanBuildAtSettlement(cell, building, placement)) return false;
+            var info = SettlementBuildingInfo(cell, building, placement);
             var index = data.Construction.FindIndex(site => site.Cell == cell);
             var entry = index >= 0 ? data.Construction[index] : new SettlementConstruction { Cell = cell };
             entry.Buildings |= (int)building;
@@ -778,7 +789,10 @@ namespace GrandStrategy.WorldGeneration
                 if (HasBuilding(province, building)) total += BuildingInfo(province, building).Yield;
             foreach (var site in data.Construction)
                 if ((site.Buildings & (int)building) != 0)
-                    total += BuildingInfo(SettlementProvince(site.Cell), building).Yield;
+                {
+                    var yield = SettlementBuildingInfo(site.Cell, building, site.Placement(building) - 1).Yield;
+                    total += yield > 0 ? yield : BuildingInfo(SettlementProvince(site.Cell), building).Yield;
+                }
             return total;
         }
 
