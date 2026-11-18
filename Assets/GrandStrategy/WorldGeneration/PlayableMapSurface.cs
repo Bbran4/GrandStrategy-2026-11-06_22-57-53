@@ -22,15 +22,15 @@ namespace GrandStrategy.WorldGeneration
         private int markerHeadingCell = -1;
         public Vector3 WarbandGroundPosition { get; private set; }
         private LineRenderer marchLine;
-        private LineRenderer ironSupplyLine;
-        private Material ironSupplyMaterial;
-        private Material ironCargoMaterial;
+        private LineRenderer supplyLine;
+        private Material supplyMaterial;
+        private Material cargoMaterial;
         private Material bridgeMaterial;
         private CampaignState displayedBridgeCampaign;
         private readonly List<LineRenderer> displayedRoads = new List<LineRenderer>();
         private readonly List<LineRenderer> displayedBridges = new List<LineRenderer>();
-        private GameObject ironCargoMarker;
-        private IReadOnlyList<int> displayedIronSupplyRoute;
+        private GameObject cargoMarker;
+        private IReadOnlyList<int> displayedSupplyRoute;
         private IReadOnlyList<int> displayedMarchRoute;
         private int displayedMarchIndex = -1;
         private int markerCell = -1;
@@ -891,59 +891,60 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        public void ShowIronSupplyRoute(IReadOnlyList<int> route, bool waterway)
+        public void ShowSupplyRoute(IReadOnlyList<int> route, bool waterway, bool food)
         {
             if (route == null || route.Count < 2)
             {
-                if (ironSupplyLine != null) ironSupplyLine.enabled = false;
-                displayedIronSupplyRoute = null;
+                if (supplyLine != null) supplyLine.enabled = false;
+                displayedSupplyRoute = null;
                 return;
             }
 
-            if (ReferenceEquals(route, displayedIronSupplyRoute)) return;
-            if (ironSupplyLine == null)
+            if (supplyLine == null)
             {
                 var shader = Shader.Find("Universal Render Pipeline/Unlit");
                 if (shader == null || !shader.isSupported) return;
-                ironSupplyMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
-                var path = new GameObject("Iron supply route", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
+                supplyMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+                var path = new GameObject("Supply route", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
                 path.transform.SetParent(surface.transform, false);
-                ironSupplyLine = path.GetComponent<LineRenderer>();
-                ironSupplyLine.useWorldSpace = false;
-                ironSupplyLine.widthMultiplier = .00038f;
-                ironSupplyLine.sharedMaterial = ironSupplyMaterial;
+                supplyLine = path.GetComponent<LineRenderer>();
+                supplyLine.useWorldSpace = false;
+                supplyLine.widthMultiplier = .00038f;
+                supplyLine.sharedMaterial = supplyMaterial;
             }
 
-            ironSupplyMaterial.SetColor("_BaseColor", waterway ? new Color(.30f, .73f, 1f) : new Color(.37f, .91f, .56f));
+            supplyMaterial.SetColor("_BaseColor", food ? new Color(1f, .81f, .39f)
+                : waterway ? new Color(.30f, .73f, 1f) : new Color(.37f, .91f, .56f));
+            if (ReferenceEquals(route, displayedSupplyRoute)) return;
+
             var positions = new Vector3[route.Count];
             for (var i = 0; i < route.Count; i++)
                 positions[i] = geometry.Sample(CellCentre(route[i]), out _) + Vector3.up * .00135f;
-            ironSupplyLine.positionCount = positions.Length;
-            ironSupplyLine.SetPositions(positions);
-            ironSupplyLine.enabled = true;
-            displayedIronSupplyRoute = route;
+            supplyLine.positionCount = positions.Length;
+            supplyLine.SetPositions(positions);
+            supplyLine.enabled = true;
+            displayedSupplyRoute = route;
         }
 
-        public void ShowIronCargo(IReadOnlyList<int> path, float progress, bool waterway)
+        public Vector3? ShowSupplyCargo(IReadOnlyList<int> path, float progress, bool waterway, bool food, bool held)
         {
             if (path == null || path.Count < 2)
             {
-                if (ironCargoMarker != null) ironCargoMarker.SetActive(false);
-                return;
+                if (cargoMarker != null) cargoMarker.SetActive(false);
+                return null;
             }
 
-            if (ironCargoMarker == null)
+            if (cargoMarker == null)
             {
                 var shader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (shader == null || !shader.isSupported) return;
-                ironCargoMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
-                ironCargoMaterial.SetColor("_BaseColor", new Color(1f, .72f, .31f));
-                ironCargoMarker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                ironCargoMarker.name = "Iron shipment";
-                ironCargoMarker.hideFlags = HideFlags.DontSave;
-                ironCargoMarker.transform.SetParent(surface.transform, false);
-                ironCargoMarker.GetComponent<MeshRenderer>().sharedMaterial = ironCargoMaterial;
-                var collider = ironCargoMarker.GetComponent<Collider>();
+                if (shader == null || !shader.isSupported) return null;
+                cargoMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+                cargoMarker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cargoMarker.name = "Supply shipment";
+                cargoMarker.hideFlags = HideFlags.DontSave;
+                cargoMarker.transform.SetParent(surface.transform, false);
+                cargoMarker.GetComponent<MeshRenderer>().sharedMaterial = cargoMaterial;
+                var collider = cargoMarker.GetComponent<Collider>();
                 collider.enabled = false;
                 UnityEngine.Object.Destroy(collider);
             }
@@ -954,12 +955,15 @@ namespace GrandStrategy.WorldGeneration
             var b = CellCentre(path[index + 1]);
             var direction = new Vector3((b.x - a.x) * Aspect, 0f, b.y - a.y);
             if (direction.sqrMagnitude > 0f)
-                ironCargoMarker.transform.localRotation = Quaternion.LookRotation(direction.normalized);
-            ironCargoMarker.transform.localPosition = geometry.Sample(Vector2.Lerp(a, b, step - index), out _)
-                + Vector3.up * .0018f;
-            ironCargoMarker.transform.localScale = waterway
+                cargoMarker.transform.localRotation = Quaternion.LookRotation(direction.normalized);
+            var ground = geometry.Sample(Vector2.Lerp(a, b, step - index), out _);
+            cargoMarker.transform.localPosition = ground + Vector3.up * .0018f;
+            cargoMaterial.SetColor("_BaseColor", held ? new Color(.96f, .36f, .24f)
+                : food ? new Color(1f, .90f, .48f) : new Color(1f, .72f, .31f));
+            cargoMarker.transform.localScale = waterway
                 ? new Vector3(.0008f, .00052f, .0022f) : new Vector3(.0010f, .0008f, .0014f);
-            ironCargoMarker.SetActive(true);
+            cargoMarker.SetActive(true);
+            return surface.transform.TransformPoint(ground);
         }
 
         private void UpdateMarchLine(IReadOnlyList<int> route, int index)
@@ -1461,8 +1465,8 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(footprintMaterial);
             UnityEngine.Object.Destroy(warbandMaterial);
             UnityEngine.Object.Destroy(warbandArmour);
-            UnityEngine.Object.Destroy(ironSupplyMaterial);
-            UnityEngine.Object.Destroy(ironCargoMaterial);
+            UnityEngine.Object.Destroy(supplyMaterial);
+            UnityEngine.Object.Destroy(cargoMaterial);
             UnityEngine.Object.Destroy(bridgeMaterial);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);

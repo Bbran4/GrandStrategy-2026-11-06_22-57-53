@@ -44,6 +44,8 @@ namespace GrandStrategy.WorldGeneration
         private float targetZoom = 1f;
         private bool dragging;
         private bool followingWarband;
+        private int followedFoodSite = -1;
+        private Vector3? foodConvoyPosition;
         private SettlementBuilding resourceFilter = SettlementBuilding.Farm;
         private MapViewMode mapView = MapViewMode.Provinces;
         private bool editingName;
@@ -147,26 +149,14 @@ namespace GrandStrategy.WorldGeneration
             surface.HighlightInfluenceAt(clickedCell);
             var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
             surface.SetCityLimitsVisible(campaign, selected, constructionSite);
-            var showSupply = showIronSupplyRoute && constructionSite >= 0
-                && campaign.HasSettlementBuilding(constructionSite, SettlementBuilding.IronMine);
-            var supply = showSupply ? campaign.GetIronSupplyRoute(constructionSite) : IronSupplyRoute.None;
-            var supplyPath = supply switch
-            {
-                IronSupplyRoute.Overland => campaign.GetOverlandIronRoute(constructionSite),
-                IronSupplyRoute.Waterway => campaign.GetWaterwayIronRoute(constructionSite),
-                _ => null
-            };
-            var journey = showSupply ? campaign.IronShipmentJourney(constructionSite) : default;
-            surface.ShowIronSupplyRoute(journey.Path ?? supplyPath,
-                (journey.Path != null ? journey.Transport : supply) == IronSupplyRoute.Waterway);
-            surface.ShowIronCargo(journey.Path, journey.Progress, journey.Transport == IronSupplyRoute.Waterway);
+            ShowSupply(constructionSite);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
             {
                 if (keyboard.homeKey.wasPressedThisFrame)
                 {
-                    followingWarband = false;
+                    StopFollowing();
                     focus = Vector3.zero;
                     targetZoom = 1f;
                 }
@@ -177,7 +167,7 @@ namespace GrandStrategy.WorldGeneration
                     0f,
                     Axis(keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed,
                         keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed));
-                if (movement.sqrMagnitude > 0f) followingWarband = false;
+                if (movement.sqrMagnitude > 0f) StopFollowing();
                 focus += Vector3.ClampMagnitude(movement, 1f) * mapCamera.orthographicSize * deltaTime;
             }
 
@@ -193,7 +183,7 @@ namespace GrandStrategy.WorldGeneration
                 if (dragging)
                 {
                     var delta = mouse.delta.ReadValue();
-                    if (delta.sqrMagnitude > 0f) followingWarband = false;
+                    if (delta.sqrMagnitude > 0f) StopFollowing();
                     var units = 2f * mapCamera.orthographicSize / Mathf.Max(1, Screen.height);
                     var groundProjection = mapCamera.transform.up.z;
                     focus -= new Vector3(delta.x, 0f, delta.y / groundProjection) * units;
@@ -215,14 +205,54 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        private void ShowSupply(int selectedSite)
+        {
+            foodConvoyPosition = null;
+            var foodSite = followedFoodSite >= 0 ? followedFoodSite : selectedSite;
+            var food = foodSite >= 0 ? campaign.FoodShipmentJourney(foodSite) : default;
+            if (food.Path == null) followedFoodSite = -1;
+
+            var showIron = showIronSupplyRoute && selectedSite >= 0
+                && campaign.HasSettlementBuilding(selectedSite, SettlementBuilding.IronMine);
+            if (food.Path != null && (followedFoodSite >= 0 || !showIron))
+            {
+                var waterway = food.Transport == IronSupplyRoute.Waterway;
+                surface.ShowSupplyRoute(food.Path, waterway, food: true);
+                foodConvoyPosition = surface.ShowSupplyCargo(food.Path, food.Progress, waterway, food: true, held: food.Held);
+                return;
+            }
+
+            var supply = showIron ? campaign.GetIronSupplyRoute(selectedSite) : IronSupplyRoute.None;
+            var supplyPath = supply switch
+            {
+                IronSupplyRoute.Overland => campaign.GetOverlandIronRoute(selectedSite),
+                IronSupplyRoute.Waterway => campaign.GetWaterwayIronRoute(selectedSite),
+                _ => null
+            };
+            var iron = showIron ? campaign.IronShipmentJourney(selectedSite) : default;
+            surface.ShowSupplyRoute(iron.Path ?? supplyPath,
+                (iron.Path != null ? iron.Transport : supply) == IronSupplyRoute.Waterway, food: false);
+            surface.ShowSupplyCargo(iron.Path, iron.Progress, iron.Transport == IronSupplyRoute.Waterway,
+                food: false, held: showIron && campaign.IsIronShipmentHeld(selectedSite));
+        }
+
+        private void StopFollowing()
+        {
+            followingWarband = false;
+            followedFoodSite = -1;
+        }
+
         private static int Axis(bool negative, bool positive) => (positive ? 1 : 0) - (negative ? 1 : 0);
 
         // Ease the camera toward the requested zoom, tilt it as the player zooms in and constrain the view
         // to the map.
         private void UpdateCamera(float deltaTime)
         {
+            var followEase = 1f - Mathf.Exp(-ZoomResponse * deltaTime);
             if (followingWarband && campaign?.HasWarband == true)
-                focus = Vector3.Lerp(focus, surface.WarbandGroundPosition, 1f - Mathf.Exp(-ZoomResponse * deltaTime));
+                focus = Vector3.Lerp(focus, surface.WarbandGroundPosition, followEase);
+            else if (followedFoodSite >= 0 && foodConvoyPosition.HasValue)
+                focus = Vector3.Lerp(focus, foodConvoyPosition.Value, followEase);
             zoom = Mathf.Lerp(zoom, targetZoom, 1f - Mathf.Exp(-ZoomResponse * deltaTime));
             if (Mathf.Abs(zoom - targetZoom) < .0001f) zoom = targetZoom;
 
@@ -340,7 +370,7 @@ namespace GrandStrategy.WorldGeneration
             surface.SetVillages(next);
             surface.SetOwnership(next, TribeColours[next.Colour]);
             campaign = next;
-            followingWarband = false;
+            StopFollowing();
             plannedMarch = null;
             plannedMarchDestination = -1;
             showTrade = showTradeContacts = false;
@@ -542,6 +572,17 @@ namespace GrandStrategy.WorldGeneration
             if (shipment.Amount > 0)
                 GUILayout.Label(shipment.Held ? $"{shipment.Amount:N0} food waiting at a closed crossing."
                     : $"{shipment.Amount:N0} food due in {shipment.Days:N0}d.");
+            var following = followedFoodSite == site;
+            if (shipment.Amount > 0 && campaign.FoodShipmentJourney(site).Path != null
+                && GUILayout.Button(following ? "Stop following food convoy" : "Follow food convoy"))
+            {
+                StopFollowing();
+                if (!following)
+                {
+                    followedFoodSite = site;
+                    targetZoom = Mathf.Min(targetZoom, TiltedZoom);
+                }
+            }
             if (shipment.Held && GUILayout.Button("Reroute held food delivery"))
                 saveStatus = campaign.TryRerouteHeldFoodShipment(site) ? "Food delivery rerouted overland."
                     : "No alternate overland route is open.";
@@ -713,7 +754,7 @@ namespace GrandStrategy.WorldGeneration
             clickedCell = selectedCell = cell;
             clickedMapUv = new Vector2((cell % map.Width + .5f) / map.Width, (cell / map.Width + .5f) / map.Height);
             selected = map.ProvinceAt[cell];
-            followingWarband = false;
+            StopFollowing();
             focus = surface.PointAtCell(cell);
             targetZoom = MinimumZoom;
             showProvinceDetails = showTrade = false;
@@ -1125,9 +1166,14 @@ namespace GrandStrategy.WorldGeneration
             if (!campaign.HasWarband) return;
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(followingWarband ? "Stop following" : "Follow warband"))
-                followingWarband = !followingWarband;
+            {
+                var follow = !followingWarband;
+                StopFollowing();
+                followingWarband = follow;
+            }
             if (GUILayout.Button("View troops"))
             {
+                StopFollowing();
                 followingWarband = true;
                 targetZoom = MinimumZoom;
             }
@@ -1152,7 +1198,7 @@ namespace GrandStrategy.WorldGeneration
                         : $"Objective beyond occupation | Requires {campaign.ObjectiveHoldDaysRequired} consecutive days held");
                     if (GUILayout.Button("View objective village"))
                     {
-                        followingWarband = false;
+                        StopFollowing();
                         focus = surface.PointAtCell(campaign.MilitaryObjectiveCell);
                         targetZoom = MinimumZoom;
                     }

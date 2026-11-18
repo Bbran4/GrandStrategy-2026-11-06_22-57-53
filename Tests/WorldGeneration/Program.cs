@@ -883,6 +883,10 @@ internal static class Program
         Require(stocked.LocalFoodTarget(mineSite) == 10 && stocked.LocalFoodStock(mineSite) == 0
             && foodCargo.Amount == 10 && foodCargo.Days > 0 && !foodCargo.Held,
             "Capital food should be dispatched before it reaches the village reserve.");
+        var roadJourney = stocked.FoodShipmentJourney(mineSite);
+        Require(roadJourney.Path.SequenceEqual(new[] { stocked.CapitalCell, fordCell, mineSite })
+            && roadJourney.Transport == IronSupplyRoute.Overland && roadJourney.Progress == 0f,
+            "The overland convoy must travel from the capital to the village.");
         Require(stocked.TryChangeFordAccess(fordCell) && stocked.FoodHeldAtFord(fordCell) == (1, 10L),
             "Closing the ford must hold the food in transit.");
         var heldFoodSave = JsonSerializer.Serialize(stocked.ToSave(), json);
@@ -891,6 +895,9 @@ internal static class Program
         var reroutedFood = CampaignState.Restore(supplyMap, "stocked", alternateFoodSave, 5);
         Require(!stocked.TryRerouteHeldFoodShipment(mineSite) && reroutedFood.TryRerouteHeldFoodShipment(mineSite)
             && reroutedFood.IsFordClosed(fordCell), "Food rerouting must require an open alternate ford.");
+        var alternateJourney = reroutedFood.FoodShipmentJourney(mineSite);
+        Require(alternateJourney.Path.Contains(alternateFord) && !alternateJourney.Path.Contains(fordCell)
+            && !alternateJourney.Held, "The visible convoy must follow the new crossing after rerouting.");
         reroutedFood.Paused = false;
         reroutedFood.Advance(reroutedFood.LocalFoodShipment(mineSite).Days);
         Require(reroutedFood.LocalFoodStock(mineSite) == 10 && reroutedFood.LocalFoodShipment(mineSite).Amount == 0,
@@ -901,8 +908,16 @@ internal static class Program
         Require(stocked.LocalFoodStock(mineSite) == 0
             && stocked.LocalFoodShipment(mineSite) == (foodCargo.Amount, foodCargo.Days, true),
             "A saved delivery must stay held beyond its original arrival date.");
+        var heldJourney = stocked.FoodShipmentJourney(mineSite);
+        Require(heldJourney.Held && heldJourney.Progress == roadJourney.Progress
+            && heldJourney.Path.SequenceEqual(roadJourney.Path),
+            "The convoy must stay parked on its restored route while the ford is closed.");
         Require(stocked.TryChangeFordAccess(fordCell) && stocked.FoodHeldAtFord(fordCell).Shipments == 0,
             "Reopening the crossing must release the delivery.");
+        stocked.Advance(0.5);
+        var movingJourney = stocked.FoodShipmentJourney(mineSite);
+        Require(movingJourney.Progress > heldJourney.Progress && !movingJourney.Held,
+            "The convoy must resume movement between whole days after passage reopens.");
         stocked.Advance(foodCargo.Days);
         Require(stocked.LocalFoodStock(mineSite) == 10 && stocked.LocalFoodShipment(mineSite).Amount == 0,
             "The released cargo must reach the reserve exactly once.");
@@ -984,13 +999,23 @@ internal static class Program
             "Two docks on the same navigable channel must open iron shipments.");
         Require(ports.GetWaterwayIronRoute(mineSite).SequenceEqual(new[] { mineSite, fordCell, ports.CapitalCell }),
             "The waterway route must join the loading dock, channel and receiving dock.");
+        Require(ports.TrySetLocalFoodTarget(mineSite, 5), "The port village must be able to request food.");
         ports.Paused = false;
         ports.Advance(4);
+        var foodBoat = ports.FoodShipmentJourney(mineSite);
+        Require(foodBoat.Transport == IronSupplyRoute.Waterway
+            && foodBoat.Path.SequenceEqual(new[] { ports.CapitalCell, fordCell, mineSite }),
+            "A food boat must follow the channel from the capital's dock to the village dock.");
+        var reloadedPort = CampaignState.Restore(portsMap, "ports", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(ports.ToSave(), json), json), 5);
+        Require(reloadedPort.FoodShipmentJourney(mineSite).Path.SequenceEqual(foodBoat.Path),
+            "The waterway convoy must appear on the same route after loading.");
         var waterCargo = ports.IronShipment(mineSite);
         Require(ports.Iron == 0 && waterCargo.Amount > 0 && ports.SettlementIronStock(mineSite) == 0,
             "Waterway access must dispatch local iron on the production tick.");
         ports.Advance(waterCargo.Days);
-        Require(ports.Iron == waterCargo.Amount, "Waterway cargo must arrive after travel.");
+        Require(ports.Iron == waterCargo.Amount && ports.LocalFoodStock(mineSite) == 5
+            && ports.FoodShipmentJourney(mineSite).Path == null, "Delivered cargo must disappear from the map.");
 
         var hill = recipe.Width + 2;
         var marchHeights = Enumerable.Repeat(recipe.SeaLevel, raster.Length).ToArray();
