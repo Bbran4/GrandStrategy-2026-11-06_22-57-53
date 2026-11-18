@@ -140,6 +140,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             surface.ShowWarband(campaign);
+            surface.RefreshPassageDisplay();
             surface.RefreshInfluence();
             surface.HighlightInfluenceAt(clickedCell);
             var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
@@ -438,7 +439,8 @@ namespace GrandStrategy.WorldGeneration
 
         private void DrawFordDetails()
         {
-            GUILayout.Label(campaign?.IsFordClosed(clickedCell) == true ? "Ford closed to civilian traffic"
+            GUILayout.Label(campaign?.IsPassageSuspended(clickedCell) == true ? "Community suspended civilian passage"
+                : campaign?.IsFordClosed(clickedCell) == true ? "Ford closed to civilian traffic"
                 : campaign?.IsFordSecured(clickedCell) == true ? "Secured ford | Open to civilian traffic"
                 : campaign?.HasFordPassage(clickedCell) == true ? "Ford | Negotiated civilian passage"
                 : "River ford | Warbands can cross here");
@@ -454,7 +456,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
                 surface.RefreshSecuredFord(clickedCell);
-                saveStatus = "Civilian passage secured by agreement.";
+                saveStatus = "Civilian passage secured by agreement. Hostilities can suspend it.";
             }
             GUI.enabled = wasEnabled;
         }

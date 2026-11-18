@@ -143,6 +143,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> SecuredFords;
         public List<int> ClosedFords;
         public List<int> PassageFords;
+        public List<int> PassagePartners; // Region index plus one. Zero represents older agreements.
         public bool IronWarband;
         public int FoodReserve;
         public List<TradeAgreement> Agreements;
@@ -252,6 +253,13 @@ namespace GrandStrategy.WorldGeneration
             foreach (var ford in data.PassageFords)
                 if (!map.IsFord(ford) || !passageFords.Add(ford))
                     throw new ArgumentException("The save contains invalid ford passage rights.");
+
+            data.PassagePartners ??= new List<int>(new int[data.PassageFords.Count]);
+            if (data.PassagePartners.Count != data.PassageFords.Count)
+                throw new ArgumentException("The save contains mismatched passage partners.");
+            foreach (var partner in data.PassagePartners)
+                if (partner < 0 || (partner > 0 && !IsLand(map, partner - 1)))
+                    throw new ArgumentException("The save contains an invalid passage partner.");
 
             data.Towns ??= new List<int>();
             data.TownSpecialisations ??= new List<TownSpecialisation>();
@@ -507,7 +515,15 @@ namespace GrandStrategy.WorldGeneration
         public bool HasWarband => data.Warband;
         public bool IsFordSecured(int cell) => data.SecuredFords.Contains(cell);
 
-        public bool IsFordClosed(int cell) => data.ClosedFords.Contains(cell);
+        public IReadOnlyList<int> PassageFords => data.PassageFords;
+        public bool IsPassageSuspended(int cell)
+        {
+            if (!WarbandCommitted || IsFordSecured(cell)) return false;
+            var index = data.PassageFords.IndexOf(cell);
+            return index >= 0 && data.PassagePartners[index] == IntegrationTarget + 1;
+        }
+
+        public bool IsFordClosed(int cell) => data.ClosedFords.Contains(cell) || IsPassageSuspended(cell);
         public bool HasFordPassage(int cell) => data.PassageFords.Contains(cell);
         public bool CanUseSupplyFord(int cell) => !IsFordClosed(cell) && (IsFordSecured(cell) || HasFordPassage(cell));
 
@@ -532,9 +548,11 @@ namespace GrandStrategy.WorldGeneration
 
         public bool TryNegotiateFordPassage(int ford)
         {
-            if (Coin < FordPassageCoin || FordPassagePartner(ford) < 0) return false;
+            var partner = FordPassagePartner(ford);
+            if (Coin < FordPassageCoin || partner < 0) return false;
             data.Coin -= FordPassageCoin;
             data.PassageFords.Add(ford);
+            data.PassagePartners.Add(partner + 1);
             RefreshFordAccess();
             return true;
         }
@@ -559,7 +577,6 @@ namespace GrandStrategy.WorldGeneration
             if (!CanChangeFordAccess(cell)) return false;
             if (!data.ClosedFords.Remove(cell)) data.ClosedFords.Add(cell);
             RefreshFordAccess();
-            UpdateHeldShipments();
             return true;
         }
 
@@ -602,6 +619,7 @@ namespace GrandStrategy.WorldGeneration
         {
             ironSupplyRoutes.Clear();
             InfluenceRevision++;
+            UpdateHeldShipments();
         }
 
         public bool WarbandCommitted => PendingApproach == ExpansionApproach.Force;
@@ -1772,6 +1790,7 @@ namespace GrandStrategy.WorldGeneration
             data.IntegrationTarget = province;
             data.IntegrationDaysLeft = DaysFor(approach);
             data.PendingApproach = approach;
+            if (WarbandCommitted && data.PassagePartners.Contains(province + 1)) RefreshFordAccess();
             return true;
         }
 
@@ -1958,11 +1977,13 @@ namespace GrandStrategy.WorldGeneration
 
         private void ClearIntegration()
         {
+            var passageSuspended = WarbandCommitted && data.PassagePartners.Contains(IntegrationTarget + 1);
             data.IntegrationTarget = -1;
             data.IntegrationDaysLeft = 0;
             data.IntegrationSettlementSite = 0;
             data.IntegrationProvinceRoot = 0;
             data.PendingApproach = ExpansionApproach.None;
+            if (passageSuspended) RefreshFordAccess();
         }
 
         private void AddFood(long amount) => data.Food = (int)Math.Min(ResourceLimit, Math.Max(0, Food + amount));

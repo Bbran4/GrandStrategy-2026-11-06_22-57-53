@@ -634,6 +634,14 @@ internal static class Program
             JsonSerializer.Serialize(passage.ToSave(), json), json), 5);
         Require(passage.HasFordPassage(fordCell) && passage.GetOverlandIronRoute(mineSite).Contains(fordCell),
             "Negotiated passage must restore and permit overland supply through the crossing.");
+        Require(passage.TryRecruitWarband() && passage.TryStartIntegration(0, ExpansionApproach.Force)
+            && passage.IsPassageSuspended(fordCell) && passage.GetOverlandIronRoute(mineSite) == null,
+            "A passage partner must suspend access and invalidate civilian routes during hostilities.");
+        var hostilePassage = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(passage.ToSave(), json), json);
+        passage = CampaignState.Restore(portsMap, "passage", hostilePassage, 5);
+        Require(passage.IsPassageSuspended(fordCell) && passage.TryWithdrawWarband()
+            && !passage.IsPassageSuspended(fordCell) && passage.GetOverlandIronRoute(mineSite).Contains(fordCell),
+            "Suspension must restore with hostilities and lift when the operation ends.");
 
         var portsSave = CampaignState.Found(portsMap, "ports", fordCell - 1, "Ports", 0).ToSave();
         portsSave.Coin = portsSave.Wood = 200;
