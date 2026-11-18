@@ -974,7 +974,7 @@ namespace GrandStrategy.WorldGeneration
             var deliveries = campaign.CompletedTradeDeliveries;
             var negotiations = campaign.NegotiatedIntegrations;
             var operations = campaign.SuccessfulOperations;
-            var fords = campaign.SecuredFordCount;
+            var fords = campaign.HasEverSecuredFord ? 1 : 0;
             GUILayout.Label(campaign.TradeMilestoneComplete ? "Trade network complete"
                 : $"Trade network | {deliveries}/{CampaignState.TradeMilestoneDeliveries} recurring deliveries");
             GUILayout.Label(campaign.DiplomacyMilestoneComplete ? "Regional diplomacy complete"

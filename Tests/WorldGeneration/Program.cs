@@ -660,6 +660,34 @@ internal static class Program
             && garrison.TryDisbandGarrison(garrison.CapitalCell) && garrison.OwnedPopulation == beforeGuards
             && !garrison.TryChangeFordAccess(fordCell), "Saved garrisons must restore and return recruits on disbanding.");
 
+        var frontierSaveBefore = CampaignState.Found(fordMap, "ford-frontier", fordCell - 1, "Frontier", 0,
+            localCapitalClaim: true).ToSave();
+        frontierSaveBefore.SecuredFords.Add(fordCell);
+        var frontierJson = JsonSerializer.Serialize(frontierSaveBefore, json);
+        var frontierRival = CampaignState.Restore(fordMap, "ford-frontier",
+            JsonSerializer.Deserialize<CampaignSave>(frontierJson, json), 5);
+        frontierRival.IndependentVillageSiteResolver = _ => fordCell + 1;
+        frontierRival.IndependentTerritoryResolver = cell => cell == fordCell + 1;
+        frontierRival.Paused = false;
+        frontierRival.Advance(44);
+        Require(frontierRival.IndependentVillageGuarded && !frontierRival.IsFordSecured(fordCell)
+            && frontierRival.RivalFordHolder(fordCell) == 0 && frontierRival.HasEverSecuredFord,
+            "A mature rival must seize an unguarded frontier ford even without an active operation.");
+        frontierRival = CampaignState.Restore(fordMap, "ford-frontier", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(frontierRival.ToSave(), json), json), 5);
+        Require(frontierRival.RivalFordHolder(fordCell) == 0 && frontierRival.TryNegotiateFordPassage(fordCell)
+            && frontierRival.CanUseSupplyFord(fordCell), "Independent control must restore and allow a new access agreement.");
+
+        var guardedFrontier = CampaignState.Restore(fordMap, "ford-frontier",
+            JsonSerializer.Deserialize<CampaignSave>(frontierJson, json), 5);
+        guardedFrontier.IndependentVillageSiteResolver = _ => fordCell + 1;
+        guardedFrontier.IndependentTerritoryResolver = cell => cell == fordCell + 1;
+        Require(guardedFrontier.TryRaiseGarrison(guardedFrontier.CapitalCell), "The frontier fixture needs guards.");
+        guardedFrontier.Paused = false;
+        guardedFrontier.Advance(44);
+        Require(guardedFrontier.IndependentVillageGuarded && guardedFrontier.IsFordSecured(fordCell),
+            "A local garrison must prevent an autonomous rival takeover.");
+
         var localFarm = CampaignState.Found(fordMap, "local-farm", fordCell - 1, "Local farm", 0);
         fordMap.LocalProductionYield = (cell, building) =>
             building == SettlementBuilding.Farm ? (cell == fordCell + 1 ? 3 : 0) : (int?)null;
@@ -735,6 +763,27 @@ internal static class Program
         supply.Advance(cargo.Days);
         Require(supply.Iron == cargo.Amount && !supply.IsIronShipmentHeld(mineSite),
             "The capital must receive cargo once travel finishes.");
+
+        var valley = CampaignState.Found(supplyMap, "valley", fordCell - 1, "Valley", 0, localCapitalClaim: true);
+        Require(valley.TryFoundSettlement(mineSite) && valley.TryBuildAtSettlement(mineSite, SettlementBuilding.IronMine, mineSite),
+            "The valley needs a mine across the river from the capital.");
+        var valleySave = valley.ToSave();
+        valleySave.SecuredFords.Add(fordCell);
+        valley = CampaignState.Restore(supplyMap, "valley", valleySave, 5);
+        valley.IndependentVillageSiteResolver = _ => mineSite + 1;
+        valley.IndependentTerritoryResolver = cell => cell == mineSite;
+        valley.Paused = false;
+        valley.Advance(44);
+        var valleyCargo = valley.IronShipment(mineSite);
+        var deliveredBeforeClosure = valley.Iron;
+        Require(valley.IsFordHeldByRival(fordCell) && valley.IsIronShipmentHeld(mineSite) && valleyCargo.Amount > 0,
+            "A rival takeover on a production day must cut a live supply route and hold outgoing cargo.");
+        valley.Advance(valleyCargo.Days + 1);
+        Require(valley.Iron == deliveredBeforeClosure && valley.TryNegotiateFordPassage(fordCell)
+            && !valley.IsIronShipmentHeld(mineSite), "Negotiated passage must release cargo without a military retake.");
+        valley.Advance(valleyCargo.Days);
+        Require(valley.Iron == deliveredBeforeClosure + valleyCargo.Amount,
+            "The reopened crossing must deliver precisely the previously held cargo.");
 
         var isolatedFood = CampaignState.Found(supplyMap, "isolated-food", fordCell - 1, "Isolated food", 0);
         Require(isolatedFood.TryFoundSettlement(mineSite) && isolatedFood.IsFoodIsolated(mineSite),

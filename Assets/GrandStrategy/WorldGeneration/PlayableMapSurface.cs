@@ -681,15 +681,18 @@ namespace GrandStrategy.WorldGeneration
             var revision = influenceCampaign.FordAccessRevision;
             if (revision == fordDisplayRevision) return;
             fordDisplayRevision = revision;
-            if (influenceCampaign.PassageFords.Count == 0) return;
+            if (influenceCampaign.PassageFords.Count == 0 && influenceCampaign.RivalHeldFords.Count == 0) return;
             var pixels = productionSites.GetRawTextureData<Color32>();
-            foreach (var ford in influenceCampaign.PassageFords)
+            foreach (var ford in influenceCampaign.PassageFords) Paint(ford);
+            foreach (var ford in influenceCampaign.RivalHeldFords) Paint(ford);
+            productionSites.Apply(false, false);
+
+            void Paint(int ford)
             {
                 var pixel = pixels[ford];
                 pixel.a = FordResourceCode(ford);
                 pixels[ford] = pixel;
             }
-            productionSites.Apply(false, false);
         }
 
         public void RefreshSecuredFord(int cell)
