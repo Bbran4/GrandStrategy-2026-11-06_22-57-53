@@ -582,9 +582,20 @@ internal static class Program
         Require(supply.IronShipment(mineSite) == cargo && journey.Transport == IronSupplyRoute.Overland
             && journey.Path.Contains(fordCell) && journey.Progress == 0f,
             "An in-transit shipment and its original crossing must survive save and load.");
+        Require(supply.TryChangeFordAccess(fordCell) && supply.IsIronShipmentHeld(mineSite),
+            "Closing a ford must hold cargo that has not crossed yet.");
+        supply.Paused = false;
+        supply.Advance(cargo.Days + 1);
+        Require(supply.Iron == 0 && supply.IronShipment(mineSite) == cargo
+            && supply.IronShipmentJourney(mineSite).Progress == 0f,
+            "Held cargo must remain stationary past its original arrival and keep its cargo.");
+        var heldSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(supply.ToSave(), json), json);
+        supply = CampaignState.Restore(supplyMap, "supply", heldSave, 5);
+        Require(supply.IsIronShipmentHeld(mineSite) && supply.TryChangeFordAccess(fordCell)
+            && !supply.IsIronShipmentHeld(mineSite), "The hold must survive save and resume when the ford reopens.");
         supply.Paused = false;
         supply.Advance(cargo.Days);
-        Require(supply.Iron == cargo.Amount && supply.IronShipment(mineSite).Amount == 0,
+        Require(supply.Iron == cargo.Amount && !supply.IsIronShipmentHeld(mineSite),
             "The capital must receive cargo once travel finishes.");
 
         var portsRaster = Enumerable.Repeat(1, raster.Length).ToArray();

@@ -975,7 +975,7 @@ namespace GrandStrategy.WorldGeneration
                 {
                     surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
                     surface.RefreshSecuredFord(clickedCell);
-                    saveStatus = !secured ? "Ford secured." : closed ? "Ford reopened." : "Ford closed to new civilian shipments.";
+                    saveStatus = !secured ? "Ford secured." : closed ? "Ford reopened." : "Ford closed. Civilian shipments that still need the crossing will wait.";
                 }
                 GUI.enabled = enabled;
                 if (!canIssueOrder) GUILayout.Label("Stop the warband on a bank beside this ford.");
@@ -1135,8 +1135,10 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | {route}");
                     var shipment = campaign.IronShipment(site);
                     if (shipment.Amount > 0)
-                        GUILayout.Label($"{shipment.Amount:N0} iron in transit | Next unload in {shipment.Days} days");
-                    if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway)
+                        GUILayout.Label(campaign.IsIronShipmentHeld(site)
+                            ? $"{shipment.Amount:N0} iron held by a ford closure"
+                            : $"{shipment.Amount:N0} iron in transit | Next unload in {shipment.Days} days");
+                    if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway || shipment.Amount > 0)
                         showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show iron supply route");
                 }
                 return;

@@ -68,6 +68,7 @@ namespace GrandStrategy.WorldGeneration
         public int IronInTransit;
         public int IronArrivalDay;
         public int IronDepartureDay;
+        public int IronHoldDay;
         public int IronTravelEndDay;
         public IronSupplyRoute IronTransport;
         public int[] IronTravelPath;
@@ -521,7 +522,43 @@ namespace GrandStrategy.WorldGeneration
             if (!CanChangeFordAccess(cell)) return false;
             if (!data.ClosedFords.Remove(cell)) data.ClosedFords.Add(cell);
             RefreshFordAccess();
+            UpdateHeldShipments();
             return true;
+        }
+
+        private void UpdateHeldShipments()
+        {
+            for (var i = 0; i < data.Construction.Count; i++)
+            {
+                var shipment = data.Construction[i];
+                var path = shipment.IronTravelPath;
+                if (shipment.IronInTransit == 0 || shipment.IronTransport != IronSupplyRoute.Overland
+                    || path == null || path.Length < 2) continue;
+
+                var positionDay = shipment.IronHoldDay > 0 ? shipment.IronHoldDay : Day;
+                if (positionDay >= shipment.IronTravelEndDay) continue;
+                var elapsed = positionDay - shipment.IronDepartureDay;
+                var duration = shipment.IronTravelEndDay - shipment.IronDepartureDay;
+                var blocked = false;
+                for (var step = 1; step < path.Length - 1; step++)
+                    if ((long)step * duration >= (long)elapsed * (path.Length - 1) && IsFordClosed(path[step]))
+                    {
+                        blocked = true;
+                        break;
+                    }
+
+                if (blocked && shipment.IronHoldDay == 0)
+                    shipment.IronHoldDay = Day;
+                else if (!blocked && shipment.IronHoldDay > 0)
+                {
+                    var delay = Day - shipment.IronHoldDay;
+                    shipment.IronDepartureDay += delay;
+                    shipment.IronTravelEndDay = (int)Math.Min(int.MaxValue, (long)shipment.IronTravelEndDay + delay);
+                    shipment.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)shipment.IronArrivalDay + delay);
+                    shipment.IronHoldDay = 0;
+                }
+                data.Construction[i] = shipment;
+            }
         }
 
         private void RefreshFordAccess()
@@ -919,7 +956,12 @@ namespace GrandStrategy.WorldGeneration
                     if ((site.Cell != save.CapitalCell && !settlementSites.Contains(site.Cell))
                         || !builtSites.Add(site.Cell) || site.Buildings == 0 || (site.Buildings & ~(int)AllBuildings) != 0
                         || !ValidStock(site.IronStock) || !ValidStock(site.IronInTransit)
-                        || (site.IronInTransit == 0 ? site.IronArrivalDay != 0 : site.IronArrivalDay <= save.Day)
+                        || (site.IronInTransit == 0 ? site.IronArrivalDay != 0
+                            : site.IronArrivalDay <= (site.IronHoldDay > 0 ? site.IronHoldDay : save.Day))
+                        || (site.IronHoldDay != 0 && (site.IronInTransit == 0 || site.IronHoldDay < site.IronDepartureDay
+                            || site.IronHoldDay > save.Day || site.IronHoldDay >= site.IronTravelEndDay
+                            || site.IronTransport != IronSupplyRoute.Overland || site.IronTravelPath == null
+                            || site.IronTravelPath.Length < 2))
                         || ((site.IronStock > 0 || site.IronInTransit > 0)
                             && (site.Buildings & (int)SettlementBuilding.IronMine) == 0))
                         throw new ArgumentException("The save contains invalid settlement construction.");
@@ -1260,8 +1302,15 @@ namespace GrandStrategy.WorldGeneration
         {
             foreach (var site in data.Construction)
                 if (site.Cell == cell && site.IronInTransit > 0)
-                    return (site.IronInTransit, Math.Max(0, site.IronArrivalDay - Day));
+                    return (site.IronInTransit, Math.Max(0, site.IronArrivalDay - (site.IronHoldDay > 0 ? site.IronHoldDay : Day)));
             return (0, 0);
+        }
+
+        public bool IsIronShipmentHeld(int cell)
+        {
+            foreach (var site in data.Construction)
+                if (site.Cell == cell) return site.IronHoldDay > 0;
+            return false;
         }
 
         public (IReadOnlyList<int> Path, IronSupplyRoute Transport, float Progress) IronShipmentJourney(int cell)
@@ -1270,7 +1319,8 @@ namespace GrandStrategy.WorldGeneration
             {
                 if (site.Cell != cell || site.IronInTransit == 0 || site.IronTravelPath == null
                     || site.IronTravelPath.Length < 2) continue;
-                var elapsed = (Day - site.IronDepartureDay) + fractionOfDay;
+                var elapsed = site.IronHoldDay > 0 ? site.IronHoldDay - site.IronDepartureDay
+                    : (Day - site.IronDepartureDay) + fractionOfDay;
                 var duration = site.IronTravelEndDay - site.IronDepartureDay;
                 return (site.IronTravelPath, site.IronTransport, (float)Math.Clamp(elapsed / duration, 0d, 1d));
             }
@@ -1331,7 +1381,7 @@ namespace GrandStrategy.WorldGeneration
             for (var i = 0; i < data.Construction.Count; i++)
             {
                 var site = data.Construction[i];
-                if (site.IronInTransit == 0 || site.IronArrivalDay > Day) continue;
+                if (site.IronInTransit == 0 || site.IronHoldDay > 0 || site.IronArrivalDay > Day) continue;
                 var unloaded = Math.Min(ResourceLimit - Iron, site.IronInTransit);
                 data.Iron += unloaded;
                 site.IronInTransit -= unloaded;
@@ -1712,7 +1762,7 @@ namespace GrandStrategy.WorldGeneration
                 {
                     if (site.Cell == CapitalCell || (site.Buildings & (int)SettlementBuilding.IronMine) == 0) continue;
                     span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
-                    if (site.IronInTransit > 0) span = Math.Min(span, site.IronArrivalDay - Day);
+                    if (site.IronInTransit > 0 && site.IronHoldDay == 0) span = Math.Min(span, site.IronArrivalDay - Day);
                 }
                 if (IntegrationTarget >= 0 && IntegrationDaysLeft <= span)
                     span = Math.Max(1, IntegrationDaysLeft - 1);
