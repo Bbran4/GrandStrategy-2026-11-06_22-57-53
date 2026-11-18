@@ -495,6 +495,30 @@ internal static class Program
             && localFarm.SettlementBuildingInfo(localFarm.CapitalCell, SettlementBuilding.Farm, fordCell + 1).Yield == 3,
             "Manual farm construction must use local eligibility and yield.");
 
+        var supplyRivers = new byte[raster.Length];
+        for (var row = 0; row < recipe.Height; row++) supplyRivers[row * recipe.Width + 1] = 3;
+        var supplyMap = ProvinceMap.Build(recipe, Enumerable.Repeat(1, raster.Length).ToArray(),
+            new[] { new ProvinceInfo { Id = "Mine", Rgb = 1, Type = "land", Terrain = "mountains" } });
+        supplyMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, fordTerrain)), supplyRivers, fordTerrain);
+        var supply = CampaignState.Found(supplyMap, "supply", fordCell - 1, "Supply", 0);
+        var mineSite = fordCell + 1;
+        Require(supply.TryFoundSettlement(mineSite) && supply.TryBuildAtSettlement(mineSite, SettlementBuilding.IronMine, mineSite)
+            && !supply.HasIronSupplyRoute(mineSite), "An unsecured ford must block the mining settlement's supply route.");
+        supply.Paused = false;
+        supply.Advance(4);
+        Require(supply.Iron == 0 && supply.SettlementIronStock(mineSite) > 0,
+            "An isolated mining settlement must stockpile iron locally.");
+        var supplySave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(supply.ToSave(), json), json);
+        var storedIron = supply.SettlementIronStock(mineSite);
+        supplySave.SecuredFords.Add(fordCell);
+        supply = CampaignState.Restore(supplyMap, "supply", supplySave, 5);
+        Require(supply.SettlementIronStock(mineSite) == storedIron && supply.HasIronSupplyRoute(mineSite),
+            "Saved stockpiles and secured fords must restore.");
+        supply.Paused = false;
+        supply.Advance(5);
+        Require(supply.Iron > storedIron && supply.SettlementIronStock(mineSite) == 0,
+            "Establishing a supply route must release accumulated and newly produced iron.");
+
         var hill = recipe.Width + 2;
         var marchHeights = Enumerable.Repeat(recipe.SeaLevel, raster.Length).ToArray();
         marchHeights[hill] = 1f;

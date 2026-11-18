@@ -120,6 +120,8 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
+        internal bool HasMarchTerrain => marchTerrain != null;
+
         internal bool IsFord(int cell) => marchTerrain != null && cell >= 0 && cell < marchTerrain.Length
             && (marchTerrain[cell] & (FordEastWest | FordNorthSouth)) != 0;
 
@@ -149,7 +151,7 @@ namespace GrandStrategy.WorldGeneration
             return BaseMarchCost + elevationCost + (IsFord(from) || IsFord(to) ? 2 : 0);
         }
 
-        internal List<int> FindWarbandRoute(int start, int goal)
+        internal List<int> FindWarbandRoute(int start, int goal, Func<int, bool> canUseFord = null)
         {
             if (!IsMarchCell(start) || !IsMarchCell(goal) || start == goal) return null;
             var fordDestination = IsFord(goal);
@@ -183,7 +185,7 @@ namespace GrandStrategy.WorldGeneration
 
                 void Visit(int next)
                 {
-                    if (!CanMarchBetween(cell, next)) return;
+                    if (!CanMarchBetween(cell, next) || (canUseFord != null && IsFord(next) && !canUseFord(next))) return;
                     var cost = spent + MarchStepCost(cell, next);
                     var distance = Distance(next);
                     if (costs.TryGetValue(next, out var prior))

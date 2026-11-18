@@ -993,6 +993,12 @@ namespace GrandStrategy.WorldGeneration
             if (built)
             {
                 GUILayout.Label($"{info.Name} | {output}");
+                if (building == SettlementBuilding.IronMine && placement >= 0)
+                {
+                    var connected = campaign.HasIronSupplyRoute(site);
+                    GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | "
+                        + (connected ? "Supply route to capital open" : "No secured land route to the capital"));
+                }
                 return;
             }
 

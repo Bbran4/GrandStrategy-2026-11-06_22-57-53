@@ -54,6 +54,7 @@ namespace GrandStrategy.WorldGeneration
     {
         public int Cell;
         public int Buildings;
+        public int IronStock;
         public int FarmSite, LumberSite, MineSite, DockSite; // Cell index plus one.
 
         public int Placement(SettlementBuilding building) => building switch
@@ -175,6 +176,7 @@ namespace GrandStrategy.WorldGeneration
         private double fractionOfDay;
         private HashSet<int> dockWaterways;
         private long remainingMarchCost;
+        private readonly Dictionary<int, bool> ironSupplyRoutes = new Dictionary<int, bool>();
         internal Func<int, bool> LandContactResolver { get; set; }
         public int InfluenceRevision { get; private set; }
 
@@ -451,6 +453,7 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!CanSecureFord(cell)) return false;
             data.SecuredFords.Add(cell);
+            ironSupplyRoutes.Clear();
             InfluenceRevision++;
             return true;
         }
@@ -733,7 +736,8 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var site in save.Construction)
                 {
                     if ((site.Cell != save.CapitalCell && !settlementSites.Contains(site.Cell))
-                        || !builtSites.Add(site.Cell) || site.Buildings == 0 || (site.Buildings & ~(int)AllBuildings) != 0)
+                        || !builtSites.Add(site.Cell) || site.Buildings == 0 || (site.Buildings & ~(int)AllBuildings) != 0
+                        || !ValidStock(site.IronStock) || (site.IronStock > 0 && (site.Buildings & (int)SettlementBuilding.IronMine) == 0))
                         throw new ArgumentException("The save contains invalid settlement construction.");
                     foreach (var building in new[] { SettlementBuilding.Farm, SettlementBuilding.LumberCamp,
                         SettlementBuilding.IronMine, SettlementBuilding.Docks })
@@ -999,6 +1003,53 @@ namespace GrandStrategy.WorldGeneration
             foreach (var entry in data.TownSpecialisations)
                 if (entry.Building == building && HasSettlementBuilding(entry.Cell, building)) total++;
             return total;
+        }
+
+        public int SettlementIronStock(int cell)
+        {
+            foreach (var site in data.Construction)
+                if (site.Cell == cell) return site.IronStock;
+            return 0;
+        }
+
+        public bool HasIronSupplyRoute(int cell)
+        {
+            if (cell == CapitalCell || !map.HasMarchTerrain) return true;
+            if (!ironSupplyRoutes.TryGetValue(cell, out var hasRoute))
+            {
+                hasRoute = map.FindWarbandRoute(cell, CapitalCell, IsFordSecured) != null;
+                ironSupplyRoutes[cell] = hasRoute;
+            }
+            return hasRoute;
+        }
+
+        private void ProduceIron(int periods)
+        {
+            for (var province = 0; province < data.Buildings.Length; province++)
+            {
+                if (!HasBuilding(province, SettlementBuilding.IronMine)) continue;
+                var yield = BuildingInfo(province, SettlementBuilding.IronMine).Yield;
+                if (TownSpeciality(LegacyBuildingSite(province)) == SettlementBuilding.IronMine) yield++;
+                data.Iron = (int)Math.Min(ResourceLimit, Iron + (long)periods * yield);
+            }
+
+            for (var i = 0; i < data.Construction.Count; i++)
+            {
+                var site = data.Construction[i];
+                if ((site.Buildings & (int)SettlementBuilding.IronMine) == 0) continue;
+                var yield = SettlementBuildingInfo(site.Cell, SettlementBuilding.IronMine, site.MineSite - 1).Yield;
+                if (yield == 0) yield = BuildingInfo(SettlementProvince(site.Cell), SettlementBuilding.IronMine).Yield;
+                if (TownSpeciality(site.Cell) == SettlementBuilding.IronMine) yield++;
+                var available = site.IronStock + (long)periods * yield;
+                if (HasIronSupplyRoute(site.Cell))
+                {
+                    var shipped = (int)Math.Min(ResourceLimit - Iron, available);
+                    data.Iron += shipped;
+                    available -= shipped;
+                }
+                site.IronStock = (int)Math.Min(ResourceLimit, available);
+                data.Construction[i] = site;
+            }
         }
 
         public bool TryBuildGranary(int cell = -1)
@@ -1362,9 +1413,9 @@ namespace GrandStrategy.WorldGeneration
                 else AddFood((long)periods * output);
 
                 var lumber = BuildingTotal(SettlementBuilding.LumberCamp);
-                var iron = BuildingTotal(SettlementBuilding.IronMine);
+
                 data.Wood = (int)Math.Min(ResourceLimit, Wood + (long)periods * lumber + taxes);
-                data.Iron = (int)Math.Min(ResourceLimit, Iron + (long)periods * iron);
+                ProduceIron(periods);
             }
             if (Day / FoodInterval > previousDay / FoodInterval)
             {
