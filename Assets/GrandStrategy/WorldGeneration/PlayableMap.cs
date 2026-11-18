@@ -723,6 +723,8 @@ namespace GrandStrategy.WorldGeneration
                     if (claimed) showTrade = false;
                     saveStatus = provinceRoot < 0 ? "Settlement founded a new province." : "Settlement joined an existing province.";
                 }
+                else
+                    saveStatus = "This province needs more people before it can send settlers.";
             }
             GUI.enabled = wasEnabled;
         }

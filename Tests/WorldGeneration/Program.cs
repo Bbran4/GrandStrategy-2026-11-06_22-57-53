@@ -487,6 +487,16 @@ internal static class Program
         Require(CampaignState.Restore(map, key, taxSave, 5).Taxes == TaxPolicy.Heavy,
             "Tax policy must survive save and load.");
 
+        var joined = CampaignState.Found(map, key, 0, "Joined", 0);
+        var originalCapital = joined.SettlementPopulation(0);
+        var originalResidents = joined.Population(1);
+        Require(joined.TryFoundSettlement(1, joined.CapitalCell)
+            && joined.SettlementProvinceRoots.Single() == joined.CapitalCell
+            && joined.SettlementPopulation(0) == originalCapital - originalCapital / 2
+            && joined.SettlementPopulation(1) == originalResidents + originalCapital / 2
+            && joined.OwnedPopulation == (long)originalCapital + originalResidents,
+            "Founding inside an influence province must move settlers across authored boundaries without duplicating population.");
+
         var settlers = CampaignState.Found(map, key, 0, "Settlers", 0);
         Require(!settlers.TryFoundSettlement(recipe.Width) && settlers.Coin == CampaignState.StartingCoin,
             "Founding on water must leave resources untouched.");
