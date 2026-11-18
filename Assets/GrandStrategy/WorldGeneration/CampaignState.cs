@@ -110,6 +110,14 @@ namespace GrandStrategy.WorldGeneration
     }
 
     [Serializable]
+    internal struct SettlementFoodReserve
+    {
+        public int Cell;
+        public int Food;
+        public int LastShortfall;
+    }
+
+    [Serializable]
     internal sealed class CampaignSave
     {
         public int Version;
@@ -122,6 +130,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> SettlementProvinceRoots;
         public List<int> Towns;
         public List<int> Garrisons;
+        public List<SettlementFoodReserve> SettlementFood;
         public List<TownSpecialisation> TownSpecialisations;
         public List<int> SettlementPopulations; // Capital first, then villages in founding order.
         public int SecondSettlementSite; // Cell index plus one. Zero means no second settlement.
@@ -313,6 +322,7 @@ namespace GrandStrategy.WorldGeneration
 
             data.Towns ??= new List<int>();
             data.Garrisons ??= new List<int>();
+            data.SettlementFood ??= new List<SettlementFoodReserve>();
             data.TownSpecialisations ??= new List<TownSpecialisation>();
             data.Construction ??= new List<SettlementConstruction>();
             data.SettlementCells ??= new List<int>();
@@ -575,10 +585,10 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public int CapitalHappiness => SettlementHappiness(CapitalCell);
-        public int SettlementHappiness(int cell) => Happiness(cell, Food >= FoodUpkeep);
+        public int SettlementHappiness(int cell) => Happiness(cell, HasFoodForUpkeep(cell));
 
         public (int Base, int Tax, int Food, int Farm, int Granary) SettlementHappinessBreakdown(int cell)
-            => HappinessFactors(cell, Food >= FoodUpkeep);
+            => HappinessFactors(cell, HasFoodForUpkeep(cell));
 
         private (int Base, int Tax, int Food, int Farm, int Granary) HappinessFactors(int cell, bool fed)
         {
@@ -973,7 +983,44 @@ namespace GrandStrategy.WorldGeneration
         public bool HasIronWarband => data.IronWarband;
         public bool CanUpgradeWarband => HasWarband && !HasIronWarband
             && Iron >= IronWarbandIron && Wood >= IronWarbandWood && Coin >= IronWarbandCoin;
-        public long FoodUpkeep => (OwnedPopulation + PeoplePerFood - 1) / PeoplePerFood + data.Garrisons.Count;
+        public bool IsFoodIsolated(int cell) => cell != CapitalCell && GetIronSupplyRoute(cell) == IronSupplyRoute.None;
+
+        public int LocalFoodUpkeep(int cell)
+            => (int)(((long)SettlementPopulation(cell) + PeoplePerFood - 1) / PeoplePerFood) + (HasGarrison(cell) ? 1 : 0);
+
+        public int LocalFoodStock(int cell)
+        {
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.Cell == cell) return reserve.Food;
+            return 0;
+        }
+
+        public int LocalFoodShortfall(int cell)
+        {
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.Cell == cell) return reserve.LastShortfall;
+            return 0;
+        }
+
+        private bool HasFoodForUpkeep(int cell)
+            => IsFoodIsolated(cell) ? LocalFoodStock(cell) >= LocalFoodUpkeep(cell) : Food >= FoodUpkeep;
+
+        public long FoodUpkeep
+        {
+            get
+            {
+                var people = OwnedPopulation;
+                var guards = data.Garrisons.Count;
+                foreach (var cell in SettlementCells)
+                {
+                    if (!IsFoodIsolated(cell)) continue;
+                    people -= SettlementPopulation(cell);
+                    if (HasGarrison(cell)) guards--;
+                }
+                return (people + PeoplePerFood - 1) / PeoplePerFood + guards;
+            }
+        }
+
         public long LastPopulationChange => data.LastPopulationChange;
         public int WinterShortfall => data.WinterShortfall;
         public long WinterFoodRemaining
@@ -988,7 +1035,25 @@ namespace GrandStrategy.WorldGeneration
             }
         }
         private int WinterFoodOutput => FarmFood - (HasGranary ? 0 : 2) - WarbandFoodCost;
-        private int FarmFood => BuildingTotal(SettlementBuilding.Farm);
+        private int FarmFood
+        {
+            get
+            {
+                var food = BuildingTotal(SettlementBuilding.Farm);
+                foreach (var cell in SettlementCells)
+                    if (IsFoodIsolated(cell)) food -= SettlementFarmYield(cell);
+                return food;
+            }
+        }
+
+        private int SettlementFarmYield(int cell)
+        {
+            if (!HasSettlementBuilding(cell, SettlementBuilding.Farm)) return 0;
+            var yield = SettlementBuildingInfo(cell, SettlementBuilding.Farm, BuildingPlacement(cell, SettlementBuilding.Farm)).Yield;
+            if (yield == 0) yield = BuildingInfo(SettlementProvince(cell), SettlementBuilding.Farm).Yield;
+            return yield + ResearchProductionBonus(SettlementBuilding.Farm)
+                + (TownSpeciality(cell) == SettlementBuilding.Farm ? 1 : 0);
+        }
         public int SubsistenceFood(int province) => province == Capital ? Fertility(map.Provinces[province]) : 1;
 
         private int WarmFoodOutput
@@ -996,8 +1061,17 @@ namespace GrandStrategy.WorldGeneration
             get
             {
                 var food = FarmFood - WarbandFoodCost;
+                var settled = new HashSet<int> { Capital };
+                var connected = new HashSet<int> { Capital };
+                foreach (var cell in SettlementCells)
+                {
+                    var region = SettlementProvince(cell);
+                    settled.Add(region);
+                    if (!IsFoodIsolated(cell)) connected.Add(region);
+                }
+                foreach (var region in connected) food += SubsistenceFood(region);
                 for (var province = 0; province < data.Owned.Length; province++)
-                    if (Owns(province) || HasSettlementInRegion(province)) food += SubsistenceFood(province);
+                    if (Owns(province) && !settled.Contains(province)) food += SubsistenceFood(province);
                 return food;
             }
         }
@@ -1218,6 +1292,15 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var site in save.Garrisons)
                     if ((site != save.CapitalCell && !settlementSites.Contains(site)) || !garrisonSites.Add(site))
                         throw new ArgumentException("The save contains an invalid settlement garrison.");
+            }
+
+            if (save.SettlementFood != null)
+            {
+                var foodSites = new HashSet<int>();
+                foreach (var reserve in save.SettlementFood)
+                    if (!settlementSites.Contains(reserve.Cell) || !foodSites.Add(reserve.Cell)
+                        || !ValidStock(reserve.Food) || reserve.LastShortfall < 0)
+                        throw new ArgumentException("The save contains an invalid local food reserve.");
             }
 
             if (save.IndependentVillageSite < 0 || (save.IndependentVillageSite > 0
@@ -2146,6 +2229,7 @@ namespace GrandStrategy.WorldGeneration
                 var output = Day > WinterStart && Day <= WinterEnd ? WinterFoodOutput : WarmFoodOutput;
                 if (Day == WinterStart) AddFood((long)(periods - 1) * output + FarmFood);
                 else AddFood((long)periods * output);
+                ProduceLocalFood(periods);
 
                 var lumber = BuildingTotal(SettlementBuilding.LumberCamp);
 
@@ -2204,38 +2288,79 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        // Scale growth or losses by how much food is left or missing after feeding the owned population.
+        private void ProduceLocalFood(int periods)
+        {
+            foreach (var cell in SettlementCells)
+            {
+                var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == cell);
+                if (!IsFoodIsolated(cell))
+                {
+                    if (index < 0) continue;
+                    var reserve = data.SettlementFood[index];
+                    var transferred = Math.Min(ResourceLimit - Food, reserve.Food);
+                    AddFood(transferred);
+                    reserve.Food -= transferred;
+                    reserve.LastShortfall = 0;
+                    if (reserve.Food == 0) data.SettlementFood.RemoveAt(index);
+                    else data.SettlementFood[index] = reserve;
+                    continue;
+                }
+
+                var local = index >= 0 ? data.SettlementFood[index] : new SettlementFoodReserve { Cell = cell };
+                var subsistencePeriods = Day == WinterStart ? periods - 1
+                    : Day < WinterStart || Day > WinterEnd ? periods : 0;
+                local.Food = (int)Math.Min(ResourceLimit,
+                    local.Food + (long)periods * SettlementFarmYield(cell) + subsistencePeriods);
+                if (index >= 0) data.SettlementFood[index] = local;
+                else data.SettlementFood.Add(local);
+            }
+        }
+
+        // Connected settlements share clan reserves. Isolated villages feed themselves from local harvests.
         private void FeedPopulation()
         {
             var upkeep = FoodUpkeep;
-            data.LastPopulationChange = 0;
-            if (upkeep == 0) return;
-
             var balance = Food - upkeep;
             AddFood(-upkeep);
-            if (balance == 0) return;
-
-            var starving = balance < 0;
-            if (starving && Day > WinterStart && Day <= WinterEnd)
+            data.LastPopulationChange = 0;
+            if (balance < 0 && Day > WinterStart && Day <= WinterEnd)
                 data.WinterShortfall = (int)Math.Min(int.MaxValue, data.WinterShortfall - balance);
-            var rate = (starving ? MaxStarvationRate : MaxGrowthRate)
-                * Math.Min(1d, Math.Abs((double)balance) / upkeep);
+
             var settledRegions = new HashSet<int>();
             for (var i = 0; i < data.SettlementPopulations.Count; i++)
             {
                 var site = SettlementCellAt(i);
                 var region = SettlementProvince(site);
                 settledRegions.Add(region);
-                var growth = starving ? rate : rate * Happiness(site, true) / 60d;
-                data.SettlementPopulations[i] += ApplyPopulationChange(region, data.SettlementPopulations[i], growth);
+                var siteUpkeep = upkeep;
+                var siteBalance = balance;
+                if (IsFoodIsolated(site))
+                {
+                    var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == site);
+                    var local = index >= 0 ? data.SettlementFood[index] : new SettlementFoodReserve { Cell = site };
+                    siteUpkeep = LocalFoodUpkeep(site);
+                    siteBalance = local.Food - siteUpkeep;
+                    local.Food = (int)Math.Max(0, siteBalance);
+                    local.LastShortfall = (int)Math.Max(0, -siteBalance);
+                    if (index >= 0) data.SettlementFood[index] = local;
+                    else data.SettlementFood.Add(local);
+                }
+
+                data.SettlementPopulations[i] += ApplyPopulationChange(region, data.SettlementPopulations[i],
+                    siteUpkeep, siteBalance, site);
             }
 
             for (var region = 0; region < data.Pop.Length; region++)
                 if (Owns(region) && !settledRegions.Contains(region))
-                    ApplyPopulationChange(region, data.Pop[region], rate);
+                    ApplyPopulationChange(region, data.Pop[region], upkeep, balance, -1);
 
-            int ApplyPopulationChange(int region, int population, double growth)
+            int ApplyPopulationChange(int region, int population, long need, long surplus, int site)
             {
+                if (need == 0 || surplus == 0) return 0;
+                var starving = surplus < 0;
+                var growth = (starving ? MaxStarvationRate : MaxGrowthRate)
+                    * Math.Min(1d, Math.Abs((double)surplus) / need);
+                if (!starving && site >= 0) growth *= Happiness(site, true) / 60d;
                 var change = (int)Math.Ceiling(population * growth);
                 change = starving ? -change : Math.Min(change, int.MaxValue - data.Pop[region]);
                 data.Pop[region] += change;

@@ -736,6 +736,31 @@ internal static class Program
         Require(supply.Iron == cargo.Amount && !supply.IsIronShipmentHeld(mineSite),
             "The capital must receive cargo once travel finishes.");
 
+        var isolatedFood = CampaignState.Found(supplyMap, "isolated-food", fordCell - 1, "Isolated food", 0);
+        Require(isolatedFood.TryFoundSettlement(mineSite) && isolatedFood.IsFoodIsolated(mineSite),
+            "The food fixture requires a village isolated by the river.");
+        var foodWinterSave = isolatedFood.ToSave();
+        foodWinterSave.Day = CampaignState.WinterStart;
+        foodWinterSave.Food = 100;
+        isolatedFood = CampaignState.Restore(supplyMap, "isolated-food", foodWinterSave, 5);
+        var provisionedVillage = CampaignState.Restore(supplyMap, "isolated-food", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(isolatedFood.ToSave(), json), json), 5);
+        Require(provisionedVillage.TryBuildAtSettlement(mineSite, SettlementBuilding.Farm),
+            "An isolated village must be able to build its own farm.");
+        var beforeWinter = isolatedFood.SettlementPopulation(mineSite);
+        isolatedFood.Paused = provisionedVillage.Paused = false;
+        isolatedFood.Advance(15);
+        provisionedVillage.Advance(15);
+        Require(isolatedFood.Food > isolatedFood.FoodUpkeep && isolatedFood.LocalFoodShortfall(mineSite) > 0
+            && isolatedFood.SettlementPopulation(mineSite) < beforeWinter,
+            "An isolated village without food must shrink even while the capital has plenty.");
+        Require(provisionedVillage.LocalFoodStock(mineSite) > 0
+            && provisionedVillage.SettlementPopulation(mineSite) >= beforeWinter,
+            "A local farm must feed an isolated village through winter.");
+        provisionedVillage = CampaignState.Restore(supplyMap, "isolated-food", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(provisionedVillage.ToSave(), json), json), 5);
+        Require(provisionedVillage.LocalFoodStock(mineSite) > 0, "Local food stocks must survive save and load.");
+
         var portsRaster = Enumerable.Repeat(1, raster.Length).ToArray();
         for (var row = 0; row < recipe.Height; row++) portsRaster[row * recipe.Width + 1] = 2;
         var supplyWater = WaterMap.Classify(new HeightmapResult(recipe, fordTerrain));

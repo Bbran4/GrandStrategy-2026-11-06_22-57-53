@@ -501,9 +501,14 @@ namespace GrandStrategy.WorldGeneration
                 if (factors.Farm != 0) GUILayout.Label($"Local farm +{factors.Farm}");
                 if (factors.Granary != 0) GUILayout.Label($"Capital granary +{factors.Granary}");
                 if (factors.Food != 0) GUILayout.Label($"Food shortage {factors.Food}");
-                GUILayout.Label($"Clan food stock {campaign.Food:N0} | Next upkeep {campaign.FoodUpkeep:N0}");
-                GUILayout.Label(campaign.Food > campaign.FoodUpkeep ? "Surplus food supports growth at current stock."
-                    : campaign.Food == campaign.FoodUpkeep ? "Current stock covers upkeep with no surplus for growth."
+                var isolated = campaign.IsFoodIsolated(site);
+                var food = isolated ? campaign.LocalFoodStock(site) : campaign.Food;
+                var upkeep = isolated ? campaign.LocalFoodUpkeep(site) : campaign.FoodUpkeep;
+                GUILayout.Label($"{(isolated ? "Isolated village food stock" : "Clan food stock")} {food:N0} | Next upkeep {upkeep:N0}");
+                if (isolated && campaign.LocalFoodShortfall(site) > 0)
+                    GUILayout.Label($"Last meal shortfall: {campaign.LocalFoodShortfall(site):N0} food");
+                GUILayout.Label(food > upkeep ? "Surplus food supports growth at current stock."
+                    : food == upkeep ? "Current stock covers upkeep with no surplus for growth."
                     : "Current stock falls short of upkeep. Population may decline.");
             }
             DrawTownUpgrade(site);
