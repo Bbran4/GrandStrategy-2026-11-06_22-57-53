@@ -562,6 +562,19 @@ internal static class Program
         var beforeOccupation = occupied.IndependentPopulation(1);
         Require(occupied.TryStartIntegration(1, ExpansionApproach.Force) && occupied.IndependentVillageOccupied,
             "The independent village must detect occupation in the target region.");
+        var operationSave = JsonSerializer.Serialize(occupied.ToSave(), json);
+        var missed = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(operationSave, json), 5);
+        missed.MilitaryOccupationResolver = _ => false;
+        missed.Paused = false;
+        Require(!missed.Advance(10) && missed.OperationMissedObjective && !missed.WarbandCommitted
+            && missed.IndependentVillageCell == 1 && missed.SuccessfulOperations == 0 && !missed.SettlementCells.Contains(1),
+            "An operation must expire without capturing a village it never occupies.");
+        var captured = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(operationSave, json), 5);
+        captured.MilitaryOccupationResolver = cell => cell == 1;
+        captured.Paused = false;
+        Require(captured.Advance(10) && !captured.OperationMissedObjective
+            && captured.IndependentVillageCell == -1 && captured.SettlementCells.Contains(1)
+            && captured.SuccessfulOperations == 1, "Occupying the objective must allow capture of the village.");
         occupied.Advance(2);
         Require(occupied.IndependentPopulation(1) == beforeOccupation && occupied.TryWithdrawWarband()
             && !occupied.IndependentVillageOccupied, "Occupation must suspend village growth and end on withdrawal.");

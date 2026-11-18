@@ -132,6 +132,7 @@ namespace GrandStrategy.WorldGeneration
         public int IndependentFarmSite;
         public int IntegrationProvinceRoot;
         public int IntegrationDaysLeft;
+        public bool OperationMissedObjective;
         public int Food;
         public int Wood;
         public int Iron;
@@ -670,6 +671,10 @@ namespace GrandStrategy.WorldGeneration
             FordAccessRevision++;
             UpdateHeldShipments();
         }
+
+        public bool OperationMissedObjective => data.OperationMissedObjective;
+        public int MilitaryObjectiveCell
+            => WarbandCommitted && IntegrationTarget == IndependentVillageRegion ? IndependentVillageCell : -1;
 
         public bool WarbandCommitted => PendingApproach == ExpansionApproach.Force;
         public bool TryWithdrawWarband()
@@ -1853,6 +1858,7 @@ namespace GrandStrategy.WorldGeneration
             data.IntegrationTarget = province;
             data.IntegrationDaysLeft = DaysFor(approach);
             data.PendingApproach = approach;
+            if (WarbandCommitted) data.OperationMissedObjective = false;
             if (WarbandCommitted && data.PassagePartners.Contains(province + 1)) RefreshFordAccess();
             return true;
         }
@@ -2044,6 +2050,12 @@ namespace GrandStrategy.WorldGeneration
             if (IntegrationDaysLeft > 0) return false;
 
             var target = IntegrationTarget;
+            if (MilitaryObjectiveCell >= 0 && !IndependentVillageOccupied)
+            {
+                data.OperationMissedObjective = true;
+                ClearIntegration();
+                return false;
+            }
             if (PendingApproach == ExpansionApproach.Force)
             {
                 var losses = IsDefensible(map.Provinces[target]) ? 18 : 8;

@@ -715,7 +715,9 @@ namespace GrandStrategy.WorldGeneration
             }
             if (selected == campaign.IntegrationTarget)
             {
-                GUILayout.Label($"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
+                GUILayout.Label(campaign.WarbandCommitted
+                    ? $"Military operation resolves in {campaign.IntegrationDaysLeft} days"
+                    : $"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
                 return;
             }
             DrawExpansionButton(ExpansionApproach.Diplomacy, $"Negotiate ({campaign.NegotiationCoinCost} coin)");
@@ -828,7 +830,9 @@ namespace GrandStrategy.WorldGeneration
                 if (campaign.IntegrationTarget >= 0)
                 {
                     var target = surface.Map.Provinces[campaign.IntegrationTarget].Id;
-                    GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
+                    GUILayout.Label(campaign.WarbandCommitted
+                        ? $"{target} | Operation resolves in {campaign.IntegrationDaysLeft} days"
+                        : $"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
                 DrawWarbandOrders();
                 GUILayout.Label("Treasury", hudHeading);
@@ -987,6 +991,16 @@ namespace GrandStrategy.WorldGeneration
             if (campaign.WarbandCommitted)
             {
                 GUILayout.Label("Warband committed | Trade with the target is suspended");
+                if (campaign.MilitaryObjectiveCell >= 0)
+                {
+                    GUILayout.Label(campaign.IndependentVillageOccupied ? "Objective village occupied" : "Objective village beyond current occupation");
+                    if (GUILayout.Button("View objective village"))
+                    {
+                        followingWarband = false;
+                        focus = surface.PointAtCell(campaign.MilitaryObjectiveCell);
+                        targetZoom = MinimumZoom;
+                    }
+                }
                 if (GUILayout.Button("Withdraw and return to capital") && campaign.TryWithdrawWarband())
                 {
                     var route = surface.FindWarbandRoute(campaign.WarbandCell, campaign.CapitalCell);
@@ -996,6 +1010,8 @@ namespace GrandStrategy.WorldGeneration
                 }
                 return;
             }
+            if (campaign.OperationMissedObjective)
+                GUILayout.Label("Last operation failed. March closer to the objective village before trying again.");
             if (surface.Map.IsFord(clickedCell))
             {
                 var secured = campaign.IsFordSecured(clickedCell);
