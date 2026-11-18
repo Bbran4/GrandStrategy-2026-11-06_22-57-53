@@ -965,21 +965,38 @@ namespace GrandStrategy.WorldGeneration
         private int DaysUntilShipmentWait((int Ford, int ApproachDay) next)
             => next.Ford >= 0 ? Math.Max(0, next.ApproachDay - Day) : -1;
 
-        public IEnumerable<(int Origin, int Destination, TradeResource Resource, int Amount)> HeldShipmentsAtFord(int ford)
+        public IEnumerable<(int Origin, int Destination, TradeResource Resource, int Amount, int DaysToFord, bool Held)>
+            ShipmentsThreatenedByFord(int ford)
         {
             if (!map.IsFord(ford) || !IsFordClosed(ford)) yield break;
 
             foreach (var reserve in data.SettlementFood)
-                if (reserve.InTransit > 0 && reserve.HoldDay > 0
-                    && WaitingAtFord(reserve.OverlandPath, reserve.HoldDay, reserve.DepartureDay, reserve.ArrivalDay) == ford)
-                    yield return (CapitalCell, reserve.Cell, TradeResource.Food, reserve.InTransit);
+            {
+                if (reserve.InTransit == 0 || reserve.OverlandPath == null) continue;
+                var held = reserve.HoldDay > 0;
+                var next = NextClosedFord(reserve.OverlandPath, held ? reserve.HoldDay : Day,
+                    reserve.DepartureDay, reserve.ArrivalDay);
+                if (next.Ford == ford)
+                    yield return (CapitalCell, reserve.Cell, TradeResource.Food, reserve.InTransit,
+                        held ? 0 : DaysUntilShipmentWait(next), held);
+            }
 
             foreach (var shipment in data.Construction)
-                if (shipment.IronInTransit > 0 && shipment.IronHoldDay > 0
-                    && shipment.IronTransport == IronSupplyRoute.Overland
-                    && WaitingAtFord(shipment.IronTravelPath, shipment.IronHoldDay, shipment.IronDepartureDay,
-                        shipment.IronTravelEndDay) == ford)
-                    yield return (shipment.Cell, CapitalCell, TradeResource.Iron, shipment.IronInTransit);
+            {
+                if (shipment.IronInTransit == 0 || shipment.IronTransport != IronSupplyRoute.Overland) continue;
+                var held = shipment.IronHoldDay > 0;
+                var next = NextClosedFord(shipment.IronTravelPath, held ? shipment.IronHoldDay : Day,
+                    shipment.IronDepartureDay, shipment.IronTravelEndDay);
+                if (next.Ford == ford)
+                    yield return (shipment.Cell, CapitalCell, TradeResource.Iron, shipment.IronInTransit,
+                        held ? 0 : DaysUntilShipmentWait(next), held);
+            }
+        }
+
+        public IEnumerable<(int Origin, int Destination, TradeResource Resource, int Amount)> HeldShipmentsAtFord(int ford)
+        {
+            foreach (var shipment in ShipmentsThreatenedByFord(ford))
+                if (shipment.Held) yield return (shipment.Origin, shipment.Destination, shipment.Resource, shipment.Amount);
         }
 
         public (int Shipments, long Cargo) SuppliesHeldAtFord(int ford) => CargoHeldAtFord(ford, TradeResource.Iron);
@@ -1991,16 +2008,17 @@ namespace GrandStrategy.WorldGeneration
             return false;
         }
 
-        public bool TryRerouteHeldIronShipment(int cell)
+        public bool TryRerouteIronShipment(int cell)
         {
             if (Day == int.MaxValue) return false;
             var index = data.Construction.FindIndex(site => site.Cell == cell);
             if (index < 0) return false;
             var shipment = data.Construction[index];
             var path = shipment.IronTravelPath;
-            if (shipment.IronHoldDay <= 0 || path == null || path.Length < 2) return false;
+            if (shipment.IronInTransit == 0 || shipment.IronTransport != IronSupplyRoute.Overland) return false;
 
-            var alternate = FindAlternateSupplyRoute(path, shipment.IronHoldDay, shipment.IronDepartureDay,
+            var positionDay = shipment.IronHoldDay > 0 ? shipment.IronHoldDay : Day;
+            var alternate = FindAlternateSupplyRoute(path, positionDay, shipment.IronDepartureDay,
                 shipment.IronTravelEndDay, CapitalCell);
             if (alternate == null) return false;
 
@@ -2009,15 +2027,16 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
-        public bool TryRerouteHeldFoodShipment(int cell)
+        public bool TryRerouteFoodShipment(int cell)
         {
             if (Day == int.MaxValue) return false;
             var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == cell);
             if (index < 0) return false;
             var reserve = data.SettlementFood[index];
-            if (reserve.HoldDay == 0) return false;
+            if (reserve.InTransit == 0) return false;
 
-            var alternate = FindAlternateSupplyRoute(reserve.OverlandPath, reserve.HoldDay,
+            var positionDay = reserve.HoldDay > 0 ? reserve.HoldDay : Day;
+            var alternate = FindAlternateSupplyRoute(reserve.OverlandPath, positionDay,
                 reserve.DepartureDay, reserve.ArrivalDay, cell);
             if (alternate == null) return false;
 
@@ -2029,9 +2048,10 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
-        private List<int> FindAlternateSupplyRoute(int[] path, int holdDay, int departureDay, int arrivalDay, int destination)
+        private List<int> FindAlternateSupplyRoute(int[] path, int positionDay, int departureDay, int arrivalDay, int destination)
         {
-            var step = (int)((long)(holdDay - departureDay) * (path.Length - 1) / (arrivalDay - departureDay));
+            if (NextClosedFord(path, positionDay, departureDay, arrivalDay).Ford < 0) return null;
+            var step = (int)((long)(positionDay - departureDay) * (path.Length - 1) / (arrivalDay - departureDay));
             if (step > 0 && IsFordClosed(path[step])) step--;
             return map.FindWarbandRoute(path[step], destination, CanUseSupplyFord, hasBridge: HasBridge, hasRoad: HasRoadEdge);
         }

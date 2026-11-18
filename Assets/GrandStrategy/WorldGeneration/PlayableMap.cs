@@ -542,14 +542,15 @@ namespace GrandStrategy.WorldGeneration
         private void DrawFordShipments(int ford)
         {
             var hasShipments = false;
-            foreach (var shipment in campaign.HeldShipmentsAtFord(ford))
+            foreach (var shipment in campaign.ShipmentsThreatenedByFord(ford))
             {
-                if (!hasShipments) GUILayout.Label("Held deliveries", hudHeading);
+                if (!hasShipments) GUILayout.Label("Affected deliveries", hudHeading);
                 hasShipments = true;
                 var food = shipment.Resource == TradeResource.Food;
                 var village = food ? shipment.Destination : shipment.Origin;
                 GUILayout.Label($"{shipment.Amount:N0} {(food ? "food" : "iron")} | "
                     + $"{SettlementLabel(shipment.Origin)} → {SettlementLabel(shipment.Destination)}");
+                GUILayout.Label(shipment.Held ? "Waiting at the ford" : $"Reaches the closed ford in {shipment.DaysToFord:N0}d");
 
                 GUILayout.BeginHorizontal();
                 var viewVillage = GUILayout.Button($"View {SettlementLabel(village)}");
@@ -563,15 +564,15 @@ namespace GrandStrategy.WorldGeneration
                 }
                 if (reroute)
                 {
-                    RerouteHeldShipment(village, food);
+                    RerouteShipment(village, food);
                     break;
                 }
             }
         }
 
-        private void RerouteHeldShipment(int village, bool food)
+        private void RerouteShipment(int village, bool food)
         {
-            var rerouted = food ? campaign.TryRerouteHeldFoodShipment(village) : campaign.TryRerouteHeldIronShipment(village);
+            var rerouted = food ? campaign.TryRerouteFoodShipment(village) : campaign.TryRerouteIronShipment(village);
             saveStatus = rerouted ? "Delivery rerouted overland." : "No alternate overland route is open.";
         }
 
@@ -634,7 +635,7 @@ namespace GrandStrategy.WorldGeneration
                 }
             }
             if (shipment.Held && GUILayout.Button("Reroute held food delivery"))
-                RerouteHeldShipment(site, food: true);
+                RerouteShipment(site, food: true);
             GUILayout.BeginHorizontal();
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && target > 0;
@@ -1461,7 +1462,7 @@ namespace GrandStrategy.WorldGeneration
                         DrawShipmentStatus(site, TradeResource.Iron, shipment.Amount, shipment.Days,
                             campaign.IsIronShipmentHeld(site));
                     if (campaign.IsIronShipmentHeld(site) && GUILayout.Button("Reroute held shipment"))
-                        RerouteHeldShipment(site, food: false);
+                        RerouteShipment(site, food: false);
                     if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway || shipment.Amount > 0)
                         showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show iron supply route");
                 }

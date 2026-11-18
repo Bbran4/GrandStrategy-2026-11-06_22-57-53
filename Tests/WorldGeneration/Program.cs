@@ -792,13 +792,13 @@ internal static class Program
         var heldSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(supply.ToSave(), json), json);
         var reroute = CampaignState.Restore(supplyMap, "supply", JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(heldSave, json), json), 5);
-        Require(!reroute.TryRerouteHeldIronShipment(mineSite) && reroute.IsIronShipmentHeld(mineSite),
+        Require(!reroute.TryRerouteIronShipment(mineSite) && reroute.IsIronShipmentHeld(mineSite),
             "A held shipment must keep its cargo if there is no alternative.");
         var alternateSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(heldSave, json), json);
         var alternateFord = fordCell + recipe.Width;
         alternateSave.SecuredFords.Add(alternateFord);
         reroute = CampaignState.Restore(supplyMap, "supply", alternateSave, 5);
-        Require(reroute.TryRerouteHeldIronShipment(mineSite) && reroute.IsFordClosed(fordCell)
+        Require(reroute.TryRerouteIronShipment(mineSite) && reroute.IsFordClosed(fordCell)
             && !reroute.IsIronShipmentHeld(mineSite) && reroute.IronShipment(mineSite).Amount == cargo.Amount
             && reroute.IronShipmentJourney(mineSite).Path.Contains(alternateFord)
             && !reroute.IronShipmentJourney(mineSite).Path.Contains(fordCell),
@@ -832,17 +832,49 @@ internal static class Program
         var initialIron = roadSupply.IronShipmentJourney(farVillage);
         var initialIronCargo = roadSupply.IronShipment(farVillage);
         var openRoadSave = JsonSerializer.Serialize(roadSupply.ToSave(), json);
+        Require(!roadSupply.TryRerouteFoodShipment(farVillage) && !roadSupply.TryRerouteIronShipment(farVillage),
+            "Deliveries on an open route cannot be rerouted from a crossing.");
         Require(roadSupply.TryChangeFordAccess(fordCell), "The guard must be able to close the ford.");
         var foodApproach = roadSupply.DaysUntilShipmentWait(farVillage, TradeResource.Food);
         var ironApproach = roadSupply.DaysUntilShipmentWait(farVillage, TradeResource.Iron);
         Require(foodApproach > 1 && ironApproach > 1 && !roadSupply.HeldShipmentsAtFord(fordCell).Any(),
             "Closing a distant ford must warn approaching convoys without immediately stopping them.");
+        var approaching = roadSupply.ShipmentsThreatenedByFord(fordCell).ToArray();
+        Require(approaching.Length == 2
+            && approaching.Contains((farCapital, farVillage, TradeResource.Food, 5, foodApproach, false))
+            && approaching.Contains((farVillage, farCapital, TradeResource.Iron, initialIronCargo.Amount, ironApproach, false))
+            && !roadSupply.ShipmentsThreatenedByFord(alternateFord).Any(),
+            "The threatened crossing must identify both approaching deliveries and their individual arrival times.");
         roadSupply.Advance(1);
         Require(roadSupply.FoodShipmentJourney(farVillage).Progress > initialFood.Progress
             && roadSupply.IronShipmentJourney(farVillage).Progress > initialIron.Progress
             && !roadSupply.HeldShipmentsAtFord(fordCell).Any(),
             "Both convoys must keep moving on the open stretch before the bank.");
         var approachSave = JsonSerializer.Serialize(roadSupply.ToSave(), json);
+        Require(!roadSupply.TryRerouteFoodShipment(farVillage) && !roadSupply.TryRerouteIronShipment(farVillage)
+            && roadSupply.ShipmentsThreatenedByFord(fordCell).All(row => !row.Held)
+            && roadSupply.FoodShipmentJourney(farVillage).Path.SequenceEqual(initialFood.Path)
+            && roadSupply.IronShipmentJourney(farVillage).Path.SequenceEqual(initialIron.Path),
+            "With no alternate ford, approaching convoys must retain their original journeys.");
+
+        var earlyBypassSave = JsonSerializer.Deserialize<CampaignSave>(approachSave, json);
+        earlyBypassSave.SecuredFords.Add(alternateFord);
+        var earlyBypass = CampaignState.Restore(supplyMap, "long-supply", earlyBypassSave, 5);
+        Require(earlyBypass.TryRerouteFoodShipment(farVillage) && earlyBypass.TryRerouteIronShipment(farVillage)
+            && earlyBypass.IsFordClosed(fordCell) && !earlyBypass.ShipmentsThreatenedByFord(fordCell).Any(),
+            "Both deliveries can be diverted before they reach the closed crossing.");
+        var bypassFoodJourney = earlyBypass.FoodShipmentJourney(farVillage);
+        var bypassIronJourney = earlyBypass.IronShipmentJourney(farVillage);
+        Require(bypassFoodJourney.Path[0] == initialFood.Path[1] && bypassIronJourney.Path[0] == initialIron.Path[1]
+            && bypassFoodJourney.Path.Contains(alternateFord) && bypassIronJourney.Path.Contains(alternateFord)
+            && earlyBypass.LocalFoodShipment(farVillage).Amount == 5
+            && earlyBypass.IronShipment(farVillage).Amount == initialIronCargo.Amount,
+            "Rerouting must start at each convoy's reached tile and preserve all cargo.");
+        earlyBypass.Paused = false;
+        earlyBypass.Advance(Math.Max(earlyBypass.LocalFoodShipment(farVillage).Days, earlyBypass.IronShipment(farVillage).Days));
+        Require(earlyBypass.LocalFoodStock(farVillage) == 5 && earlyBypass.Iron == initialIronCargo.Amount,
+            "Diverted convoys must deliver before the original ford reopens.");
+
         var formerlyHeldSave = JsonSerializer.Deserialize<CampaignSave>(approachSave, json);
         var formerlyHeldFood = formerlyHeldSave.SettlementFood.Single();
         formerlyHeldFood.HoldDay = formerlyHeldSave.Day;
@@ -876,6 +908,7 @@ internal static class Program
         Require(waitingFood.Held && roadSupply.IsIronShipmentHeld(farVillage)
             && Math.Abs(waitingFood.Progress * (waitingFood.Path.Count - 1) - foodBank) < 0.001f
             && Math.Abs(waitingIron.Progress * (waitingIron.Path.Count - 1) - ironBank) < 0.001f
+            && roadSupply.ShipmentsThreatenedByFord(fordCell).Count(row => row.Held && row.DaysToFord == 0) == 2
             && roadSupply.HeldShipmentsAtFord(fordCell).Count() == 2 && roadSupply.Iron == 0,
             "Fast-forward after loading must stop both convoys at their respective banks.");
 
@@ -978,7 +1011,7 @@ internal static class Program
         var alternateFoodSave = JsonSerializer.Deserialize<CampaignSave>(heldFoodSave, json);
         alternateFoodSave.SecuredFords.Add(alternateFord);
         var reroutedFood = CampaignState.Restore(supplyMap, "stocked", alternateFoodSave, 5);
-        Require(!stocked.TryRerouteHeldFoodShipment(mineSite) && reroutedFood.TryRerouteHeldFoodShipment(mineSite)
+        Require(!stocked.TryRerouteFoodShipment(mineSite) && reroutedFood.TryRerouteFoodShipment(mineSite)
             && reroutedFood.IsFordClosed(fordCell), "Food rerouting must require an open alternate ford.");
         Require(stocked.HeldShipmentsAtFord(fordCell).Single() == (stocked.CapitalCell, mineSite, TradeResource.Food, 10)
             && !reroutedFood.HeldShipmentsAtFord(fordCell).Any(),
