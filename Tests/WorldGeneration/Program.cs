@@ -611,9 +611,16 @@ internal static class Program
 
         var warrior = CampaignState.Found(map, key, 0, "Warrior", 0);
         Require(!warrior.TryStartIntegration(1, ExpansionApproach.Force) && warrior.TryRecruitWarband()
-            && !warrior.TryBuildGranary() && warrior.TryStartIntegration(1, ExpansionApproach.Force),
-            "Force must require a paid warband and compete with the granary.");
+            && !warrior.TryBuildGranary() && !warrior.TryStartIntegration(1, ExpansionApproach.Force)
+            && warrior.TryMarchWarband(new List<int> { 0, 1 }),
+            "Force must require a paid warband and a march to its target.");
         var warriorPopulation = warrior.Population(warrior.Capital);
+        Require(warrior.DaysToNextDecision == 1, "The next milestone should stop at the warband's arrival.");
+        warrior.AdvanceToNextDecision();
+        Require(warrior.TryStartIntegration(1, ExpansionApproach.Force)
+            && !warrior.TryMarchWarband(new List<int> { 1, 0 })
+            && warrior.EvaluateTrade(1, new TradeOffer(TradeResource.Coin, 1, TradeResource.Food, 1)).Willingness == 0,
+            "An operation must commit the warband and suspend trade with its target.");
         warrior.Paused = false;
         Require(warrior.Advance(10) && warrior.Owns(1) && warrior.FirstExpansion == ExpansionApproach.Force
             && warrior.Food > startingFood && warrior.Population(warrior.Capital) < warriorPopulation,
@@ -699,8 +706,10 @@ internal static class Program
         equippedSave.Iron = CampaignState.IronWarbandIron;
         var equipped = CampaignState.Restore(map, key, equippedSave, 5);
         Require(equipped.TryUpgradeWarband() && equipped.HasIronWarband && !equipped.TryUpgradeWarband()
-            && equipped.Iron == 0 && equipped.TryStartIntegration(1, ExpansionApproach.Force),
+            && equipped.Iron == 0 && equipped.TryMarchWarband(new List<int> { 0, 1 }),
             "Equipping the warband must spend iron exactly once.");
+        equipped.AdvanceToNextDecision();
+        Require(equipped.TryStartIntegration(1, ExpansionApproach.Force), "The equipped warband must be able to attack after arriving.");
         equipped.Paused = false;
         equipped.Advance(10);
         Require(equipped.Population(0) == warriorPopulation - 9, "Iron equipment must halve friendly losses.");

@@ -330,6 +330,9 @@ namespace GrandStrategy.WorldGeneration
         public bool HasGranary => data.Granary;
         public int GranaryCell => data.GranarySite - 1;
         public bool HasWarband => data.Warband;
+        public bool WarbandCommitted => PendingApproach == ExpansionApproach.Force;
+        public bool WarbandAt(int province) => HasWarband && WarbandTravelDays == 0
+            && province >= 0 && ProvinceAt(map, WarbandCell) == province;
         public int WarbandCell => !HasWarband ? -1
             : data.WarbandRoute == null ? CapitalCell : data.WarbandRoute[data.WarbandRouteIndex];
         public int WarbandTravelDays => data.WarbandRoute == null
@@ -338,7 +341,7 @@ namespace GrandStrategy.WorldGeneration
 
         public bool TryMarchWarband(List<int> route)
         {
-            if (!HasWarband || route == null || route.Count < 2 || route[0] != WarbandCell || !IsWarbandRoute(route))
+            if (!HasWarband || WarbandCommitted || route == null || route.Count < 2 || route[0] != WarbandCell || !IsWarbandRoute(route))
                 return false;
             data.WarbandRoute = new List<int>(route);
             data.WarbandRouteIndex = 0;
@@ -876,6 +879,8 @@ namespace GrandStrategy.WorldGeneration
         // Quote the deal without transferring goods. Willingness and available stock are separate checks.
         public (int Willingness, string Status, int Stock) EvaluateTrade(int province, TradeOffer offer)
         {
+            if (WarbandCommitted && province == IntegrationTarget)
+                return (0, "Trade suspended during the military operation.", 0);
             if (!CanTradeWith(province)) return (0, "Choose an independent community within trade reach.", 0);
             if (!ValidTradeOffer(offer))
                 return (0, "Choose different goods and enter positive amounts.", 0);
@@ -1022,7 +1027,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 ExpansionApproach.Diplomacy => Coin >= IntegrationCost,
                 ExpansionApproach.Trade => HasTradedWith(province) && Coin >= PactCost,
-                ExpansionApproach.Force => HasWarband && Food >= ForceFood,
+                ExpansionApproach.Force => WarbandAt(province) && Food >= ForceFood,
                 _ => false
             };
         }

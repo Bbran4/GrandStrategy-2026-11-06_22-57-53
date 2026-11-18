@@ -537,7 +537,11 @@ namespace GrandStrategy.WorldGeneration
             if (campaign.HasTradedWith(selected))
                 DrawExpansionButton(ExpansionApproach.Trade, $"Sign trade pact ({CampaignState.PactCost} coin)");
             if (campaign.HasWarband)
+            {
+                if (!campaign.WarbandAt(selected))
+                    GUILayout.Label("March the warband into this region to use force.");
                 DrawExpansionButton(ExpansionApproach.Force, $"Use force ({CampaignState.ForceFood} food, casualties)");
+            }
         }
 
         // Build an offer from the player's inputs and display its quote before asking the campaign to
@@ -687,6 +691,11 @@ namespace GrandStrategy.WorldGeneration
         private void DrawWarbandOrders()
         {
             if (!campaign.HasWarband) return;
+            if (campaign.WarbandCommitted)
+            {
+                GUILayout.Label("Warband committed | Trade with the target is suspended");
+                return;
+            }
             GUILayout.Label(campaign.WarbandTravelDays > 0
                 ? $"Warband marching | {campaign.WarbandTravelDays} days"
                 : "Warband ready");
