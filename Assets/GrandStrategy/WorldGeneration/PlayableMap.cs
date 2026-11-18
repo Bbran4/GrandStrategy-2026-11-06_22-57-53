@@ -419,10 +419,7 @@ namespace GrandStrategy.WorldGeneration
                     GUILayout.Label("Territory: " + (string.IsNullOrEmpty(territory) ? "None" : territory));
                 }
             }
-            if (surface.Map.IsFord(clickedCell))
-                GUILayout.Label(campaign?.IsFordClosed(clickedCell) == true ? "Ford closed to civilian traffic"
-                    : campaign?.IsFordSecured(clickedCell) == true ? "Secured ford | Open to civilian traffic"
-                    : "River ford | Warbands can cross here");
+            if (surface.Map.IsFord(clickedCell)) DrawFordDetails();
             var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
             if (constructionSite >= 0)
                 DrawSettlement(constructionSite);
@@ -437,6 +434,29 @@ namespace GrandStrategy.WorldGeneration
             }
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawFordDetails()
+        {
+            GUILayout.Label(campaign?.IsFordClosed(clickedCell) == true ? "Ford closed to civilian traffic"
+                : campaign?.IsFordSecured(clickedCell) == true ? "Secured ford | Open to civilian traffic"
+                : campaign?.HasFordPassage(clickedCell) == true ? "Ford | Negotiated civilian passage"
+                : "River ford | Warbands can cross here");
+            if (campaign == null) return;
+
+            var partner = campaign.FordPassagePartner(clickedCell);
+            if (partner < 0) return;
+            GUILayout.Label($"Passage available from {surface.Map.Provinces[partner].Id}");
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.Coin >= CampaignState.FordPassageCoin;
+            if (GUILayout.Button($"Negotiate passage ({CampaignState.FordPassageCoin} coin)")
+                && campaign.TryNegotiateFordPassage(clickedCell))
+            {
+                surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
+                surface.RefreshSecuredFord(clickedCell);
+                saveStatus = "Civilian passage secured by agreement.";
+            }
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawSettlement(int site)
@@ -1398,7 +1418,7 @@ namespace GrandStrategy.WorldGeneration
 
             var status = mapView switch
             {
-                MapViewMode.Resources when resourceFilter == 0 => "White: ford | Green: secured | Red: closed",
+                MapViewMode.Resources when resourceFilter == 0 => "White: ford | Blue: passage | Green: secured | Red: closed",
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",

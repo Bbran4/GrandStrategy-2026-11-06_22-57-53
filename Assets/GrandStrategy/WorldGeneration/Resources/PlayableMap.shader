@@ -858,6 +858,7 @@ Shader "GrandStrategy/Playable Map"
                     if (dot(_ResourceFilter, float4(1, 1, 1, 1)) < 0.5)
                     {
                         coverage = step(0.25, sites.a) * (1.0 - step(0.75, sites.a));
+                        tint = lerp(tint, float3(0.29, 0.72, 1.0), step(0.54, sites.a));
                         tint = lerp(tint, float3(0.27, 0.85, 0.36), step(0.60, sites.a));
                         tint = lerp(tint, float3(0.95, 0.24, 0.17), 1.0 - step(0.42, sites.a));
                     }

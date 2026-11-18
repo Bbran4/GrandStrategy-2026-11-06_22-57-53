@@ -623,6 +623,18 @@ internal static class Program
             new ProvinceInfo { Id = "River", Rgb = 2, Type = "ocean" }
         }).WithSettlementGeography(supplyWater, supplyRivers, null);
         portsMap.BuildMarchTerrain(supplyWater, supplyRivers, fordTerrain);
+        var passage = CampaignState.Found(portsMap, "passage", fordCell - 1, "Passage", 0, localCapitalClaim: true);
+        var passageCoin = passage.Coin;
+        Require(passage.FordPassagePartner(fordCell) == 0 && !passage.HasWarband
+            && passage.TryNegotiateFordPassage(fordCell) && passage.Coin == passageCoin - CampaignState.FordPassageCoin
+            && passage.HasFordPassage(fordCell) && !passage.IsFordSecured(fordCell)
+            && !passage.TryNegotiateFordPassage(fordCell),
+            "A reachable independent community must sell permanent civilian passage without military occupation.");
+        passage = CampaignState.Restore(portsMap, "passage", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(passage.ToSave(), json), json), 5);
+        Require(passage.HasFordPassage(fordCell) && passage.GetOverlandIronRoute(mineSite).Contains(fordCell),
+            "Negotiated passage must restore and permit overland supply through the crossing.");
+
         var portsSave = CampaignState.Found(portsMap, "ports", fordCell - 1, "Ports", 0).ToSave();
         portsSave.Coin = portsSave.Wood = 200;
         var ports = CampaignState.Restore(portsMap, "ports", portsSave, 5);

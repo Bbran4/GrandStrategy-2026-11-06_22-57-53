@@ -142,6 +142,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> WarbandRoute;
         public List<int> SecuredFords;
         public List<int> ClosedFords;
+        public List<int> PassageFords;
         public bool IronWarband;
         public int FoodReserve;
         public List<TradeAgreement> Agreements;
@@ -165,6 +166,7 @@ namespace GrandStrategy.WorldGeneration
     {
         public const int ResearchCost = 2;
         private const int ResearchLimit = 99;
+        public const int FordPassageCoin = 15;
         public const int RegionalCouncilCoin = 60;
         public const int TradeMilestoneDeliveries = 3;
         public const int DiplomacyMilestoneIntegrations = 2;
@@ -244,6 +246,12 @@ namespace GrandStrategy.WorldGeneration
             foreach (var ford in data.ClosedFords)
                 if (!uniqueFords.Contains(ford) || !closedFords.Add(ford))
                     throw new ArgumentException("The save contains a closed ford without a valid clan claim.");
+
+            data.PassageFords ??= new List<int>();
+            var passageFords = new HashSet<int>();
+            foreach (var ford in data.PassageFords)
+                if (!map.IsFord(ford) || !passageFords.Add(ford))
+                    throw new ArgumentException("The save contains invalid ford passage rights.");
 
             data.Towns ??= new List<int>();
             data.TownSpecialisations ??= new List<TownSpecialisation>();
@@ -500,7 +508,36 @@ namespace GrandStrategy.WorldGeneration
         public bool IsFordSecured(int cell) => data.SecuredFords.Contains(cell);
 
         public bool IsFordClosed(int cell) => data.ClosedFords.Contains(cell);
-        private bool CanUseSupplyFord(int cell) => IsFordSecured(cell) && !IsFordClosed(cell);
+        public bool HasFordPassage(int cell) => data.PassageFords.Contains(cell);
+        public bool CanUseSupplyFord(int cell) => !IsFordClosed(cell) && (IsFordSecured(cell) || HasFordPassage(cell));
+
+        public int FordPassagePartner(int ford)
+        {
+            if (!map.IsFord(ford) || IsFordSecured(ford) || HasFordPassage(ford)) return -1;
+            var x = ford % map.Width;
+            var candidates = new[]
+            {
+                x > 0 ? ford - 1 : -1, x + 1 < map.Width ? ford + 1 : -1,
+                ford - map.Width, ford + map.Width
+            };
+            foreach (var bank in candidates)
+            {
+                if (!map.CanMarchBetween(bank, ford)) continue;
+                var region = SettlementProvince(bank);
+                if (CanReachIndependentProvince(region) && (!WarbandCommitted || IntegrationTarget != region))
+                    return region;
+            }
+            return -1;
+        }
+
+        public bool TryNegotiateFordPassage(int ford)
+        {
+            if (Coin < FordPassageCoin || FordPassagePartner(ford) < 0) return false;
+            data.Coin -= FordPassageCoin;
+            data.PassageFords.Add(ford);
+            RefreshFordAccess();
+            return true;
+        }
 
         private bool CanGuardFord(int cell)
             => HasWarband && !WarbandCommitted && WarbandTravelDays == 0 && map.IsFord(cell)
