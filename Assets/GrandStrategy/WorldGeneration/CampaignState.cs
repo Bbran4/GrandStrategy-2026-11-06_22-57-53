@@ -300,6 +300,7 @@ namespace GrandStrategy.WorldGeneration
         internal Func<int, int> IndependentFarmSiteResolver { get; set; }
         internal Func<int, bool> IndependentTerritoryResolver { get; set; }
         internal Func<int, bool> MilitaryOccupationResolver { get; set; }
+        internal Func<int, HashSet<int>> DetachedClaimResolver { get; set; }
         public int InfluenceRevision { get; private set; }
         public int FordAccessRevision { get; private set; }
 
@@ -437,6 +438,26 @@ namespace GrandStrategy.WorldGeneration
             data.SettlementCells.Add(cell);
             data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
             AllocateSettlers(cell, party.Donor, party.People, Owns(SettlementProvince(cell)));
+            InfluenceRevision++;
+            return true;
+        }
+
+        public bool TryEstablishDetachedProvince(int seat)
+        {
+            var index = data.SettlementCells.IndexOf(seat);
+            if (index < 0) return false;
+            var oldSeat = data.SettlementProvinceRoots[index];
+            if (oldSeat == seat) return false;
+
+            var fragment = DetachedClaimResolver?.Invoke(seat);
+            if (fragment == null || !fragment.Contains(seat) || fragment.Contains(oldSeat)) return false;
+
+            for (var i = 0; i < data.SettlementCells.Count; i++)
+                if (data.SettlementProvinceRoots[i] == oldSeat && fragment.Contains(data.SettlementCells[i]))
+                    data.SettlementProvinceRoots[i] = seat;
+
+            if (data.IntegrationProvinceRoot == oldSeat + 1 && fragment.Contains(IntegrationSettlementCell))
+                data.IntegrationProvinceRoot = seat + 1;
             InfluenceRevision++;
             return true;
         }
@@ -1613,12 +1634,10 @@ namespace GrandStrategy.WorldGeneration
                     throw new ArgumentException("The save contains mismatched settlement provinces.");
                 var roots = new HashSet<int> { save.CapitalCell };
                 for (var i = 0; i < save.SettlementProvinceRoots.Count; i++)
-                {
-                    var root = save.SettlementProvinceRoots[i];
-                    if (root == save.SettlementCells[i]) roots.Add(root);
-                    else if (!roots.Contains(root))
+                    if (save.SettlementProvinceRoots[i] == save.SettlementCells[i]) roots.Add(save.SettlementCells[i]);
+                foreach (var root in save.SettlementProvinceRoots)
+                    if (!roots.Contains(root))
                         throw new ArgumentException("The save contains an unknown settlement province.");
-                }
             }
 
             var settlementSites = new HashSet<int>();

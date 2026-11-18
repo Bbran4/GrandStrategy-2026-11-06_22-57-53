@@ -1206,6 +1206,7 @@ namespace GrandStrategy.WorldGeneration
             campaign.IndependentFarmSiteResolver = FindIndependentFarmSite;
             campaign.IndependentTerritoryResolver = IsIndependentTerritory;
             campaign.MilitaryOccupationResolver = IsMilitaryOccupied;
+            campaign.DetachedClaimResolver = DetachedClaimAt;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();
@@ -1262,6 +1263,16 @@ namespace GrandStrategy.WorldGeneration
         {
             RefreshInfluence(true);
             return connectedClaims.Contains(cell);
+        }
+
+        private HashSet<int> DetachedClaimAt(int cell)
+        {
+            var root = InfluenceProvinceAt(cell);
+            if (root < 0 || connectedClaims.Contains(cell)) return null;
+
+            var fragment = new HashSet<int>();
+            Map.CollectConnectedClaim(influenceRoots, cell, root, influenceCampaign.CanUseSupplyFord, fragment, claimFrontier);
+            return fragment;
         }
 
         public void HighlightInfluenceAt(int cell)
@@ -1348,12 +1359,13 @@ namespace GrandStrategy.WorldGeneration
 
             connectedClaims.Clear();
             Func<int, bool> canUseFord = campaign.CanUseSupplyFord;
-            Map.CollectConnectedClaim(influenceRoots, campaign.CapitalCell, canUseFord, connectedClaims, claimFrontier);
+            Map.CollectConnectedClaim(influenceRoots, campaign.CapitalCell, campaign.CapitalCell, canUseFord,
+                connectedClaims, claimFrontier);
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
             {
                 var site = campaign.SettlementCells[i];
                 if (campaign.SettlementProvinceRoots[i] == site)
-                    Map.CollectConnectedClaim(influenceRoots, site, canUseFord, connectedClaims, claimFrontier);
+                    Map.CollectConnectedClaim(influenceRoots, site, site, canUseFord, connectedClaims, claimFrontier);
             }
 
             const SettlementBuilding allSites = SettlementBuilding.Farm | SettlementBuilding.LumberCamp

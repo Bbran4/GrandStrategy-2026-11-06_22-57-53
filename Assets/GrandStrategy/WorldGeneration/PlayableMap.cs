@@ -596,6 +596,9 @@ namespace GrandStrategy.WorldGeneration
         {
             GUILayout.Label($"Settlement population: {campaign.SettlementPopulation(site):N0}");
             GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
+            if (mapView == MapViewMode.Ownership && surface.InfluenceProvinceAt(site) >= 0
+                && !surface.HasConnectionToProvinceSeat(site))
+                DrawDetachedProvinceAction(site);
             showHappinessDetails = GUILayout.Toggle(showHappinessDetails, "Show happiness and growth");
             if (showHappinessDetails)
             {
@@ -619,6 +622,15 @@ namespace GrandStrategy.WorldGeneration
             DrawConstruction(site);
             DrawGranary(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
+        }
+
+        private void DrawDetachedProvinceAction(int site)
+        {
+            GUILayout.Label("Villages in this detached claim will join the new province.");
+            if (!GUILayout.Button("Establish separate province") || !campaign.TryEstablishDetachedProvince(site)) return;
+            surface.RefreshInfluence(true);
+            surface.HighlightInfluenceAt(clickedCell);
+            saveStatus = $"{SettlementLabel(site)} is now a province seat.";
         }
 
         private void DrawLocalFoodReserve(int site, bool isolated)

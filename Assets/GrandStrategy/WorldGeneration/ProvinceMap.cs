@@ -279,12 +279,12 @@ namespace GrandStrategy.WorldGeneration
 
         // Claims are encoded as the province seat's cell index plus one. River cells are unclaimed,
         // so an open ford connects its two banks without granting ownership of the river.
-        internal void CollectConnectedClaim(int[] claims, int seat, Func<int, bool> canUseFord,
+        internal void CollectConnectedClaim(int[] claims, int start, int seat, Func<int, bool> canUseFord,
             HashSet<int> connected, Queue<int> frontier)
         {
             var root = seat + 1;
-            if (claims[seat] != root || !connected.Add(seat)) return;
-            frontier.Enqueue(seat);
+            if (claims[start] != root || !connected.Add(start)) return;
+            frontier.Enqueue(start);
             while (frontier.Count > 0)
             {
                 var cell = frontier.Dequeue();

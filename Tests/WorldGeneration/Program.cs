@@ -824,25 +824,73 @@ internal static class Program
         claimCells[mineSite + 3] = claimCode;
         var claimReach = new HashSet<int>();
         var claimQueue = new Queue<int>();
-        supplyMap.CollectConnectedClaim(claimCells, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        supplyMap.CollectConnectedClaim(claimCells, claimSeat, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
         Require(claimReach.SetEquals(new[] { claimSeat, mineSite, mineSite + 1 }) && claimCells[fordCell] == 0,
             "An open ford must connect matching claim banks without claiming the river or crossing independent land.");
         Require(supply.TryChangeFordAccess(fordCell), "The guard must be able to close the claim's crossing.");
         claimReach.Clear();
-        supplyMap.CollectConnectedClaim(claimCells, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        supplyMap.CollectConnectedClaim(claimCells, claimSeat, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
         Require(claimReach.SetEquals(new[] { claimSeat }) && claimCells[mineSite] == claimCode,
             "A closure must detach the far bank while preserving its province membership.");
         Require(supply.TryChangeFordAccess(fordCell), "The guard must be able to reopen the claim's crossing.");
         claimReach.Clear();
-        supplyMap.CollectConnectedClaim(claimCells, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        supplyMap.CollectConnectedClaim(claimCells, claimSeat, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
         Require(claimReach.Contains(mineSite), "Reopening passage must reconnect the detached claim.");
 
         var seamClaim = new int[raster.Length];
         var seamSeat = recipe.Width - 1;
         seamClaim[seamSeat] = seamClaim[seamSeat + 1] = seamSeat + 1;
         claimReach.Clear();
-        supplyMap.CollectConnectedClaim(seamClaim, seamSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        supplyMap.CollectConnectedClaim(seamClaim, seamSeat, seamSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
         Require(claimReach.SetEquals(new[] { seamSeat }), "Disconnected claim cells cannot wrap across a map row.");
+
+        var plannedSite = mineSite + 2;
+        var lonelySite = mineSite + 4;
+        var splitRaster = Enumerable.Repeat(1, raster.Length).ToArray();
+        splitRaster[plannedSite] = 2;
+        var splitMap = ProvinceMap.Build(recipe, splitRaster, new[]
+        {
+            new ProvinceInfo { Id = "Clan", Rgb = 1, Type = "land" },
+            new ProvinceInfo { Id = "Community", Rgb = 2, Type = "land" }
+        });
+        splitMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, fordTerrain)), supplyRivers, fordTerrain);
+        var splitSave = CampaignState.Found(splitMap, "detached", claimSeat, "Detached claim", 0, localCapitalClaim: true).ToSave();
+        splitSave.Coin = splitSave.Wood = 250;
+        var split = CampaignState.Restore(splitMap, "detached", splitSave, 5);
+        var nearVillage = claimSeat - recipe.Width;
+        var newSeat = mineSite + 1;
+        Require(split.TryFoundSettlement(mineSite, claimSeat) && split.TryFoundSettlement(newSeat, claimSeat)
+            && split.TryFoundSettlement(nearVillage, claimSeat) && split.TryFoundSettlement(lonelySite, claimSeat)
+            && split.TryStartIntegration(1, settlementCell: plannedSite, provinceRoot: claimSeat),
+            "The province split fixture needs a home fragment, two detached fragments and a pending community.");
+        var splitClaims = new int[raster.Length];
+        foreach (var cell in new[] { claimSeat, nearVillage, mineSite, newSeat, plannedSite, lonelySite })
+            splitClaims[cell] = claimCode;
+        split.DetachedClaimResolver = cell =>
+        {
+            var home = new HashSet<int>();
+            splitMap.CollectConnectedClaim(splitClaims, claimSeat, claimSeat, split.CanUseSupplyFord, home, claimQueue);
+            if (home.Contains(cell)) return null;
+            var fragment = new HashSet<int>();
+            splitMap.CollectConnectedClaim(splitClaims, cell, claimSeat, split.CanUseSupplyFord, fragment, claimQueue);
+            return fragment;
+        };
+        var beforeSplitPopulation = split.OwnedPopulation;
+        var beforeSplitOrder = split.SettlementCells.ToArray();
+        var beforeSplitCoin = split.Coin;
+        Require(!split.TryEstablishDetachedProvince(claimSeat) && !split.TryEstablishDetachedProvince(nearVillage)
+            && !split.TryEstablishDetachedProvince(plannedSite), "A seat, a connected village and a non-member cannot split the province.");
+        Require(split.TryEstablishDetachedProvince(newSeat) && !split.TryEstablishDetachedProvince(newSeat)
+            && split.SettlementProvinceRoots.SequenceEqual(new[] { newSeat, newSeat, claimSeat, claimSeat })
+            && split.SettlementCells.SequenceEqual(beforeSplitOrder) && split.OwnedPopulation == beforeSplitPopulation
+            && split.Coin == beforeSplitCoin,
+            "A split must reassign only the selected component without changing settlement order, population or coin.");
+        split = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(split.ToSave(), json), json), 5);
+        Require(split.SettlementProvinceRoots.SequenceEqual(new[] { newSeat, newSeat, claimSeat, claimSeat })
+            && split.AdvanceToNextDecision() && split.SettlementCells.Last() == plannedSite
+            && split.SettlementProvinceRoots.Last() == newSeat && !split.Owns(1),
+            "A later-founded seat and its pending settlement must restore as the same new province.");
 
         supply.Paused = false;
         supply.Advance(5);
