@@ -892,6 +892,40 @@ internal static class Program
             && split.SettlementProvinceRoots.Last() == newSeat && !split.Owns(1),
             "A later-founded seat and its pending settlement must restore as the same new province.");
 
+        var movedSeat = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json), 5);
+        movedSeat.ProvinceSeatConnectionResolver = _ => false;
+        Require(!movedSeat.TryMoveProvinceSeat(mineSite), "A disconnected village cannot take over a populated seat.");
+        movedSeat.ProvinceSeatConnectionResolver = _ => true;
+        Require(!movedSeat.TryMoveProvinceSeat(nearVillage) && !movedSeat.TryMoveProvinceSeat(newSeat)
+            && movedSeat.TryMoveProvinceSeat(mineSite) && movedSeat.SettlementProvinceRoots.Take(2).All(root => root == mineSite),
+            "A connected member can become its province seat while the capital keeps its seat.");
+        movedSeat = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(movedSeat.ToSave(), json), json), 5);
+        Require(movedSeat.AdvanceToNextDecision() && movedSeat.SettlementCells.Last() == plannedSite
+            && movedSeat.SettlementProvinceRoots.Last() == mineSite,
+            "A saved seat relocation must redirect the province's pending integration.");
+
+        var famineSeatSave = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
+        famineSeatSave.Day = 104;
+        famineSeatSave.Food = 0;
+        famineSeatSave.Granary = true;
+        famineSeatSave.SettlementPopulations[1] = 100;
+        famineSeatSave.SettlementPopulations[2] = 1;
+        var famineSeat = CampaignState.Restore(splitMap, "detached", famineSeatSave, 5);
+        famineSeat.Paused = false;
+        famineSeat.Advance(1);
+        Require(famineSeat.SettlementPopulation(newSeat) == 0 && famineSeat.SettlementPopulation(mineSite) > 0
+            && famineSeat.SettlementProvinceRoots.Take(2).All(root => root == mineSite)
+            && famineSeat.ToSave().IntegrationProvinceRoot == mineSite + 1,
+            "Losing a seat during a food tick must transfer the province and its pending order to an inhabited member.");
+
+        var vacantSeatSave = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
+        vacantSeatSave.SettlementPopulations[2] = 0;
+        var vacantSeat = CampaignState.Restore(splitMap, "detached", vacantSeatSave, 5);
+        Require(vacantSeat.SettlementProvinceRoots.Take(2).All(root => root == mineSite)
+            && vacantSeat.ToSave().IntegrationProvinceRoot == mineSite + 1,
+            "Loading an older save with a vacant seat must select a populated successor.");
+
         var reunionSave = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
         reunionSave.Warband = true;
         reunionSave.SecuredFords.Add(fordCell);

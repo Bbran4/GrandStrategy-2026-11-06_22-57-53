@@ -302,6 +302,7 @@ namespace GrandStrategy.WorldGeneration
         internal Func<int, bool> MilitaryOccupationResolver { get; set; }
         internal Func<int, HashSet<int>> DetachedClaimResolver { get; set; }
         internal Func<int, int, bool> ProvinceBorderResolver { get; set; }
+        internal Func<int, bool> ProvinceSeatConnectionResolver { get; set; }
         public int InfluenceRevision { get; private set; }
         public int FordAccessRevision { get; private set; }
 
@@ -446,7 +447,7 @@ namespace GrandStrategy.WorldGeneration
         public bool TryEstablishDetachedProvince(int seat)
         {
             var index = data.SettlementCells.IndexOf(seat);
-            if (index < 0) return false;
+            if (index < 0 || data.SettlementPopulations[index + 1] == 0) return false;
             var oldSeat = data.SettlementProvinceRoots[index];
             if (oldSeat == seat) return false;
 
@@ -469,14 +470,54 @@ namespace GrandStrategy.WorldGeneration
                 || !IsProvinceSeat(destinationSeat) || ProvinceBorderResolver?.Invoke(sourceSeat, destinationSeat) != true)
                 return false;
 
-            for (var i = 0; i < data.SettlementProvinceRoots.Count; i++)
-                if (data.SettlementProvinceRoots[i] == sourceSeat)
-                    data.SettlementProvinceRoots[i] = destinationSeat;
-
-            if (data.IntegrationProvinceRoot == sourceSeat + 1)
-                data.IntegrationProvinceRoot = destinationSeat + 1;
-            InfluenceRevision++;
+            ReassignProvinceSeat(sourceSeat, destinationSeat);
             return true;
+        }
+
+        public bool CanMoveProvinceSeat(int site)
+        {
+            var index = data.SettlementCells.IndexOf(site);
+            if (index < 0 || data.SettlementPopulations[index + 1] == 0) return false;
+            var seat = data.SettlementProvinceRoots[index];
+            return seat != CapitalCell && seat != site && ProvinceSeatConnectionResolver?.Invoke(site) == true;
+        }
+
+        public bool TryMoveProvinceSeat(int site)
+        {
+            if (!CanMoveProvinceSeat(site)) return false;
+            ReassignProvinceSeat(data.SettlementProvinceRoots[data.SettlementCells.IndexOf(site)], site);
+            return true;
+        }
+
+        private void ReassignProvinceSeat(int oldSeat, int newSeat)
+        {
+            for (var i = 0; i < data.SettlementProvinceRoots.Count; i++)
+                if (data.SettlementProvinceRoots[i] == oldSeat)
+                    data.SettlementProvinceRoots[i] = newSeat;
+
+            if (data.IntegrationProvinceRoot == oldSeat + 1)
+                data.IntegrationProvinceRoot = newSeat + 1;
+            InfluenceRevision++;
+        }
+
+        private void ReplaceVacantProvinceSeats()
+        {
+            for (var i = 0; i < data.SettlementCells.Count; i++)
+            {
+                var seat = data.SettlementCells[i];
+                if (data.SettlementProvinceRoots[i] != seat || data.SettlementPopulations[i + 1] != 0) continue;
+
+                var successor = -1;
+                var largestPopulation = 0;
+                for (var member = 0; member < data.SettlementCells.Count; member++)
+                {
+                    var population = data.SettlementPopulations[member + 1];
+                    if (data.SettlementProvinceRoots[member] != seat || population <= largestPopulation) continue;
+                    successor = data.SettlementCells[member];
+                    largestPopulation = population;
+                }
+                if (successor >= 0) ReassignProvinceSeat(seat, successor);
+            }
         }
 
         private bool IsProvinceSeat(int site)
@@ -1926,6 +1967,7 @@ namespace GrandStrategy.WorldGeneration
             }
             else
                 state.ValidateTradeAgreements();
+            state.ReplaceVacantProvinceSeats();
             if (state.Day < int.MaxValue) state.UpdateSupplyWaits();
             return state;
         }
@@ -3099,6 +3141,7 @@ namespace GrandStrategy.WorldGeneration
                 if (Owns(region) && !settledRegions.Contains(region))
                     ApplyPopulationChange(region, data.Pop[region], upkeep, balance, -1);
 
+            ReplaceVacantProvinceSeats();
             if (Day > WinterStart && Day <= WinterEnd)
                 data.WinterShortfall = (int)Math.Min(int.MaxValue, data.WinterShortfall + missedFood);
 
@@ -3176,6 +3219,7 @@ namespace GrandStrategy.WorldGeneration
                 }
                 else data.SettlementPopulations[index] += remainingResidents;
             }
+            ReplaceVacantProvinceSeats();
             if (!UsesLocalIntegration) data.Owned[target] = true;
             if (IndependentVillageRegion == target)
             {

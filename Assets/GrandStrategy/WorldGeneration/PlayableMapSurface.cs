@@ -1209,6 +1209,7 @@ namespace GrandStrategy.WorldGeneration
             campaign.MilitaryOccupationResolver = IsMilitaryOccupied;
             campaign.DetachedClaimResolver = DetachedClaimAt;
             campaign.ProvinceBorderResolver = HasProvinceBorder;
+            campaign.ProvinceSeatConnectionResolver = HasConnectionToProvinceSeat;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();
@@ -1439,6 +1440,7 @@ namespace GrandStrategy.WorldGeneration
             void Spread(int origin, int provinceRoot, int? residents = null)
             {
                 var population = residents ?? campaign.SettlementPopulation(origin);
+                if (population <= 0) return;
                 // Express the reach in map units so the same world has comparable reach at higher raster resolutions.
                 var budget = Map.Height * Mathf.Clamp(.014f + .0014f * Mathf.Sqrt(population), .014f, .085f);
                 Flood(origin, budget, -1, (cell, cost) =>

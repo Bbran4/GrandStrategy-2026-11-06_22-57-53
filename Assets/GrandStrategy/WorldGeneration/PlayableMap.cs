@@ -594,13 +594,21 @@ namespace GrandStrategy.WorldGeneration
 
         private void DrawSettlement(int site)
         {
-            GUILayout.Label($"Settlement population: {campaign.SettlementPopulation(site):N0}");
-            GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
-            if (mapView == MapViewMode.Ownership && surface.InfluenceProvinceAt(site) >= 0
-                && !surface.HasConnectionToProvinceSeat(site))
-                DrawDetachedProvinceAction(site);
-            showHappinessDetails = GUILayout.Toggle(showHappinessDetails, "Show happiness and growth");
-            if (showHappinessDetails)
+            var population = campaign.SettlementPopulation(site);
+            GUILayout.Label(population == 0 ? "Vacant settlement" : $"Settlement population: {population:N0}");
+            if (population > 0) GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
+            if (population > 0 && mapView == MapViewMode.Ownership && surface.InfluenceProvinceAt(site) >= 0)
+            {
+                if (!surface.HasConnectionToProvinceSeat(site)) DrawDetachedProvinceAction(site);
+                else if (campaign.CanMoveProvinceSeat(site) && GUILayout.Button("Move province seat here")
+                    && campaign.TryMoveProvinceSeat(site))
+                {
+                    RefreshProvinceSelection();
+                    saveStatus = $"{SettlementLabel(site)} is now the province seat.";
+                }
+            }
+            if (population > 0) showHappinessDetails = GUILayout.Toggle(showHappinessDetails, "Show happiness and growth");
+            if (population > 0 && showHappinessDetails)
             {
                 var factors = campaign.SettlementHappinessBreakdown(site);
                 GUILayout.Label($"Base {factors.Base} | {campaign.Taxes} taxes {factors.Tax:+0;-0;0}");
@@ -628,8 +636,7 @@ namespace GrandStrategy.WorldGeneration
         {
             GUILayout.Label("Villages in this detached claim will join the new province.");
             if (!GUILayout.Button("Establish separate province") || !campaign.TryEstablishDetachedProvince(site)) return;
-            surface.RefreshInfluence(true);
-            surface.HighlightInfluenceAt(clickedCell);
+            RefreshProvinceSelection();
             saveStatus = $"{SettlementLabel(site)} is now a province seat.";
         }
 
@@ -830,12 +837,17 @@ namespace GrandStrategy.WorldGeneration
             {
                 var name = InfluenceProvinceName(neighbour);
                 if (!GUILayout.Button($"Merge into {name}") || !campaign.TryMergeProvinces(seat, neighbour)) continue;
-                surface.RefreshInfluence(true);
-                surface.HighlightInfluenceAt(clickedCell);
+                RefreshProvinceSelection();
                 saveStatus = $"Provinces merged into {InfluenceProvinceName(neighbour)}.";
                 return true;
             }
             return false;
+        }
+
+        private void RefreshProvinceSelection()
+        {
+            surface.RefreshInfluence(true);
+            surface.HighlightInfluenceAt(clickedCell);
         }
 
         private string InfluenceProvinceName(int seat)
