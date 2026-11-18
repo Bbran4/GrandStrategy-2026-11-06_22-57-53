@@ -74,6 +74,8 @@ namespace GrandStrategy.WorldGeneration
         private CampaignState influenceCampaign;
         private int[] influenceRoots;
         private readonly List<int> influencedCells = new List<int>();
+        private readonly HashSet<int> connectedClaims = new HashSet<int>();
+        private readonly Queue<int> claimFrontier = new Queue<int>();
         private int highlightedInfluenceRoot;
         private float[] influenceCosts;
         private float displayedMilitaryPressure;
@@ -1256,6 +1258,12 @@ namespace GrandStrategy.WorldGeneration
             return influenceRoots == null || influenceRoots[cell] <= 0 ? -1 : influenceRoots[cell] - 1;
         }
 
+        public bool HasConnectionToProvinceSeat(int cell)
+        {
+            RefreshInfluence(true);
+            return connectedClaims.Contains(cell);
+        }
+
         public void HighlightInfluenceAt(int cell)
         {
             if (viewMode != MapViewMode.Ownership || influenceRoots == null) return;
@@ -1336,6 +1344,16 @@ namespace GrandStrategy.WorldGeneration
                 var outpostResidents = campaign.IndependentOutpostCell >= 0 ? residents / 3 : 0;
                 Spread(campaign.IndependentVillageCell, -1, residents - outpostResidents);
                 if (campaign.IndependentOutpostCell >= 0) Spread(campaign.IndependentOutpostCell, -1, outpostResidents);
+            }
+
+            connectedClaims.Clear();
+            Func<int, bool> canUseFord = campaign.CanUseSupplyFord;
+            Map.CollectConnectedClaim(influenceRoots, campaign.CapitalCell, canUseFord, connectedClaims, claimFrontier);
+            for (var i = 0; i < campaign.SettlementCells.Count; i++)
+            {
+                var site = campaign.SettlementCells[i];
+                if (campaign.SettlementProvinceRoots[i] == site)
+                    Map.CollectConnectedClaim(influenceRoots, site, canUseFord, connectedClaims, claimFrontier);
             }
 
             const SettlementBuilding allSites = SettlementBuilding.Farm | SettlementBuilding.LumberCamp

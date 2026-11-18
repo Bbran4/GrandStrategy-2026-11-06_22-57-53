@@ -277,6 +277,44 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        // Claims are encoded as the province seat's cell index plus one. River cells are unclaimed,
+        // so an open ford connects its two banks without granting ownership of the river.
+        internal void CollectConnectedClaim(int[] claims, int seat, Func<int, bool> canUseFord,
+            HashSet<int> connected, Queue<int> frontier)
+        {
+            var root = seat + 1;
+            if (claims[seat] != root || !connected.Add(seat)) return;
+            frontier.Enqueue(seat);
+            while (frontier.Count > 0)
+            {
+                var cell = frontier.Dequeue();
+                var x = cell % Width;
+                if (x > 0) VisitEdge(cell, -1);
+                if (x + 1 < Width) VisitEdge(cell, 1);
+                if (cell >= Width) VisitEdge(cell, -Width);
+                if (cell + Width < claims.Length) VisitEdge(cell, Width);
+            }
+
+            void VisitEdge(int cell, int offset)
+            {
+                var next = cell + offset;
+                if (claims[next] == root)
+                {
+                    Enqueue(next);
+                    return;
+                }
+
+                if (!IsFord(next) || !canUseFord(next) || !CanMarchBetween(cell, next)) return;
+                var oppositeBank = next + offset;
+                if (CanMarchBetween(next, oppositeBank) && claims[oppositeBank] == root) Enqueue(oppositeBank);
+            }
+
+            void Enqueue(int cell)
+            {
+                if (connected.Add(cell)) frontier.Enqueue(cell);
+            }
+        }
+
         internal int FordForBridgeEdge(int from, int to)
         {
             var ford = IsFord(from) ? from : IsFord(to) ? to : -1;

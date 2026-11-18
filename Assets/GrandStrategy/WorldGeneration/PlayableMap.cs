@@ -763,6 +763,7 @@ namespace GrandStrategy.WorldGeneration
 
             var number = 1;
             var count = 0;
+            var detachedSettlements = 0;
             long population = 0;
             SettlementBuilding reachableSites = 0;
             if (root == campaign.CapitalCell)
@@ -784,12 +785,20 @@ namespace GrandStrategy.WorldGeneration
                 }
                 if (province != root) continue;
                 count++;
+                if (!surface.HasConnectionToProvinceSeat(site)) detachedSettlements++;
                 population += campaign.SettlementPopulation(site);
                 reachableSites |= surface.SurveyProductionSites(site, campaign);
             }
 
             GUILayout.Label(root == campaign.CapitalCell ? "Capital province" : $"Province {number}", hudHeading);
             GUILayout.Label($"{campaign.TribeName} | {count} {(count == 1 ? "settlement" : "settlements")} | {population:N0} people");
+            if (!surface.HasConnectionToProvinceSeat(clickedCell))
+            {
+                GUILayout.Label("Detached claim | No claimed route to the province seat.");
+                if (GUILayout.Button("View province seat")) FocusMapCell(root);
+            }
+            if (detachedSettlements > 0)
+                GUILayout.Label($"{detachedSettlements:N0} {(detachedSettlements == 1 ? "settlement is" : "settlements are")} cut off from the seat.");
             var claimSites = surface.InfluenceProvinceResources(root);
             GUILayout.Label($"Province terrain: {(claimSites == 0 ? "No production sites" : DescribeProductionSites(claimSites))}");
             GUILayout.Label($"Within city limits: {(reachableSites == 0 ? "No production sites" : DescribeProductionSites(reachableSites))}");
@@ -801,7 +810,12 @@ namespace GrandStrategy.WorldGeneration
             if (root == campaign.CapitalCell) DrawSettlementLink(root, "Capital");
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
                 if (campaign.SettlementProvinceRoots[i] == root)
-                    DrawSettlementLink(campaign.SettlementCells[i], $"Village {i + 1}");
+                {
+                    var site = campaign.SettlementCells[i];
+                    var label = $"Village {i + 1}";
+                    if (!surface.HasConnectionToProvinceSeat(site)) label += " (detached)";
+                    DrawSettlementLink(site, label);
+                }
         }
 
         private string SettlementLabel(int site)

@@ -816,6 +816,34 @@ internal static class Program
         Require(supply.TryChangeFordAccess(fordCell) && !supply.HasIronSupplyRoute(mineSite)
             && supply.TryChangeFordAccess(fordCell) && supply.HasIronSupplyRoute(mineSite),
             "Closing and reopening a ford must invalidate cached civilian routes.");
+        var claimSeat = fordCell - 1;
+        var claimCode = claimSeat + 1;
+        var claimCells = new int[raster.Length];
+        claimCells[claimSeat] = claimCells[mineSite] = claimCells[mineSite + 1] = claimCode;
+        claimCells[mineSite + 2] = -1;
+        claimCells[mineSite + 3] = claimCode;
+        var claimReach = new HashSet<int>();
+        var claimQueue = new Queue<int>();
+        supplyMap.CollectConnectedClaim(claimCells, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        Require(claimReach.SetEquals(new[] { claimSeat, mineSite, mineSite + 1 }) && claimCells[fordCell] == 0,
+            "An open ford must connect matching claim banks without claiming the river or crossing independent land.");
+        Require(supply.TryChangeFordAccess(fordCell), "The guard must be able to close the claim's crossing.");
+        claimReach.Clear();
+        supplyMap.CollectConnectedClaim(claimCells, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        Require(claimReach.SetEquals(new[] { claimSeat }) && claimCells[mineSite] == claimCode,
+            "A closure must detach the far bank while preserving its province membership.");
+        Require(supply.TryChangeFordAccess(fordCell), "The guard must be able to reopen the claim's crossing.");
+        claimReach.Clear();
+        supplyMap.CollectConnectedClaim(claimCells, claimSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        Require(claimReach.Contains(mineSite), "Reopening passage must reconnect the detached claim.");
+
+        var seamClaim = new int[raster.Length];
+        var seamSeat = recipe.Width - 1;
+        seamClaim[seamSeat] = seamClaim[seamSeat + 1] = seamSeat + 1;
+        claimReach.Clear();
+        supplyMap.CollectConnectedClaim(seamClaim, seamSeat, supply.CanUseSupplyFord, claimReach, claimQueue);
+        Require(claimReach.SetEquals(new[] { seamSeat }), "Disconnected claim cells cannot wrap across a map row.");
+
         supply.Paused = false;
         supply.Advance(5);
         var cargo = supply.IronShipment(mineSite);
