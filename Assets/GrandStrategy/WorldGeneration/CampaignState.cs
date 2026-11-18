@@ -594,6 +594,21 @@ namespace GrandStrategy.WorldGeneration
             => region >= 0 && region == IndependentVillageRegion ? IndependentVillageCell : SettlementInRegion(region);
 
         public int IntegrationSettlementCell => data.IntegrationSettlementSite - 1;
+        public bool IntegrationNeedsSettlement => UsesLocalIntegration && IntegrationTarget >= 0 && IntegrationSettlementCell < 0;
+
+        internal void UseSettlementClaims(Func<int, int> influenceRootAt = null)
+        {
+            data.LocalIntegration = true;
+            if (!IntegrationNeedsSettlement) return;
+
+            var site = IntegrationCommunitySite(IntegrationTarget);
+            if (site < 0) site = IndependentVillageSiteResolver?.Invoke(IntegrationTarget) ?? -1;
+            if (IsIntegrationSite(IntegrationTarget, site))
+                TrySetIntegrationSettlement(site, influenceRootAt?.Invoke(site) ?? -1);
+        }
+
+        public bool TrySetIntegrationSettlement(int cell, int provinceRoot = -1)
+            => IntegrationNeedsSettlement && SetIntegrationSite(IntegrationTarget, cell, provinceRoot);
 
         public int SettlementInRegion(int region)
         {
@@ -1824,7 +1839,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 var site = save.IntegrationSettlementSite - 1;
                 var root = save.IntegrationProvinceRoot - 1;
-                if (!state.UsesLocalIntegration || target < 0 || site < 0 || state.SettlementProvince(site) != target
+                if (!state.UsesLocalIntegration || target < 0 || !state.IsIntegrationSite(target, site)
                     || (root != -1 && root != state.CapitalCell && !save.SettlementProvinceRoots.Contains(root)))
                     throw new ArgumentException("The save contains an invalid integration settlement.");
             }
@@ -2672,20 +2687,7 @@ namespace GrandStrategy.WorldGeneration
             int settlementCell = -1, int provinceRoot = -1)
         {
             if (!CanStartIntegration(province, approach)) return false;
-            if (UsesLocalIntegration)
-            {
-                var existing = IntegrationCommunitySite(province);
-                if (existing >= 0)
-                {
-                    settlementCell = existing;
-                    if (existing != IndependentVillageCell) provinceRoot = -1;
-                }
-                if (SettlementProvince(settlementCell) != province
-                    || (provinceRoot != -1 && provinceRoot != CapitalCell && !data.SettlementProvinceRoots.Contains(provinceRoot)))
-                    return false;
-                data.IntegrationSettlementSite = settlementCell + 1;
-                data.IntegrationProvinceRoot = provinceRoot + 1;
-            }
+            if (UsesLocalIntegration && !SetIntegrationSite(province, settlementCell, provinceRoot)) return false;
             if (approach == ExpansionApproach.Force)
             {
                 data.Food -= ForceFood;
@@ -2703,6 +2705,27 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        private bool SetIntegrationSite(int province, int cell, int provinceRoot)
+        {
+            var existing = IntegrationCommunitySite(province);
+            if (existing >= 0)
+            {
+                cell = existing;
+                if (existing != IndependentVillageCell) provinceRoot = -1;
+            }
+            if (!IsIntegrationSite(province, cell)
+                || (provinceRoot != -1 && provinceRoot != CapitalCell && !data.SettlementProvinceRoots.Contains(provinceRoot)))
+                return false;
+
+            data.IntegrationSettlementSite = cell + 1;
+            data.IntegrationProvinceRoot = provinceRoot + 1;
+            return true;
+        }
+
+        private bool IsIntegrationSite(int province, int cell)
+            => cell >= 0 && SettlementProvince(cell) == province
+                && (!map.HasMarchTerrain || (map.IsMarchCell(cell) && !map.IsFord(cell)));
+
         private static int DaysFor(ExpansionApproach approach) => approach switch
         {
             ExpansionApproach.Force => ForceDuration,
@@ -2719,7 +2742,7 @@ namespace GrandStrategy.WorldGeneration
                 var lawReview = SettlementLawReviewIn;
                 if (lawReview > 0 && lawReview <= int.MaxValue - Day)
                     days = days == 0 ? lawReview : Math.Min(days, lawReview);
-                if (IntegrationTarget < 0) return days;
+                if (IntegrationTarget < 0 || IntegrationNeedsSettlement) return days;
                 return days == 0 ? IntegrationDaysLeft : Math.Min(days, IntegrationDaysLeft);
             }
         }
@@ -2772,12 +2795,14 @@ namespace GrandStrategy.WorldGeneration
                         span = LimitToFordApproach(Math.Min(span, reserve.ArrivalDay - Day), reserve.OverlandPath,
                             reserve.DepartureDay, reserve.ArrivalDay);
                 }
-                if (MilitaryObjectiveCell >= 0) span = Math.Min(span, 1);
-                if (WarbandCommitted && IntegrationDaysLeft > ForceDuration - RivalFordResponseDays
-                    && data.PassagePartners.Contains(IntegrationTarget + 1))
-                    span = Math.Min(span, IntegrationDaysLeft - (ForceDuration - RivalFordResponseDays));
-                if (IntegrationTarget >= 0 && IntegrationDaysLeft <= span)
-                    span = Math.Max(1, IntegrationDaysLeft - 1);
+                if (IntegrationTarget >= 0 && !IntegrationNeedsSettlement)
+                {
+                    if (MilitaryObjectiveCell >= 0) span = Math.Min(span, 1);
+                    if (WarbandCommitted && IntegrationDaysLeft > ForceDuration - RivalFordResponseDays
+                        && data.PassagePartners.Contains(IntegrationTarget + 1))
+                        span = Math.Min(span, IntegrationDaysLeft - (ForceDuration - RivalFordResponseDays));
+                    if (IntegrationDaysLeft <= span) span = Math.Max(1, IntegrationDaysLeft - 1);
+                }
                 data.Day += span;
                 AdvanceWarband(span);
                 expanded |= AdvanceIntegration(span);
@@ -3050,11 +3075,10 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        // Resolve the chosen approach, transfer the province and end any trade agreement with the former
-        // independent market.
+        // Resolve the chosen approach and end any trade agreement with the former independent market.
         private bool AdvanceIntegration(int days)
         {
-            if (IntegrationTarget == -1) return false;
+            if (IntegrationTarget == -1 || IntegrationNeedsSettlement) return false;
             data.IntegrationDaysLeft = Math.Max(0, IntegrationDaysLeft - days);
             if (WarbandCommitted && IntegrationDaysLeft <= ForceDuration - RivalFordResponseDays)
                 ContestPassageFords(IntegrationTarget);
@@ -3110,7 +3134,7 @@ namespace GrandStrategy.WorldGeneration
                 }
                 else data.SettlementPopulations[index] += remainingResidents;
             }
-            if (!UsesLocalIntegration || destination < 0) data.Owned[target] = true;
+            if (!UsesLocalIntegration) data.Owned[target] = true;
             if (IndependentVillageRegion == target)
             {
                 data.IndependentVillageSite = data.IndependentVillageFoundedDay = data.IndependentFarmSite = 0;

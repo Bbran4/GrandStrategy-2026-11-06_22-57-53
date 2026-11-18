@@ -529,6 +529,52 @@ internal static class Program
             && localIntegration.NegotiatedIntegrations == 1,
             "Completing a restored integration must create a settlement without granting the region.");
 
+        var authoredCampaign = CampaignState.Found(map, key, 0, "Older campaign", 0);
+        Require(authoredCampaign.TryStartIntegration(1) && authoredCampaign.AdvanceToNextDecision()
+            && authoredCampaign.Owns(1) && authoredCampaign.TryStartIntegration(2),
+            "The older campaign fixture needs an authored holding and a second pending integration.");
+        var authoredPending = JsonSerializer.Serialize(authoredCampaign.ToSave(), json);
+        var migratedClaims = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(authoredPending, json), 5);
+        var pendingDays = migratedClaims.IntegrationDaysLeft;
+        var paidBalance = migratedClaims.Coin;
+        migratedClaims.UseSettlementClaims();
+        Require(migratedClaims.Owns(0) && migratedClaims.Owns(1) && !migratedClaims.Owns(2)
+            && migratedClaims.IntegrationNeedsSettlement && migratedClaims.Coin == paidBalance
+            && migratedClaims.DaysToNextDecision == CampaignState.WinterStart - migratedClaims.Day,
+            "Migration must preserve past holdings and payments and wait for a viable settlement.");
+        migratedClaims.Paused = false;
+        migratedClaims.Advance(4);
+        Require(migratedClaims.Day == authoredCampaign.Day + 4
+            && migratedClaims.IntegrationDaysLeft == pendingDays && !migratedClaims.Owns(2),
+            "A pending integration without a settlement must wait while the calendar continues.");
+        migratedClaims = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(migratedClaims.ToSave(), json), json), 5);
+        Require(migratedClaims.IntegrationNeedsSettlement
+            && !migratedClaims.TrySetIntegrationSettlement(1)
+            && !migratedClaims.TrySetIntegrationSettlement(2, provinceRoot: 42)
+            && migratedClaims.TrySetIntegrationSettlement(2, provinceRoot: migratedClaims.CapitalCell)
+            && !migratedClaims.TrySetIntegrationSettlement(2)
+            && migratedClaims.Coin == paidBalance,
+            "The restored order must accept one valid site and keep its original payment.");
+        Require(migratedClaims.AdvanceToNextDecision() && migratedClaims.SettlementCells.Contains(2)
+            && migratedClaims.SettlementProvinceRoots.Single() == migratedClaims.CapitalCell
+            && migratedClaims.Owns(1) && !migratedClaims.Owns(2),
+            "Completing the migrated integration must join the settlement's claim and preserve the old holding.");
+
+        var autoClaims = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(authoredPending, json), 5);
+        autoClaims.IndependentVillageSiteResolver = region => region == 2 ? 2 : -1;
+        autoClaims.UseSettlementClaims();
+        Require(!autoClaims.IntegrationNeedsSettlement && autoClaims.IntegrationSettlementCell == 2
+            && autoClaims.IntegrationDaysLeft == pendingDays && autoClaims.AdvanceToNextDecision()
+            && autoClaims.SettlementCells.Contains(2) && !autoClaims.Owns(2),
+            "Loading with a viable settlement site must resume a paid integration automatically.");
+        var futureClaims = CampaignState.Found(map, key, 0, "Older start", 0);
+        futureClaims.UseSettlementClaims();
+        Require(futureClaims.Owns(0) && !futureClaims.TryStartIntegration(1)
+            && futureClaims.TryStartIntegration(1, settlementCell: 1)
+            && futureClaims.AdvanceToNextDecision() && !futureClaims.Owns(1),
+            "New integrations in an upgraded campaign must require a settlement and claim only through it.");
+
         var independent = CampaignState.Found(map, key, 0, "Independent", 0, localCapitalClaim: true);
         independent.IndependentVillageSiteResolver = region => region == 1 ? 1 : -1;
         independent.IndependentFarmSiteResolver = cell => cell;

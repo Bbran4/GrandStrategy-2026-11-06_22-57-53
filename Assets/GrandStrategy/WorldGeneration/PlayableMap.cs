@@ -369,6 +369,7 @@ namespace GrandStrategy.WorldGeneration
                 if (!surface.IsDryLand(site)) throw new InvalidOperationException("Settlements must be on dry land.");
             surface.SetVillages(next);
             surface.SetOwnership(next, TribeColours[next.Colour]);
+            next.UseSettlementClaims(surface.InfluenceProvinceAt);
             campaign = next;
             StopFollowing();
             plannedMarch = null;
@@ -927,6 +928,11 @@ namespace GrandStrategy.WorldGeneration
                 : selected == campaign.Capital || HasVillageHere ? "Clan settlement nearby | Independent community"
                 : "Independent community");
             DrawFoundSettlement();
+            if (selected == campaign.IntegrationTarget && campaign.IntegrationNeedsSettlement)
+            {
+                DrawIntegrationSettlementChoice();
+                return;
+            }
             if (population == 0) return;
             if (campaign.CanTradeWith(selected))
             {
@@ -1000,6 +1006,19 @@ namespace GrandStrategy.WorldGeneration
             GUILayout.EndHorizontal();
         }
 
+        private void DrawIntegrationSettlementChoice()
+        {
+            GUILayout.Label("Select clear ground in this region to resume integration.");
+            var cell = clickedCell;
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.SettlementProvince(cell) == selected
+                && surface.CanSiteVillage(campaign, cell);
+            if (GUILayout.Button("Set integration settlement")
+                && campaign.TrySetIntegrationSettlement(cell, surface.InfluenceProvinceAt(cell)))
+                saveStatus = "Settlement site chosen. Integration can resume.";
+            GUI.enabled = wasEnabled;
+        }
+
         private void DrawExpansionButton(ExpansionApproach approach, string label)
         {
             var wasEnabled = GUI.enabled;
@@ -1058,9 +1077,15 @@ namespace GrandStrategy.WorldGeneration
                 if (campaign.IntegrationTarget >= 0)
                 {
                     var target = surface.Map.Provinces[campaign.IntegrationTarget].Id;
-                    GUILayout.Label(campaign.WarbandCommitted
-                        ? $"{target} | Operation resolves in {campaign.IntegrationDaysLeft} days"
-                        : $"{target} joins in {campaign.IntegrationDaysLeft} days");
+                    if (campaign.IntegrationNeedsSettlement)
+                    {
+                        if (GUILayout.Button($"Choose a settlement site in {target}"))
+                            SelectCommunity(campaign.IntegrationTarget);
+                    }
+                    else
+                        GUILayout.Label(campaign.WarbandCommitted
+                            ? $"{target} | Operation resolves in {campaign.IntegrationDaysLeft} days"
+                            : $"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
                 DrawWarbandOrders();
                 GUILayout.Label("Treasury", hudHeading);
