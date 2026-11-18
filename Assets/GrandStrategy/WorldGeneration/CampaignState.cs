@@ -57,6 +57,8 @@ namespace GrandStrategy.WorldGeneration
         public int Cell;
         public int Buildings;
         public int IronStock;
+        public int IronInTransit;
+        public int IronArrivalDay;
         public int FarmSite, LumberSite, MineSite, DockSite; // Cell index plus one.
 
         public int Placement(SettlementBuilding building) => building switch
@@ -740,7 +742,10 @@ namespace GrandStrategy.WorldGeneration
                 {
                     if ((site.Cell != save.CapitalCell && !settlementSites.Contains(site.Cell))
                         || !builtSites.Add(site.Cell) || site.Buildings == 0 || (site.Buildings & ~(int)AllBuildings) != 0
-                        || !ValidStock(site.IronStock) || (site.IronStock > 0 && (site.Buildings & (int)SettlementBuilding.IronMine) == 0))
+                        || !ValidStock(site.IronStock) || !ValidStock(site.IronInTransit)
+                        || (site.IronInTransit == 0 ? site.IronArrivalDay != 0 : site.IronArrivalDay <= save.Day)
+                        || ((site.IronStock > 0 || site.IronInTransit > 0)
+                            && (site.Buildings & (int)SettlementBuilding.IronMine) == 0))
                         throw new ArgumentException("The save contains invalid settlement construction.");
                     foreach (var building in new[] { SettlementBuilding.Farm, SettlementBuilding.LumberCamp,
                         SettlementBuilding.IronMine, SettlementBuilding.Docks })
@@ -1050,6 +1055,14 @@ namespace GrandStrategy.WorldGeneration
             return route;
         }
 
+        public (int Amount, int Days) IronShipment(int cell)
+        {
+            foreach (var site in data.Construction)
+                if (site.Cell == cell && site.IronInTransit > 0)
+                    return (site.IronInTransit, Math.Max(0, site.IronArrivalDay - Day));
+            return (0, 0);
+        }
+
         public bool HasIronSupplyRoute(int cell) => GetIronSupplyRoute(cell) != IronSupplyRoute.None;
 
         private void ProduceIron(int periods)
@@ -1070,13 +1083,49 @@ namespace GrandStrategy.WorldGeneration
                 if (yield == 0) yield = BuildingInfo(SettlementProvince(site.Cell), SettlementBuilding.IronMine).Yield;
                 if (TownSpeciality(site.Cell) == SettlementBuilding.IronMine) yield++;
                 var available = site.IronStock + (long)periods * yield;
-                if (HasIronSupplyRoute(site.Cell))
+                var routeType = GetIronSupplyRoute(site.Cell);
+                if (routeType == IronSupplyRoute.Local || (!map.HasMarchTerrain && routeType == IronSupplyRoute.Overland))
                 {
                     var shipped = (int)Math.Min(ResourceLimit - Iron, available);
                     data.Iron += shipped;
                     available -= shipped;
                 }
+                else if (site.IronInTransit == 0 && available > 0 && Day < int.MaxValue)
+                {
+                    var route = routeType == IronSupplyRoute.Waterway ? GetWaterwayIronRoute(site.Cell)
+                        : routeType == IronSupplyRoute.Overland ? GetOverlandIronRoute(site.Cell) : null;
+                    if (route != null)
+                    {
+                        var cellsPerDay = Math.Max(1, map.Height / (routeType == IronSupplyRoute.Waterway ? 32 : 64));
+                        var travelDays = Math.Max(1, (route.Count - 2) / cellsPerDay + 1);
+                        site.IronInTransit = (int)Math.Min(ResourceLimit, available);
+                        site.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + travelDays);
+                        available -= site.IronInTransit;
+                    }
+                }
                 site.IronStock = (int)Math.Min(ResourceLimit, available);
+                data.Construction[i] = site;
+            }
+        }
+
+        private void ReceiveIronShipments()
+        {
+            for (var i = 0; i < data.Construction.Count; i++)
+            {
+                var site = data.Construction[i];
+                if (site.IronInTransit == 0 || site.IronArrivalDay > Day) continue;
+                var unloaded = Math.Min(ResourceLimit - Iron, site.IronInTransit);
+                data.Iron += unloaded;
+                site.IronInTransit -= unloaded;
+                if (site.IronInTransit == 0)
+                    site.IronArrivalDay = 0;
+                else if (Day == int.MaxValue)
+                {
+                    site.IronStock = Math.Min(ResourceLimit, site.IronStock + site.IronInTransit);
+                    site.IronInTransit = site.IronArrivalDay = 0;
+                }
+                else
+                    site.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + ProductionInterval);
                 data.Construction[i] = site;
             }
         }
@@ -1417,6 +1466,12 @@ namespace GrandStrategy.WorldGeneration
                 var previousDay = Day;
                 var interval = Day >= WinterStart && Day < WinterEnd ? ProductionInterval : FoodInterval;
                 var span = Math.Min(destination - Day, interval - Day % interval);
+                foreach (var site in data.Construction)
+                {
+                    if (site.Cell == CapitalCell || (site.Buildings & (int)SettlementBuilding.IronMine) == 0) continue;
+                    span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
+                    if (site.IronInTransit > 0) span = Math.Min(span, site.IronArrivalDay - Day);
+                }
                 if (IntegrationTarget >= 0 && IntegrationDaysLeft <= span)
                     span = Math.Max(1, IntegrationDaysLeft - 1);
                 data.Day += span;
@@ -1433,6 +1488,7 @@ namespace GrandStrategy.WorldGeneration
         // after food upkeep.
         private void ApplyEconomy(int previousDay)
         {
+            ReceiveIronShipments();
             var periods = Day / ProductionInterval - previousDay / ProductionInterval;
             var taxes = Day / TaxInterval - previousDay / TaxInterval;
             if (periods > 0)

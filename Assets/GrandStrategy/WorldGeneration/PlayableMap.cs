@@ -1016,6 +1016,9 @@ namespace GrandStrategy.WorldGeneration
                         _ => "No supply route to the capital"
                     };
                     GUILayout.Label($"Local iron {campaign.SettlementIronStock(site):N0} | {route}");
+                    var shipment = campaign.IronShipment(site);
+                    if (shipment.Amount > 0)
+                        GUILayout.Label($"{shipment.Amount:N0} iron in transit | Next unload in {shipment.Days} days");
                     if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway)
                         showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show iron supply route");
                 }

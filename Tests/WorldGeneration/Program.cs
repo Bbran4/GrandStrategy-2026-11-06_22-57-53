@@ -517,8 +517,17 @@ internal static class Program
             "Saved stockpiles and secured fords must restore.");
         supply.Paused = false;
         supply.Advance(5);
-        Require(supply.Iron > storedIron && supply.SettlementIronStock(mineSite) == 0,
-            "Establishing a supply route must release accumulated and newly produced iron.");
+        var cargo = supply.IronShipment(mineSite);
+        Require(supply.Iron == 0 && cargo.Amount > storedIron && cargo.Days > 0
+            && supply.SettlementIronStock(mineSite) == 0,
+            "An opened route must dispatch accumulated and newly produced iron before it is usable.");
+        var inTransit = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(supply.ToSave(), json), json);
+        supply = CampaignState.Restore(supplyMap, "supply", inTransit, 5);
+        Require(supply.IronShipment(mineSite) == cargo, "An in-transit shipment must survive save and load.");
+        supply.Paused = false;
+        supply.Advance(cargo.Days);
+        Require(supply.Iron == cargo.Amount && supply.IronShipment(mineSite).Amount == 0,
+            "The capital must receive cargo once travel finishes.");
 
         var portsRaster = Enumerable.Repeat(1, raster.Length).ToArray();
         for (var row = 0; row < recipe.Height; row++) portsRaster[row * recipe.Width + 1] = 2;
@@ -543,8 +552,11 @@ internal static class Program
             "The waterway route must join the loading dock, channel and receiving dock.");
         ports.Paused = false;
         ports.Advance(4);
-        Require(ports.Iron > 0 && ports.SettlementIronStock(mineSite) == 0,
-            "Waterway access must deliver local iron on the production tick.");
+        var waterCargo = ports.IronShipment(mineSite);
+        Require(ports.Iron == 0 && waterCargo.Amount > 0 && ports.SettlementIronStock(mineSite) == 0,
+            "Waterway access must dispatch local iron on the production tick.");
+        ports.Advance(waterCargo.Days);
+        Require(ports.Iron == waterCargo.Amount, "Waterway cargo must arrive after travel.");
 
         var hill = recipe.Width + 2;
         var marchHeights = Enumerable.Repeat(recipe.SeaLevel, raster.Length).ToArray();
