@@ -36,6 +36,8 @@ namespace GrandStrategy.WorldGeneration
         private WaterMap water;
         private byte[] rivers;
         private float[] elevations;
+        private float seaLevel;
+        private byte[] settlementBiomes;
         private CampaignState influenceCampaign;
         private int[] influenceRoots;
         private int highlightedInfluenceRoot;
@@ -57,12 +59,14 @@ namespace GrandStrategy.WorldGeneration
             var terrain = riverMap?.Terrain ?? world.Read();
             ValidatePair(terrain, imported);
             elevations = terrain.Elevations;
+            seaLevel = terrain.Recipe.SeaLevel;
             water = WaterMap.Classify(terrain);
             rivers = riverMap?.BuildSurfaceDirections();
             var settings = world.ReadClimateSettings();
             var biomes = world.HasBiomes && settings != null
                 ? BiomeGenerator.Generate(ClimateGenerator.Generate(terrain, water, settings), water, riverMap)
                 : null;
+            settlementBiomes = biomes?.Samples;
             Map = provinces.Map.WithSettlementGeography(water, rivers, biomes?.Samples);
             provinceShape = new ProvinceShape(Map.Width, Map.Height, Map.ProvinceAt);
 
@@ -407,6 +411,41 @@ namespace GrandStrategy.WorldGeneration
                 if (separation.sqrMagnitude < diameter * diameter) return false;
             }
             return true;
+        }
+
+        public SettlementBuilding SurveyProductionSites(int centreCell)
+        {
+            if (centreCell < 0 || !IsDryLand(centreCell)) return 0;
+            var centreX = centreCell % Map.Width;
+            var centreY = centreCell / Map.Width;
+            var radius = MapSettlement.BuildRadius * Map.Height;
+            var reach = Mathf.CeilToInt(radius);
+            SettlementBuilding result = 0;
+
+            for (var y = Mathf.Max(0, centreY - reach); y <= Mathf.Min(Map.Height - 1, centreY + reach); y++)
+                for (var x = Mathf.Max(0, centreX - reach); x <= Mathf.Min(Map.Width - 1, centreX + reach); x++)
+                {
+                    var dx = x - centreX;
+                    var dy = y - centreY;
+                    if (dx * dx + dy * dy > radius * radius) continue;
+                    var cell = y * Map.Width + x;
+                    if (!IsDryLand(cell)) continue;
+                    var biome = settlementBiomes == null ? BiomeKind.Grassland : (BiomeKind)settlementBiomes[cell];
+                    if (biome == BiomeKind.Grassland || biome == BiomeKind.Wetland || MapNatureRules.IsForest(biome))
+                        result |= SettlementBuilding.Farm;
+                    if (settlementBiomes == null || MapNatureRules.IsForest(biome))
+                        result |= SettlementBuilding.LumberCamp;
+                    if (biome == BiomeKind.Alpine || elevations[cell] >= Mathf.Lerp(seaLevel, 1f, .62f))
+                        result |= SettlementBuilding.IronMine;
+                    if ((x > 0 && IsTradeWater(cell - 1)) || (x + 1 < Map.Width && IsTradeWater(cell + 1))
+                        || (y > 0 && IsTradeWater(cell - Map.Width))
+                        || (y + 1 < Map.Height && IsTradeWater(cell + Map.Width)))
+                        result |= SettlementBuilding.Docks;
+                }
+
+            return result;
+
+            bool IsTradeWater(int cell) => water[cell] == WaterKind.Ocean || IsNavigableRiverCell(cell);
         }
 
         public bool IsWithinCityLimits(Vector3 capital, Vector2 uv)

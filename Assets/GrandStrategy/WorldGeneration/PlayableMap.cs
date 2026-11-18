@@ -711,6 +711,12 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled && campaign.CanFoundSettlement(clickedCell)
                 && surface.Map.ProvinceAt[clickedCell] == selected
                 && surface.CanSiteVillage(settlement, clickedCell);
+            if (clickedCell >= 0 && surface.IsDryLand(clickedCell) && SelectedConstructionSite < 0)
+            {
+                var sites = surface.SurveyProductionSites(clickedCell);
+                GUILayout.Label("Nearby production sites");
+                GUILayout.Label(sites == 0 ? "None within city limits" : DescribeProductionSites(sites));
+            }
             var claimed = !campaign.Owns(selected);
             var action = claimed ? "Found and claim region" : "Found settlement";
             if (GUILayout.Button($"{action} ({CampaignState.SettlementCoin} coin, {CampaignState.SettlementWood} wood)"))
@@ -729,16 +735,27 @@ namespace GrandStrategy.WorldGeneration
             GUI.enabled = wasEnabled;
         }
 
+        private static string DescribeProductionSites(SettlementBuilding sites)
+        {
+            var description = new System.Collections.Generic.List<string>();
+            if ((sites & SettlementBuilding.Farm) != 0) description.Add("Farmland");
+            if ((sites & SettlementBuilding.LumberCamp) != 0) description.Add("Timber");
+            if ((sites & SettlementBuilding.IronMine) != 0) description.Add("Mining ground");
+            if ((sites & SettlementBuilding.Docks) != 0) description.Add("Trade waterfront");
+            return string.Join(", ", description);
+        }
+
         private void DrawConstruction(int site)
         {
             GUILayout.Label(site == campaign.CapitalCell ? "Capital buildings" : "Village buildings", hudHeading);
-            DrawBuilding(site, SettlementBuilding.Farm);
-            DrawBuilding(site, SettlementBuilding.LumberCamp);
-            DrawBuilding(site, SettlementBuilding.IronMine);
-            DrawBuilding(site, SettlementBuilding.Docks);
+            var sites = surface.SurveyProductionSites(site);
+            DrawBuilding(site, SettlementBuilding.Farm, sites);
+            DrawBuilding(site, SettlementBuilding.LumberCamp, sites);
+            DrawBuilding(site, SettlementBuilding.IronMine, sites);
+            DrawBuilding(site, SettlementBuilding.Docks, sites);
         }
 
-        private void DrawBuilding(int site, SettlementBuilding building)
+        private void DrawBuilding(int site, SettlementBuilding building, SettlementBuilding availableSites)
         {
             var info = campaign.BuildingInfo(selected, building);
             var output = building == SettlementBuilding.Docks ? "Water trade access and +1 agreement slot"
@@ -750,7 +767,15 @@ namespace GrandStrategy.WorldGeneration
             }
 
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.CanBuildAtSettlement(site, building);
+            var localIssue = (availableSites & building) != 0 ? null : building switch
+            {
+                SettlementBuilding.Farm => "Requires workable land within city limits.",
+                SettlementBuilding.LumberCamp => "Requires forest within city limits.",
+                SettlementBuilding.IronMine => "Requires mining ground within city limits.",
+                SettlementBuilding.Docks => "Requires an ocean shore or navigable riverbank within city limits.",
+                _ => null
+            };
+            GUI.enabled = wasEnabled && localIssue == null && campaign.CanBuildAtSettlement(site, building);
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)")
                 && campaign.TryBuildAtSettlement(site, building))
             {
@@ -758,7 +783,7 @@ namespace GrandStrategy.WorldGeneration
                 else surface.RefreshVillage(campaign, site);
             }
             GUI.enabled = wasEnabled;
-            GUILayout.Label(info.SiteIssue ?? output);
+            GUILayout.Label(localIssue ?? info.SiteIssue ?? output);
         }
 
         private void DrawCapitalActions()
