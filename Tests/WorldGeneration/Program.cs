@@ -682,6 +682,14 @@ internal static class Program
             && !warrior.TryMarchWarband(new List<int> { 1, 0 })
             && warrior.EvaluateTrade(1, new TradeOffer(TradeResource.Coin, 1, TradeResource.Food, 1)).Willingness == 0,
             "An operation must commit the warband and suspend trade with its target.");
+        var withdrawal = CampaignState.Restore(map, key,
+            JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(warrior.ToSave(), json), json), 5);
+        var supplies = withdrawal.Food;
+        Require(withdrawal.TryWithdrawWarband() && !withdrawal.TryWithdrawWarband() && withdrawal.IntegrationTarget == -1
+            && withdrawal.MilitaryPressure == 0 && withdrawal.Food == supplies && !withdrawal.Owns(1)
+            && withdrawal.EvaluateTrade(1, new TradeOffer(TradeResource.Coin, 1, TradeResource.Food, 1)).Stock > 0
+            && withdrawal.TryMarchWarband(new List<int> { 1, 0 }),
+            "Withdrawal must end pressure and reopen trade and movement without refunding supplies.");
         warrior.Paused = false;
         Require(warrior.Advance(10) && warrior.Owns(1) && warrior.FirstExpansion == ExpansionApproach.Force
             && warrior.Food > startingFood && warrior.Population(warrior.Capital) < warriorPopulation,

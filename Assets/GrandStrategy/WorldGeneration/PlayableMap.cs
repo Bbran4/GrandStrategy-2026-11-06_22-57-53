@@ -805,6 +805,13 @@ namespace GrandStrategy.WorldGeneration
             if (campaign.WarbandCommitted)
             {
                 GUILayout.Label("Warband committed | Trade with the target is suspended");
+                if (GUILayout.Button("Withdraw and return to capital") && campaign.TryWithdrawWarband())
+                {
+                    var route = surface.FindWarbandRoute(campaign.WarbandCell, campaign.CapitalCell);
+                    saveStatus = campaign.TryMarchWarband(route)
+                        ? "Operation ended. Warband returning to the capital."
+                        : "Operation ended. Warband holding position.";
+                }
                 return;
             }
             if (surface.Map.IsFord(clickedCell) && !campaign.IsFordSecured(clickedCell))

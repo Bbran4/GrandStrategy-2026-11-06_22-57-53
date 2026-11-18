@@ -448,6 +448,13 @@ namespace GrandStrategy.WorldGeneration
         }
 
         public bool WarbandCommitted => PendingApproach == ExpansionApproach.Force;
+        public bool TryWithdrawWarband()
+        {
+            if (!WarbandCommitted) return false;
+            ClearIntegration();
+            return true;
+        }
+
         public float MilitaryPressure => WarbandCommitted ? (ForceDuration - IntegrationDaysLeft + 1f) / ForceDuration : 0f;
         public bool WarbandAt(int province) => HasWarband && WarbandTravelDays == 0
             && province >= 0 && ProvinceAt(map, WarbandCell) == province;
@@ -1385,9 +1392,15 @@ namespace GrandStrategy.WorldGeneration
             if (FirstExpansion == ExpansionApproach.None) data.FirstExpansion = PendingApproach;
             data.Owned[target] = true;
             CancelTradeAgreement(target);
-            data.IntegrationTarget = -1;
-            data.PendingApproach = ExpansionApproach.None;
+            ClearIntegration();
             return true;
+        }
+
+        private void ClearIntegration()
+        {
+            data.IntegrationTarget = -1;
+            data.IntegrationDaysLeft = 0;
+            data.PendingApproach = ExpansionApproach.None;
         }
 
         private void AddFood(long amount) => data.Food = (int)Math.Min(ResourceLimit, Math.Max(0, Food + amount));
