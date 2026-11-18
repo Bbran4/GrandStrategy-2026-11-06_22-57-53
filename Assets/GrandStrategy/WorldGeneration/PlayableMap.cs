@@ -554,7 +554,8 @@ namespace GrandStrategy.WorldGeneration
 
                 GUILayout.BeginHorizontal();
                 var viewVillage = GUILayout.Button($"View {SettlementLabel(village)}");
-                var reroute = GUILayout.Button("Reroute");
+                var reroute = GUILayout.Button("Reroute by land");
+                var byWater = campaign.GetWaterwayIronRoute(village) != null && GUILayout.Button("Send by water");
                 GUILayout.EndHorizontal();
                 if (viewVillage)
                 {
@@ -562,18 +563,20 @@ namespace GrandStrategy.WorldGeneration
                     showIronSupplyRoute = !food;
                     break;
                 }
-                if (reroute)
+                if (reroute || byWater)
                 {
-                    RerouteShipment(village, food);
+                    RerouteShipment(village, food, byWater);
                     break;
                 }
             }
         }
 
-        private void RerouteShipment(int village, bool food)
+        private void RerouteShipment(int village, bool food, bool byWater = false)
         {
-            var rerouted = food ? campaign.TryRerouteFoodShipment(village) : campaign.TryRerouteIronShipment(village);
-            saveStatus = rerouted ? "Delivery rerouted overland." : "No alternate overland route is open.";
+            var rerouted = food ? campaign.TryRerouteFoodShipment(village, byWater) : campaign.TryRerouteIronShipment(village, byWater);
+            saveStatus = byWater
+                ? rerouted ? "Delivery switched to a water route." : "The convoy cannot reach its loading dock."
+                : rerouted ? "Delivery rerouted overland." : "No alternate overland route is open.";
         }
 
         private void DrawShipmentStatus(int village, TradeResource resource, int amount, int days, bool held)
@@ -582,6 +585,7 @@ namespace GrandStrategy.WorldGeneration
             var approach = held ? -1 : campaign.DaysUntilShipmentWait(village, resource);
             GUILayout.Label(held ? $"{amount:N0} {goods} waiting at a closed ford."
                 : approach >= 0 ? $"{amount:N0} {goods} approaching a closed ford | {approach:N0}d"
+                : campaign.IsShipmentTransferringToDock(village, resource) ? $"{amount:N0} {goods} heading to the loading dock | {days:N0}d"
                 : $"{amount:N0} {goods} due in {days:N0}d.");
         }
 

@@ -1138,6 +1138,63 @@ internal static class Program
         Require(ports.Iron == waterCargo.Amount && ports.LocalFoodStock(mineSite) == 5
             && ports.FoodShipmentJourney(mineSite).Path == null, "Delivered cargo must disappear from the map.");
 
+        var transferCapital = fordCell - 1 + 6 * recipe.Width;
+        var transferVillage = fordCell + 1 + 6 * recipe.Width;
+        var capitalDock = transferCapital + recipe.Width;
+        var villageDock = transferVillage + recipe.Width;
+        var transferSave = CampaignState.Found(portsMap, "dock-transfer", transferCapital, "Dock transfer", 0).ToSave();
+        transferSave.Coin = transferSave.Wood = 200;
+        transferSave.SecuredFords.Add(fordCell);
+        transferSave.Warband = true;
+        transferSave.WarbandRoute = new List<int> { fordCell - 1 };
+        var transfer = CampaignState.Restore(portsMap, "dock-transfer", transferSave, 5);
+        Require(transfer.TryFoundSettlement(transferVillage)
+            && transfer.TryBuildAtSettlement(transferVillage, SettlementBuilding.IronMine, transferVillage)
+            && transfer.TrySetLocalFoodTarget(transferVillage, 5), "The transfer fixture requires food and iron cargo.");
+        transfer.Paused = false;
+        transfer.Advance(6);
+        var groundFood = transfer.FoodShipmentJourney(transferVillage);
+        var groundIron = transfer.IronShipmentJourney(transferVillage);
+        var transferIron = transfer.IronShipment(transferVillage).Amount;
+        Require(groundFood.Transport == IronSupplyRoute.Overland && groundIron.Transport == IronSupplyRoute.Overland
+            && transfer.TryChangeFordAccess(fordCell)
+            && !transfer.TryRerouteFoodShipment(transferVillage, byWater: true)
+            && !transfer.TryRerouteIronShipment(transferVillage, byWater: true),
+            "Water diversion requires working docks and must leave the original convoy intact if they are missing.");
+        Require(transfer.TryBuildAtSettlement(transferCapital, SettlementBuilding.Docks, capitalDock)
+            && !transfer.TryRerouteFoodShipment(transferVillage, byWater: true)
+            && transfer.TryBuildAtSettlement(transferVillage, SettlementBuilding.Docks, villageDock),
+            "Both ends of the service need docks on the same waterway.");
+        Require(transfer.TryRerouteFoodShipment(transferVillage, byWater: true)
+            && transfer.TryRerouteIronShipment(transferVillage, byWater: true)
+            && transfer.IsShipmentTransferringToDock(transferVillage, TradeResource.Food)
+            && transfer.IsShipmentTransferringToDock(transferVillage, TradeResource.Iron)
+            && !transfer.ShipmentsThreatenedByFord(fordCell).Any(),
+            "The affected convoys must start a transfer to their respective loading docks.");
+        var foodTransferPath = transfer.FoodShipmentJourney(transferVillage).Path;
+        var ironTransferPath = transfer.IronShipmentJourney(transferVillage).Path;
+        Require(foodTransferPath[0] == groundFood.Path[2] && foodTransferPath.Last() == capitalDock
+            && ironTransferPath[0] == groundIron.Path[2] && ironTransferPath.Last() == villageDock
+            && !foodTransferPath.Contains(fordCell) && !ironTransferPath.Contains(fordCell),
+            "Cargo must travel overland from each convoy's current location to its actual loading dock.");
+        transfer = CampaignState.Restore(portsMap, "dock-transfer", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(transfer.ToSave(), json), json), 5);
+        transfer.Paused = false;
+        transfer.Advance(transfer.LocalFoodShipment(transferVillage).Days);
+        Require(transfer.FoodShipmentJourney(transferVillage).Transport == IronSupplyRoute.Waterway
+            && transfer.IronShipmentJourney(transferVillage).Transport == IronSupplyRoute.Waterway
+            && transfer.FoodShipmentJourney(transferVillage).Path.First() == capitalDock
+            && transfer.IronShipmentJourney(transferVillage).Path.First() == villageDock
+            && transfer.LocalFoodStock(transferVillage) == 0 && transfer.Iron == 0,
+            "Reaching the docks must launch both boats without crediting cargo early.");
+        transfer = CampaignState.Restore(portsMap, "dock-transfer", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(transfer.ToSave(), json), json), 5);
+        transfer.Paused = false;
+        transfer.Advance(transfer.IronShipment(transferVillage).Days);
+        Require(transfer.LocalFoodStock(transferVillage) == 5 && transfer.Iron == transferIron
+            && transfer.IsFordClosed(fordCell) && transfer.FoodShipmentJourney(transferVillage).Path == null,
+            "Saved water diversions must deliver each load once while the ford stays closed.");
+
         var hill = recipe.Width + 2;
         var marchHeights = Enumerable.Repeat(recipe.SeaLevel, raster.Length).ToArray();
         marchHeights[hill] = 1f;

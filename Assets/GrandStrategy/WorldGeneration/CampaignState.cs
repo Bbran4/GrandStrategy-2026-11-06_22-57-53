@@ -74,6 +74,7 @@ namespace GrandStrategy.WorldGeneration
         public int IronTravelEndDay;
         public IronSupplyRoute IronTransport;
         public int[] IronTravelPath;
+        public bool IronTransferringToDock;
         public int FarmSite, LumberSite, MineSite, DockSite; // Cell index plus one.
 
         public int Placement(SettlementBuilding building) => building switch
@@ -121,6 +122,7 @@ namespace GrandStrategy.WorldGeneration
         public int InTransit;
         public int DepartureDay, ArrivalDay, HoldDay;
         public int[] OverlandPath;
+        public bool TransferringToDock;
         public bool WaitingToUnload;
     }
 
@@ -1560,7 +1562,7 @@ namespace GrandStrategy.WorldGeneration
                                     || reserve.HoldDay > save.Day || reserve.HoldDay >= reserve.ArrivalDay))))
                         throw new ArgumentException("The save contains an invalid food delivery.");
                     if (path == null) continue;
-                    if (path.Length < 2 || path[path.Length - 1] != reserve.Cell)
+                    if (path.Length < 2 || (!reserve.TransferringToDock && path[path.Length - 1] != reserve.Cell))
                         throw new ArgumentException("The save contains an invalid food delivery route.");
                     for (var i = 1; i < path.Length; i++)
                         if (!map.CanMarchBetween(path[i - 1], path[i]))
@@ -1690,6 +1692,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             var state = new CampaignState(map, save);
+            state.ValidateDockTransfers();
             if ((save.Perks & ~(CampaignPerk.Stewardship | CampaignPerk.TownPlanning | CampaignPerk.Envoys)) != 0
                 || (save.Perks != 0 && !state.HasPerk(CampaignPerk.Stewardship)) || state.SkillPoints < 0)
                 throw new ArgumentException("The save contains invalid clan skills.");
@@ -1757,6 +1760,29 @@ namespace GrandStrategy.WorldGeneration
                 state.ValidateTradeAgreements();
             if (state.Day < int.MaxValue) state.UpdateSupplyWaits();
             return state;
+        }
+
+        private void ValidateDockTransfers()
+        {
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.TransferringToDock && (reserve.InTransit == 0 || !IsDockTransferPath(reserve.OverlandPath,
+                    GetFoodWaterRoute(reserve.Cell))))
+                    throw new ArgumentException("The save contains an invalid food transfer to a dock.");
+
+            foreach (var site in data.Construction)
+                if (site.IronTransferringToDock && (site.IronInTransit == 0 || site.IronTransport != IronSupplyRoute.Overland
+                    || site.IronArrivalDay != site.IronTravelEndDay
+                    || !IsDockTransferPath(site.IronTravelPath, GetWaterwayIronRoute(site.Cell))))
+                    throw new ArgumentException("The save contains an invalid iron transfer to a dock.");
+        }
+
+        private bool IsDockTransferPath(int[] path, IReadOnlyList<int> waterRoute)
+        {
+            if (path == null || path.Length < 2 || waterRoute == null || path[path.Length - 1] != waterRoute[0])
+                return false;
+            for (var i = 1; i < path.Length; i++)
+                if (!map.CanMarchBetween(path[i - 1], path[i])) return false;
+            return true;
         }
 
         public void SetSpeed(int speed)
@@ -2008,7 +2034,7 @@ namespace GrandStrategy.WorldGeneration
             return false;
         }
 
-        public bool TryRerouteIronShipment(int cell)
+        public bool TryRerouteIronShipment(int cell, bool byWater = false)
         {
             if (Day == int.MaxValue) return false;
             var index = data.Construction.FindIndex(site => site.Cell == cell);
@@ -2017,17 +2043,20 @@ namespace GrandStrategy.WorldGeneration
             var path = shipment.IronTravelPath;
             if (shipment.IronInTransit == 0 || shipment.IronTransport != IronSupplyRoute.Overland) return false;
 
+            var waterRoute = byWater ? GetWaterwayIronRoute(cell) : null;
+            if (byWater && waterRoute == null) return false;
             var positionDay = shipment.IronHoldDay > 0 ? shipment.IronHoldDay : Day;
             var alternate = FindAlternateSupplyRoute(path, positionDay, shipment.IronDepartureDay,
-                shipment.IronTravelEndDay, CapitalCell);
-            if (alternate == null) return false;
+                shipment.IronTravelEndDay, CapitalCell, waterRoute);
+            if (alternate.Path == null) return false;
 
-            SetIronJourney(ref shipment, alternate, IronSupplyRoute.Overland);
+            SetIronJourney(ref shipment, alternate.Path, alternate.Transport);
+            shipment.IronTransferringToDock = byWater && alternate.Transport == IronSupplyRoute.Overland;
             data.Construction[index] = shipment;
             return true;
         }
 
-        public bool TryRerouteFoodShipment(int cell)
+        public bool TryRerouteFoodShipment(int cell, bool byWater = false)
         {
             if (Day == int.MaxValue) return false;
             var index = data.SettlementFood.FindIndex(reserve => reserve.Cell == cell);
@@ -2035,25 +2064,45 @@ namespace GrandStrategy.WorldGeneration
             var reserve = data.SettlementFood[index];
             if (reserve.InTransit == 0) return false;
 
+            var waterRoute = byWater ? GetFoodWaterRoute(cell) : null;
+            if (byWater && waterRoute == null) return false;
             var positionDay = reserve.HoldDay > 0 ? reserve.HoldDay : Day;
             var alternate = FindAlternateSupplyRoute(reserve.OverlandPath, positionDay,
-                reserve.DepartureDay, reserve.ArrivalDay, cell);
-            if (alternate == null) return false;
+                reserve.DepartureDay, reserve.ArrivalDay, cell, waterRoute);
+            if (alternate.Path == null) return false;
 
-            reserve.OverlandPath = alternate.ToArray();
-            reserve.DepartureDay = Day;
-            reserve.ArrivalDay = SupplyArrivalDay(alternate, IronSupplyRoute.Overland);
-            reserve.HoldDay = 0;
+            SetFoodJourney(ref reserve, alternate.Path, alternate.Transport);
+            reserve.TransferringToDock = byWater && alternate.Transport == IronSupplyRoute.Overland;
             data.SettlementFood[index] = reserve;
             return true;
         }
 
-        private List<int> FindAlternateSupplyRoute(int[] path, int positionDay, int departureDay, int arrivalDay, int destination)
+        private (IReadOnlyList<int> Path, IronSupplyRoute Transport) FindAlternateSupplyRoute(int[] path, int positionDay,
+            int departureDay, int arrivalDay, int destination, IReadOnlyList<int> waterRoute)
         {
-            if (NextClosedFord(path, positionDay, departureDay, arrivalDay).Ford < 0) return null;
+            if (NextClosedFord(path, positionDay, departureDay, arrivalDay).Ford < 0) return default;
             var step = (int)((long)(positionDay - departureDay) * (path.Length - 1) / (arrivalDay - departureDay));
             if (step > 0 && IsFordClosed(path[step])) step--;
-            return map.FindWarbandRoute(path[step], destination, CanUseSupplyFord, hasBridge: HasBridge, hasRoad: HasRoadEdge);
+            var start = path[step];
+            var goal = waterRoute == null ? destination : waterRoute[0];
+            if (waterRoute != null && start == goal) return (waterRoute, IronSupplyRoute.Waterway);
+            return (map.FindWarbandRoute(start, goal, CanUseSupplyFord, hasBridge: HasBridge, hasRoad: HasRoadEdge),
+                IronSupplyRoute.Overland);
+        }
+
+        public bool IsShipmentTransferringToDock(int village, TradeResource resource)
+        {
+            if (resource == TradeResource.Food)
+            {
+                foreach (var reserve in data.SettlementFood)
+                    if (reserve.Cell == village) return reserve.TransferringToDock;
+            }
+            else if (resource == TradeResource.Iron)
+            {
+                foreach (var site in data.Construction)
+                    if (site.Cell == village) return site.IronTransferringToDock;
+            }
+            return false;
         }
 
         private void SetIronJourney(ref SettlementConstruction shipment, IReadOnlyList<int> route, IronSupplyRoute mode)
@@ -2064,6 +2113,7 @@ namespace GrandStrategy.WorldGeneration
             shipment.IronTransport = mode;
             shipment.IronTravelPath = new List<int>(route).ToArray();
             shipment.IronHoldDay = 0;
+            shipment.IronTransferringToDock = false;
         }
 
         private int SupplyArrivalDay(IReadOnlyList<int> route, IronSupplyRoute mode)
@@ -2154,6 +2204,13 @@ namespace GrandStrategy.WorldGeneration
             {
                 var site = data.Construction[i];
                 if (site.IronInTransit == 0 || site.IronHoldDay > 0 || site.IronArrivalDay > Day) continue;
+
+                if (site.IronTransferringToDock)
+                {
+                    SetIronJourney(ref site, GetWaterwayIronRoute(site.Cell), IronSupplyRoute.Waterway);
+                    data.Construction[i] = site;
+                    if (site.IronArrivalDay > Day) continue;
+                }
                 var unloaded = Math.Min(ResourceLimit - Iron, site.IronInTransit);
                 data.Iron += unloaded;
                 site.IronInTransit -= unloaded;
@@ -2734,14 +2791,19 @@ namespace GrandStrategy.WorldGeneration
                 ? GetFoodWaterRoute(reserve.Cell) : GetOverlandIronRoute(reserve.Cell);
             if (route == null || Day == int.MaxValue) return;
             reserve.InTransit = amount;
+            SetFoodJourney(ref reserve, route, mode, reverse: mode == IronSupplyRoute.Overland);
+            AddFood(-amount);
+        }
+
+        private void SetFoodJourney(ref SettlementFoodReserve reserve, IReadOnlyList<int> route, IronSupplyRoute mode,
+            bool reverse = false)
+        {
             reserve.DepartureDay = Day;
             reserve.ArrivalDay = SupplyArrivalDay(route, mode);
-            if (mode == IronSupplyRoute.Overland)
-            {
-                reserve.OverlandPath = new List<int>(route).ToArray();
-                Array.Reverse(reserve.OverlandPath);
-            }
-            AddFood(-amount);
+            reserve.HoldDay = 0;
+            reserve.TransferringToDock = false;
+            reserve.OverlandPath = mode == IronSupplyRoute.Overland ? new List<int>(route).ToArray() : null;
+            if (reverse) Array.Reverse(reserve.OverlandPath);
         }
 
         private void ReceiveFoodShipments()
@@ -2751,6 +2813,12 @@ namespace GrandStrategy.WorldGeneration
                 var reserve = data.SettlementFood[i];
                 if (reserve.InTransit == 0 || reserve.HoldDay > 0 || reserve.ArrivalDay > Day) continue;
 
+                if (reserve.TransferringToDock)
+                {
+                    SetFoodJourney(ref reserve, GetFoodWaterRoute(reserve.Cell), IronSupplyRoute.Waterway);
+                    data.SettlementFood[i] = reserve;
+                    if (reserve.ArrivalDay > Day) continue;
+                }
                 var unloaded = Math.Min(ResourceLimit - reserve.Food, reserve.InTransit);
                 reserve.Food += unloaded;
                 reserve.InTransit -= unloaded;
