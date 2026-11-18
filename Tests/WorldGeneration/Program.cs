@@ -669,7 +669,10 @@ internal static class Program
         frontierRival.IndependentVillageSiteResolver = _ => fordCell + 1;
         frontierRival.IndependentTerritoryResolver = cell => cell == fordCell + 1;
         frontierRival.Paused = false;
-        frontierRival.Advance(44);
+        frontierRival.Advance(29);
+        Require(frontierRival.FrontierFordThreat() == (fordCell, 0, 15) && frontierRival.IsFordSecured(fordCell),
+            "The rival should warn about an exposed crossing before seizing it.");
+        frontierRival.Advance(15);
         Require(frontierRival.IndependentVillageGuarded && !frontierRival.IsFordSecured(fordCell)
             && frontierRival.RivalFordHolder(fordCell) == 0 && frontierRival.HasEverSecuredFord,
             "A mature rival must seize an unguarded frontier ford even without an active operation.");
@@ -684,7 +687,10 @@ internal static class Program
         guardedFrontier.IndependentTerritoryResolver = cell => cell == fordCell + 1;
         Require(guardedFrontier.TryRaiseGarrison(guardedFrontier.CapitalCell), "The frontier fixture needs guards.");
         guardedFrontier.Paused = false;
-        guardedFrontier.Advance(44);
+        guardedFrontier.Advance(29);
+        Require(guardedFrontier.FrontierFordThreat().Ford == -1,
+            "A protected ford must not show a takeover warning.");
+        guardedFrontier.Advance(15);
         Require(guardedFrontier.IndependentVillageGuarded && guardedFrontier.IsFordSecured(fordCell),
             "A local garrison must prevent an autonomous rival takeover.");
 

@@ -251,6 +251,8 @@ namespace GrandStrategy.WorldGeneration
         private const int PactDuration = 20;
         private const int ForceDuration = 10;
         private const int RivalFordResponseDays = 3;
+        private const int IndependentGuardPopulation = 80;
+        private const int IndependentGuardAge = FoodInterval * 2;
 
         private readonly ProvinceMap map;
         private readonly CampaignSave data;
@@ -2344,7 +2346,7 @@ namespace GrandStrategy.WorldGeneration
                 data.Pop[region] += growth;
                 if (growth > 0) InfluenceRevision++;
                 if (data.IndependentVillageFoundedDay == 0) data.IndependentVillageFoundedDay = Day;
-                if (population >= 80 && Day - data.IndependentVillageFoundedDay >= FoodInterval * 2)
+                if (population >= IndependentGuardPopulation && Day - data.IndependentVillageFoundedDay >= IndependentGuardAge)
                     data.IndependentVillageGuarded = true;
                 if (IndependentVillageGuarded) ContestUnguardedPlayerFord(region);
                 if (IndependentFarmCell < 0 && Day - data.IndependentVillageFoundedDay >= FoodInterval
@@ -2534,23 +2536,45 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
-        private void ContestUnguardedPlayerFord(int region)
+        public (int Ford, int Region, int Days) FrontierFordThreat()
         {
-            if (IndependentTerritoryResolver == null || data.RivalFordRegions.Contains(region)) return;
+            var region = IndependentVillageRegion;
+            var age = Day - data.IndependentVillageFoundedDay;
+            if (region < 0 || data.IndependentVillageFoundedDay == 0 || age < FoodInterval
+                || IndependentPopulation(region) < IndependentGuardPopulation || IndependentVillageOccupied)
+                return (-1, -1, 0);
+
+            var index = FindExposedFord(region);
+            if (index < 0) return (-1, -1, 0);
+            var untilReview = FoodInterval - Day % FoodInterval;
+            var earliest = Math.Max(untilReview, IndependentGuardAge - age);
+            var days = untilReview + (earliest - untilReview + FoodInterval - 1) / FoodInterval * FoodInterval;
+            return (data.SecuredFords[index], region, days);
+        }
+
+        private int FindExposedFord(int region)
+        {
+            if (IndependentTerritoryResolver == null || data.RivalFordRegions.Contains(region)) return -1;
             for (var i = 0; i < data.SecuredFords.Count; i++)
             {
                 var ford = data.SecuredFords[i];
                 if (HasGarrisonAtFord(ford) || (HasWarband && WarbandTravelDays == 0
                     && (WarbandCell == ford || map.CanMarchBetween(WarbandCell, ford)))) continue;
-                if (!map.TryGetFordBanks(ford, out var first, out var second)
-                    || (!IndependentTerritoryResolver(first) && !IndependentTerritoryResolver(second))) continue;
-
-                data.SecuredFords.RemoveAt(i);
-                data.ClosedFords.Remove(ford);
-                SetRivalFord(ford, region);
-                RefreshFordAccess();
-                return;
+                if (map.TryGetFordBanks(ford, out var first, out var second)
+                    && (IndependentTerritoryResolver(first) || IndependentTerritoryResolver(second))) return i;
             }
+            return -1;
+        }
+
+        private void ContestUnguardedPlayerFord(int region)
+        {
+            var index = FindExposedFord(region);
+            if (index < 0) return;
+            var ford = data.SecuredFords[index];
+            data.SecuredFords.RemoveAt(index);
+            data.ClosedFords.Remove(ford);
+            SetRivalFord(ford, region);
+            RefreshFordAccess();
         }
 
         private void ContestPassageFords(int region)

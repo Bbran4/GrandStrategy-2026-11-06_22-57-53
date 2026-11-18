@@ -976,24 +976,34 @@ namespace GrandStrategy.WorldGeneration
         // Show each agreement's latest outcome and provide reserve and cancellation controls.
         private void DrawCrossingAlerts()
         {
+            var threat = campaign.FrontierFordThreat();
+            if (threat.Ford >= 0)
+            {
+                var rival = surface.Map.Provinces[threat.Region].Id;
+                GUILayout.Label($"{rival} threatens an unguarded ford", hudHeading);
+                GUILayout.Label($"Possible takeover in {threat.Days} {(threat.Days == 1 ? "day" : "days")}. Station a warband or garrison to protect it.");
+                if (GUILayout.Button("View threatened ford")) FocusFord(threat.Ford);
+            }
+
             if (campaign.RivalHeldFords.Count == 0) return;
             GUILayout.Label("Crossings held by rivals", hudHeading);
             foreach (var ford in campaign.RivalHeldFords)
             {
                 var holder = surface.Map.Provinces[campaign.RivalFordHolder(ford)].Id;
-                if (GUILayout.Button($"View ford held by {holder}"))
-                {
-                    resourceFilter = 0;
-                    surface.SetResourceFilter(resourceFilter);
-                    surface.SetView(MapViewMode.Resources);
-                    mapView = MapViewMode.Resources;
-                    FocusMapCell(ford);
-                }
-
+                if (GUILayout.Button($"View ford held by {holder}")) FocusFord(ford);
                 var held = campaign.SuppliesHeldAtFord(ford);
                 if (held.Shipments > 0)
                     GUILayout.Label($"{held.Shipments:N0} {(held.Shipments == 1 ? "shipment" : "shipments")} waiting | {held.Cargo:N0} iron");
             }
+        }
+
+        private void FocusFord(int ford)
+        {
+            resourceFilter = 0;
+            surface.SetResourceFilter(resourceFilter);
+            surface.SetView(MapViewMode.Resources);
+            mapView = MapViewMode.Resources;
+            FocusMapCell(ford);
         }
 
         private void DrawCampaignMilestones()
