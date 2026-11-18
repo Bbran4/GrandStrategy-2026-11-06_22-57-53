@@ -1313,6 +1313,39 @@ namespace GrandStrategy.WorldGeneration
             return false;
         }
 
+        public bool TryRerouteHeldIronShipment(int cell)
+        {
+            if (Day == int.MaxValue) return false;
+            var index = data.Construction.FindIndex(site => site.Cell == cell);
+            if (index < 0) return false;
+            var shipment = data.Construction[index];
+            var path = shipment.IronTravelPath;
+            if (shipment.IronHoldDay <= 0 || path == null || path.Length < 2) return false;
+
+            var elapsed = shipment.IronHoldDay - shipment.IronDepartureDay;
+            var duration = shipment.IronTravelEndDay - shipment.IronDepartureDay;
+            var step = (int)((long)elapsed * (path.Length - 1) / duration);
+            if (step > 0 && IsFordClosed(path[step])) step--;
+            var alternate = map.FindWarbandRoute(path[step], CapitalCell, CanUseSupplyFord);
+            if (alternate == null) return false;
+
+            SetIronJourney(ref shipment, alternate, IronSupplyRoute.Overland);
+            data.Construction[index] = shipment;
+            return true;
+        }
+
+        private void SetIronJourney(ref SettlementConstruction shipment, IReadOnlyList<int> route, IronSupplyRoute mode)
+        {
+            var cellsPerDay = Math.Max(1, map.Height / (mode == IronSupplyRoute.Waterway ? 32 : 64));
+            var travelDays = Math.Max(1, (route.Count - 2) / cellsPerDay + 1);
+            shipment.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + travelDays);
+            shipment.IronDepartureDay = Day;
+            shipment.IronTravelEndDay = shipment.IronArrivalDay;
+            shipment.IronTransport = mode;
+            shipment.IronTravelPath = new List<int>(route).ToArray();
+            shipment.IronHoldDay = 0;
+        }
+
         public (IReadOnlyList<int> Path, IronSupplyRoute Transport, float Progress) IronShipmentJourney(int cell)
         {
             foreach (var site in data.Construction)
@@ -1360,14 +1393,8 @@ namespace GrandStrategy.WorldGeneration
                         : routeType == IronSupplyRoute.Overland ? GetOverlandIronRoute(site.Cell) : null;
                     if (route != null)
                     {
-                        var cellsPerDay = Math.Max(1, map.Height / (routeType == IronSupplyRoute.Waterway ? 32 : 64));
-                        var travelDays = Math.Max(1, (route.Count - 2) / cellsPerDay + 1);
                         site.IronInTransit = (int)Math.Min(ResourceLimit, available);
-                        site.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + travelDays);
-                        site.IronDepartureDay = Day;
-                        site.IronTravelEndDay = site.IronArrivalDay;
-                        site.IronTransport = routeType;
-                        site.IronTravelPath = new List<int>(route).ToArray();
+                        SetIronJourney(ref site, route, routeType);
                         available -= site.IronInTransit;
                     }
                 }

@@ -1138,6 +1138,9 @@ namespace GrandStrategy.WorldGeneration
                         GUILayout.Label(campaign.IsIronShipmentHeld(site)
                             ? $"{shipment.Amount:N0} iron held by a ford closure"
                             : $"{shipment.Amount:N0} iron in transit | Next unload in {shipment.Days} days");
+                    if (campaign.IsIronShipmentHeld(site) && GUILayout.Button("Reroute held shipment"))
+                        saveStatus = campaign.TryRerouteHeldIronShipment(site) ? "Shipment rerouted overland."
+                            : "No alternate secured route. The shipment is still waiting.";
                     if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway || shipment.Amount > 0)
                         showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show iron supply route");
                 }

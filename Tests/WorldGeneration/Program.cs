@@ -590,6 +590,22 @@ internal static class Program
             && supply.IronShipmentJourney(mineSite).Progress == 0f,
             "Held cargo must remain stationary past its original arrival and keep its cargo.");
         var heldSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(supply.ToSave(), json), json);
+        var reroute = CampaignState.Restore(supplyMap, "supply", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(heldSave, json), json), 5);
+        Require(!reroute.TryRerouteHeldIronShipment(mineSite) && reroute.IsIronShipmentHeld(mineSite),
+            "A held shipment must keep its cargo if there is no alternative.");
+        var alternateSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(heldSave, json), json);
+        var alternateFord = fordCell + recipe.Width;
+        alternateSave.SecuredFords.Add(alternateFord);
+        reroute = CampaignState.Restore(supplyMap, "supply", alternateSave, 5);
+        Require(reroute.TryRerouteHeldIronShipment(mineSite) && reroute.IsFordClosed(fordCell)
+            && !reroute.IsIronShipmentHeld(mineSite) && reroute.IronShipment(mineSite).Amount == cargo.Amount
+            && reroute.IronShipmentJourney(mineSite).Path.Contains(alternateFord)
+            && !reroute.IronShipmentJourney(mineSite).Path.Contains(fordCell),
+            "A held shipment must conserve cargo and use the alternate ford without reopening the original.");
+        reroute.Paused = false;
+        reroute.Advance(reroute.IronShipment(mineSite).Days);
+        Require(reroute.Iron == cargo.Amount, "Rerouted cargo must arrive once without losing or duplicating iron.");
         supply = CampaignState.Restore(supplyMap, "supply", heldSave, 5);
         Require(supply.IsIronShipmentHeld(mineSite) && supply.TryChangeFordAccess(fordCell)
             && !supply.IsIronShipmentHeld(mineSite), "The hold must survive save and resume when the ford reopens.");
