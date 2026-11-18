@@ -802,11 +802,29 @@ namespace GrandStrategy.WorldGeneration
         {
             if (!HasWarband || WarbandCommitted || route == null || route.Count < 2 || route[0] != WarbandCell || !IsWarbandRoute(route))
                 return false;
+            SetWarbandRoute(route);
+            return true;
+        }
+
+        public bool CanRepositionWarband(int cell)
+            => WarbandCommitted && cell != WarbandCell && SettlementProvince(cell) == IntegrationTarget
+                && map.IsMarchCell(cell) && !map.IsFord(cell);
+
+        public bool TryRepositionWarband(int cell)
+        {
+            if (!CanRepositionWarband(cell)) return false;
+            var route = map.FindWarbandRoute(WarbandCell, cell, canVisit: step => SettlementProvince(step) == IntegrationTarget);
+            if (route == null) return false;
+            SetWarbandRoute(route);
+            return true;
+        }
+
+        private void SetWarbandRoute(IReadOnlyList<int> route)
+        {
             data.WarbandRoute = new List<int>(route);
             data.WarbandRouteIndex = 0;
             data.WarbandMarchCredit = 0;
             remainingMarchCost = RouteCost(route, 0);
-            return true;
         }
 
         private bool IsWarbandRoute(IReadOnlyList<int> route)

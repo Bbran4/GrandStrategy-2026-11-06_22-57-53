@@ -605,6 +605,26 @@ internal static class Program
         occupied.Advance(15);
         Require(occupied.IndependentPopulation(1) > beforeOccupation, "Growth must resume after the occupation lifts.");
 
+        var manoeuvreRaster = new int[raster.Length];
+        manoeuvreRaster[0] = 1;
+        manoeuvreRaster[1] = 2;
+        manoeuvreRaster[recipe.Width] = 4;
+        manoeuvreRaster[2] = 2;
+        manoeuvreRaster[3] = 3;
+        var manoeuvreMap = ProvinceMap.Build(recipe, manoeuvreRaster, regions, biomes: biomes);
+        var manoeuvre = CampaignState.Found(manoeuvreMap, "manoeuvre", 0, "Manoeuvre", 0);
+        Require(manoeuvre.TryRecruitWarband() && manoeuvre.TryMarchWarband(new List<int> { 0, 1 }),
+            "The repositioning fixture needs a warband in the target region.");
+        manoeuvre.AdvanceToNextDecision();
+        Require(manoeuvre.TryStartIntegration(1, ExpansionApproach.Force) && !manoeuvre.TryRepositionWarband(0)
+            && !manoeuvre.TryMarchWarband(new List<int> { 1, 2 }) && manoeuvre.TryRepositionWarband(2),
+            "A committed warband may reposition within its target region, but may not leave without withdrawing.");
+        manoeuvre = CampaignState.Restore(manoeuvreMap, "manoeuvre", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(manoeuvre.ToSave(), json), json), 5);
+        manoeuvre.AdvanceToNextDecision();
+        Require(manoeuvre.WarbandCell == 2 && manoeuvre.WarbandCommitted && manoeuvre.IntegrationDaysLeft == 9,
+            "Repositioning must survive a save and use the existing operation clock.");
+
         var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
         Require(fordMap.IsFord(fordCell) && !fordCampaign.TrySecureFord(fordCell)
             && fordCampaign.TryRecruitWarband() && fordCampaign.TrySecureFord(fordCell)

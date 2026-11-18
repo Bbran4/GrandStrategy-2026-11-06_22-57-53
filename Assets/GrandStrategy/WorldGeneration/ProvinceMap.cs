@@ -211,7 +211,8 @@ namespace GrandStrategy.WorldGeneration
             return BaseMarchCost + elevationCost + (IsFord(from) || IsFord(to) ? 2 : 0);
         }
 
-        internal List<int> FindWarbandRoute(int start, int goal, Func<int, bool> canUseFord = null)
+        internal List<int> FindWarbandRoute(int start, int goal, Func<int, bool> canUseFord = null,
+            Func<int, bool> canVisit = null)
         {
             if (!IsMarchCell(start) || !IsMarchCell(goal) || start == goal) return null;
             var fordDestination = IsFord(goal);
@@ -245,7 +246,8 @@ namespace GrandStrategy.WorldGeneration
 
                 void Visit(int next)
                 {
-                    if (!CanMarchBetween(cell, next) || (canUseFord != null && IsFord(next) && !canUseFord(next))) return;
+                    if (!CanMarchBetween(cell, next) || (canUseFord != null && IsFord(next) && !canUseFord(next))
+                        || canVisit?.Invoke(next) == false) return;
                     var cost = spent + MarchStepCost(cell, next);
                     var distance = Distance(next);
                     if (costs.TryGetValue(next, out var prior))

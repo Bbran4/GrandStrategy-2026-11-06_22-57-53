@@ -1038,6 +1038,17 @@ namespace GrandStrategy.WorldGeneration
                         targetZoom = MinimumZoom;
                     }
                 }
+                if (campaign.WarbandTravelDays > 0)
+                    GUILayout.Label($"Repositioning | {campaign.WarbandTravelDays} days");
+                var destination = campaign.CanRepositionWarband(clickedCell) ? clickedCell : campaign.MilitaryObjectiveCell;
+                var canReposition = campaign.CanRepositionWarband(destination);
+                var orderEnabled = GUI.enabled;
+                GUI.enabled = orderEnabled && canReposition;
+                var order = destination == clickedCell ? "Reposition to selected ground" : "Reposition to objective";
+                if (GUILayout.Button(order))
+                    saveStatus = campaign.TryRepositionWarband(destination) ? "Warband repositioning. The operation continues."
+                        : "No route within the operation region.";
+                GUI.enabled = orderEnabled;
                 if (GUILayout.Button("Withdraw and return to capital") && campaign.TryWithdrawWarband())
                 {
                     var route = surface.FindWarbandRoute(campaign.WarbandCell, campaign.CapitalCell);
