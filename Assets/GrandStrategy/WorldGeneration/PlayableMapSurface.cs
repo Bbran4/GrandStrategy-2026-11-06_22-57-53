@@ -50,6 +50,7 @@ namespace GrandStrategy.WorldGeneration
         private int[] influenceRoots;
         private int highlightedInfluenceRoot;
         private float[] influenceCosts;
+        private float displayedMilitaryPressure;
         private int influenceFoodPeriod = -1;
 
         public ProvinceMap Map { get; }
@@ -783,7 +784,8 @@ namespace GrandStrategy.WorldGeneration
             var campaign = influenceCampaign;
             if (campaign == null || (!force && viewMode != MapViewMode.Ownership)) return;
             var foodPeriod = campaign.Day / CampaignState.FoodInterval;
-            if (foodPeriod == influenceFoodPeriod) return;
+            var pressure = campaign.MilitaryPressure;
+            if (foodPeriod == influenceFoodPeriod && pressure == displayedMilitaryPressure) return;
 
             ownership ??= CreateTexture("Settlement influence", true, FilterMode.Bilinear, false);
             var pixels = ownership.GetRawTextureData<Color32>();
@@ -809,13 +811,26 @@ namespace GrandStrategy.WorldGeneration
                     || (cell >= Map.Width && IsOtherProvince(cell - Map.Width))
                     || (cell + Map.Width < pixels.Length && IsOtherProvince(cell + Map.Width));
                 pixels[cell] = new Color32(255, boundary ? (byte)255 : (byte)0,
-                    root == highlightedInfluenceRoot ? (byte)255 : (byte)0, 255);
+                    root == highlightedInfluenceRoot ? (byte)255 : (byte)0, 0);
 
                 bool IsOtherProvince(int next) => influenceRoots[next] != 0 && influenceRoots[next] != root;
             }
 
+            if (pressure > 0f && campaign.WarbandCell >= 0
+                && Map.ProvinceAt[campaign.WarbandCell] == campaign.IntegrationTarget)
+            {
+                var budget = Map.Height * Mathf.Lerp(.006f, .060f, pressure);
+                Flood(campaign.WarbandCell, budget, campaign.IntegrationTarget, (cell, _) =>
+                {
+                    var pixel = pixels[cell];
+                    pixel.a = 255;
+                    pixels[cell] = pixel;
+                });
+            }
+
             ownership.Apply(false, false);
             material.SetTexture("_OwnershipMask", ownership);
+            displayedMilitaryPressure = pressure;
             influenceFoodPeriod = foodPeriod;
             UpdateOwnershipVisibility();
 
@@ -824,6 +839,17 @@ namespace GrandStrategy.WorldGeneration
                 var population = campaign.SettlementPopulation(origin);
                 // Express the reach in map units so the same world has comparable reach at higher raster resolutions.
                 var budget = Map.Height * Mathf.Clamp(.014f + .0014f * Mathf.Sqrt(population), .014f, .085f);
+                Flood(origin, budget, -1, (cell, cost) =>
+                {
+                    var distance = cost / budget;
+                    if (influenceRoots[cell] != 0 && distance >= influenceCosts[cell]) return;
+                    influenceRoots[cell] = provinceRoot + 1;
+                    influenceCosts[cell] = distance;
+                });
+            }
+
+            void Flood(int origin, float budget, int restrictedRegion, Action<int, float> paint)
+            {
                 var costs = new Dictionary<int, float> { [origin] = 0f };
                 var frontier = new SortedSet<(float Cost, int Cell)> { (0f, origin) };
                 while (frontier.Count > 0)
@@ -831,12 +857,7 @@ namespace GrandStrategy.WorldGeneration
                     var step = frontier.Min;
                     frontier.Remove(step);
                     var cell = step.Cell;
-                    var distance = step.Cost / budget;
-                    if (!IsRiver(cell) && (influenceRoots[cell] == 0 || distance < influenceCosts[cell]))
-                    {
-                        influenceRoots[cell] = provinceRoot + 1;
-                        influenceCosts[cell] = distance;
-                    }
+                    if (!IsRiver(cell)) paint(cell, step.Cost);
 
                     var x = cell % Map.Width;
                     var y = cell / Map.Width;
@@ -847,7 +868,8 @@ namespace GrandStrategy.WorldGeneration
 
                     void Visit(int next)
                     {
-                        if (water[next] != WaterKind.Land) return;
+                        if (water[next] != WaterKind.Land
+                            || (restrictedRegion >= 0 && (Map.ProvinceAt[next] != restrictedRegion || IsRiver(next)))) return;
                         var cost = step.Cost + 1f + Mathf.Abs(elevations[next] - elevations[cell]) * (.16f * Map.Height)
                             + (IsRiver(next) ? 5f : 0f);
                         if (cost > budget) return;

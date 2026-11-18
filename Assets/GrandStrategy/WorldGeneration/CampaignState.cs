@@ -331,6 +331,7 @@ namespace GrandStrategy.WorldGeneration
         public int GranaryCell => data.GranarySite - 1;
         public bool HasWarband => data.Warband;
         public bool WarbandCommitted => PendingApproach == ExpansionApproach.Force;
+        public float MilitaryPressure => WarbandCommitted ? (ForceDuration - IntegrationDaysLeft + 1f) / ForceDuration : 0f;
         public bool WarbandAt(int province) => HasWarband && WarbandTravelDays == 0
             && province >= 0 && ProvinceAt(map, WarbandCell) == province;
         public int WarbandCell => !HasWarband ? -1
@@ -1057,6 +1058,7 @@ namespace GrandStrategy.WorldGeneration
             get
             {
                 var days = Day < WinterStart ? WinterStart - Day : Day < WinterEnd ? WinterEnd - Day : 0;
+                if (WarbandTravelDays > 0) days = days == 0 ? WarbandTravelDays : Math.Min(days, WarbandTravelDays);
                 if (IntegrationTarget < 0) return days;
                 return days == 0 ? IntegrationDaysLeft : Math.Min(days, IntegrationDaysLeft);
             }

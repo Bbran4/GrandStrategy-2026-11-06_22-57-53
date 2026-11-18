@@ -862,10 +862,11 @@ Shader "GrandStrategy/Playable Map"
                 UNITY_BRANCH
                 if (_ShowOwnership > 0.5)
                 {
-                    float3 claim = SAMPLE_TEXTURE2D_LOD(_OwnershipMask, sampler_OwnershipMask, input.uv, 0).rgb;
+                    float4 claim = SAMPLE_TEXTURE2D_LOD(_OwnershipMask, sampler_OwnershipMask, input.uv, 0);
                     ground = lerp(ground, _OwnershipColour.rgb, claim.r * politicalCoverage * 0.48);
                     ground = lerp(ground, float3(1.0, 0.78, 0.26), claim.b * politicalCoverage * 0.32);
                     ground *= 1.0 - claim.g * politicalCoverage * 0.55;
+                    ground = lerp(ground, float3(0.78, 0.12, 0.085), claim.a * politicalCoverage * 0.70);
                     return half4(ground, 1);
                 }
                 float3 colour = lerp(ground, float3(1.0, 0.78, 0.26),

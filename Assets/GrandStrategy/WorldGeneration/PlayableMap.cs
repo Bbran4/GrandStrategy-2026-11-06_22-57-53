@@ -1053,6 +1053,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
+                MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",
                 MapViewMode.Ownership => campaign == null ? "Found a settlement to see its influence" : "Settlement reach based on population and terrain",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
                     : "Click a province to inspect its biome",
