@@ -15,6 +15,11 @@ namespace GrandStrategy.WorldGeneration
         private Material footprintMaterial;
         private Material warbandMaterial;
         private GameObject warbandMarker;
+        private GameObject warbandFormation;
+        private Material warbandArmour;
+        private readonly Transform[] warbandFigures = new Transform[8];
+        private bool showWarbandFigures;
+        private int markerHeadingCell = -1;
         private LineRenderer marchLine;
         private IReadOnlyList<int> displayedMarchRoute;
         private int displayedMarchIndex = -1;
@@ -380,6 +385,10 @@ namespace GrandStrategy.WorldGeneration
                 material.SetFloat("_GroundDetail", groundDetail);
             }
             nature.SetZoom(zoom);
+            var close = zoom <= .12f;
+            if (close == showWarbandFigures) return;
+            showWarbandFigures = close;
+            UpdateWarbandVisibility();
         }
 
         public void SetCityLimitsVisible(CampaignState campaign, int province, int selectedSettlement)
@@ -595,37 +604,92 @@ namespace GrandStrategy.WorldGeneration
         public void ShowWarband(CampaignState campaign)
         {
             var cell = campaign?.WarbandCell ?? -1;
-            UpdateMarchLine(campaign?.WarbandRoute, campaign?.WarbandRouteIndex ?? 0);
-            if (cell == markerCell) return;
+            var route = campaign?.WarbandRoute;
+            var routeIndex = campaign?.WarbandRouteIndex ?? 0;
+            var next = route != null && routeIndex + 1 < route.Count ? route[routeIndex + 1] : -1;
+            UpdateMarchLine(route, routeIndex);
+            if (cell == markerCell && next == markerHeadingCell) return;
             if (cell < 0)
             {
-                if (warbandMarker != null) warbandMarker.SetActive(false);
-                markerCell = -1;
+                markerCell = markerHeadingCell = -1;
+                UpdateWarbandVisibility();
                 return;
             }
 
-            if (warbandMarker == null)
+            if (warbandMarker == null && !CreateWarbandVisuals()) return;
+            UpdateMarchLine(route, routeIndex);
+
+            var centre = geometry.Sample(CellCentre(cell), out _);
+            var headingCell = next >= 0 ? next : markerCell;
+            var forward = headingCell >= 0 && headingCell != cell
+                ? geometry.Sample(CellCentre(headingCell), out _) - centre : Vector3.forward;
+            if (next < 0 && headingCell >= 0 && headingCell != cell) forward = -forward;
+            forward.y = 0;
+            var facing = Quaternion.LookRotation(forward.normalized, Vector3.up);
+            warbandMarker.transform.localPosition = centre + Vector3.up * .003f;
+            warbandMarker.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
+            for (var i = 0; i < warbandFigures.Length; i++)
             {
-                var shader = Shader.Find("Universal Render Pipeline/Unlit");
-                if (shader == null || !shader.isSupported) return;
-                warbandMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
-                warbandMaterial.SetColor("_BaseColor", new Color(.86f, .18f, .13f));
-                warbandMarker = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                warbandMarker.name = "Warband marker";
-                warbandMarker.hideFlags = HideFlags.DontSave;
-                warbandMarker.transform.SetParent(surface.transform, false);
-                warbandMarker.transform.localScale = new Vector3(.004f, .0025f, .004f);
-                warbandMarker.GetComponent<MeshRenderer>().sharedMaterial = warbandMaterial;
-                var collider = warbandMarker.GetComponent<Collider>();
-                collider.enabled = false;
-                UnityEngine.Object.Destroy(collider);
+                var offset = facing * new Vector3((i % 4 - 1.5f) * .00088f, 0f, (i / 4 - .5f) * .00105f);
+                var point = centre + offset;
+                var uv = new Vector2(Mathf.Clamp01(point.x / Aspect + .5f), Mathf.Clamp01(point.z + .5f));
+                warbandFigures[i].localPosition = geometry.Sample(uv, out _);
+                warbandFigures[i].localRotation = facing;
             }
 
-            warbandMarker.SetActive(true);
-            UpdateMarchLine(campaign.WarbandRoute, campaign.WarbandRouteIndex);
-            warbandMarker.transform.localPosition = geometry.Sample(CellCentre(cell), out _) + Vector3.up * .003f;
-            warbandMarker.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
             markerCell = cell;
+            markerHeadingCell = next;
+            UpdateWarbandVisibility();
+        }
+
+        private void UpdateWarbandVisibility()
+        {
+            if (warbandMarker != null) warbandMarker.SetActive(markerCell >= 0 && !showWarbandFigures);
+            if (warbandFormation != null) warbandFormation.SetActive(markerCell >= 0 && showWarbandFigures);
+        }
+
+        private bool CreateWarbandVisuals()
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (shader == null || !shader.isSupported) return false;
+            warbandMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+            warbandMaterial.SetColor("_BaseColor", new Color(.86f, .18f, .13f));
+            warbandArmour = new Material(warbandMaterial) { hideFlags = HideFlags.DontSave };
+            warbandArmour.SetColor("_BaseColor", new Color(.33f, .30f, .28f));
+            warbandMarker = CreatePiece("Warband marker", surface.transform, warbandMaterial,
+                Vector3.zero, new Vector3(.004f, .0025f, .004f));
+            warbandFormation = new GameObject("Warband formation") { hideFlags = HideFlags.DontSave };
+            warbandFormation.transform.SetParent(surface.transform, false);
+
+            for (var i = 0; i < warbandFigures.Length; i++)
+            {
+                var soldier = new GameObject("Warband soldier") { hideFlags = HideFlags.DontSave };
+                var figure = soldier.transform;
+                figure.SetParent(warbandFormation.transform, false);
+                warbandFigures[i] = figure;
+                CreatePiece("Body", figure, warbandArmour, new Vector3(0f, .00055f, 0f),
+                    new Vector3(.00045f, .0011f, .00035f));
+                CreatePiece("Helmet", figure, warbandArmour, new Vector3(0f, .00123f, 0f),
+                    new Vector3(.00028f, .00028f, .00028f));
+                CreatePiece("Shield", figure, warbandMaterial, new Vector3(-.00019f, .00065f, .00021f),
+                    new Vector3(.00034f, .00053f, .00010f));
+            }
+            return true;
+
+            GameObject CreatePiece(string name, Transform parent, Material shared, Vector3 position, Vector3 scale)
+            {
+                var piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                piece.name = name;
+                piece.hideFlags = HideFlags.DontSave;
+                piece.transform.SetParent(parent, false);
+                piece.transform.localPosition = position;
+                piece.transform.localScale = scale;
+                piece.GetComponent<MeshRenderer>().sharedMaterial = shared;
+                var collider = piece.GetComponent<Collider>();
+                collider.enabled = false;
+                UnityEngine.Object.Destroy(collider);
+                return piece;
+            }
         }
 
         private void UpdateMarchLine(IReadOnlyList<int> route, int index)
@@ -1058,6 +1122,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(material);
             UnityEngine.Object.Destroy(footprintMaterial);
             UnityEngine.Object.Destroy(warbandMaterial);
+            UnityEngine.Object.Destroy(warbandArmour);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
