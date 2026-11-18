@@ -463,14 +463,14 @@ namespace GrandStrategy.WorldGeneration
                 }
             }
 
-            if (campaign.HasBridge(clickedCell)) GUILayout.Label("Timber bridge | Faster crossing");
+            if (campaign.HasBridge(clickedCell)) GUILayout.Label("Timber bridge | Faster marches and stronger influence when open");
             else if (campaign.IsFordSecured(clickedCell))
             {
                 var enabled = GUI.enabled;
                 GUI.enabled = enabled && campaign.CanBuildBridge(clickedCell);
                 if (GUILayout.Button($"Build timber bridge ({CampaignState.BridgeWood} wood, {CampaignState.BridgeCoin} coin)")
                     && campaign.TryBuildBridge(clickedCell))
-                    saveStatus = "Timber bridge built. The crossing now takes less time.";
+                    saveStatus = "Timber bridge built. Marches and influence cross more easily.";
                 GUI.enabled = enabled;
             }
 
@@ -518,7 +518,7 @@ namespace GrandStrategy.WorldGeneration
             if (site == campaign.CapitalCell) return;
             if (campaign.HasRoadToCapital(site))
             {
-                GUILayout.Label("Road to the capital | Easier marches over rough ground");
+                GUILayout.Label("Road to the capital | Easier marches and stronger influence");
                 return;
             }
 

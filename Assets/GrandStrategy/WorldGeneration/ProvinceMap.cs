@@ -212,6 +212,14 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        internal int FordForBridgeEdge(int from, int to)
+        {
+            var ford = IsFord(from) ? from : IsFord(to) ? to : -1;
+            if (!TryGetFordBanks(ford, out var first, out var second)) return -1;
+            var bank = ford == from ? to : from;
+            return bank == first || bank == second ? ford : -1;
+        }
+
         internal const int BaseMarchCost = 4;
 
         internal int MarchStepCost(int from, int to, Func<int, bool> hasBridge = null,
@@ -219,12 +227,8 @@ namespace GrandStrategy.WorldGeneration
         {
             if (hasBridge != null)
             {
-                var ford = IsFord(from) ? from : IsFord(to) ? to : -1;
-                if (ford >= 0 && hasBridge(ford) && TryGetFordBanks(ford, out var a, out var b))
-                {
-                    var bank = ford == from ? to : from;
-                    if (bank == a || bank == b) return BaseMarchCost;
-                }
+                var ford = FordForBridgeEdge(from, to);
+                if (ford >= 0 && hasBridge(ford)) return BaseMarchCost;
             }
             if (!IsFord(from) && !IsFord(to) && hasRoad?.Invoke(from, to) == true) return BaseMarchCost;
             var grade = marchElevations == null ? 0f : Math.Abs(marchElevations[from] - marchElevations[to]) * Height;

@@ -1342,9 +1342,11 @@ namespace GrandStrategy.WorldGeneration
                         var securedCrossing = useClanFords && (Map.IsFord(cell) || Map.IsFord(next))
                             && Map.CanMarchBetween(cell, next)
                             && (campaign.CanUseSupplyFord(cell) || campaign.CanUseSupplyFord(next));
-                        var cost = step.Cost + (securedCrossing ? 1f
+                        var infrastructureCost = useClanFords ? campaign.InfluenceInfrastructureCost(cell, next) : null;
+                        var travelCost = infrastructureCost ?? (securedCrossing ? 1f
                             : 1f + Mathf.Abs(elevations[next] - elevations[cell]) * (.16f * Map.Height)
                                 + (IsRiver(next) ? 5f : 0f));
+                        var cost = step.Cost + travelCost;
                         if (cost > budget) return;
                         if (costs.TryGetValue(next, out var previous))
                         {

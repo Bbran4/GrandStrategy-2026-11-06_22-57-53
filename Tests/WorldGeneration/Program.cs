@@ -650,11 +650,13 @@ internal static class Program
         var bridgeWood = garrison.Wood;
         Require(garrison.TryBuildBridge(fordCell) && !garrison.TryBuildBridge(fordCell)
             && garrison.Wood == bridgeWood - CampaignState.BridgeWood
-            && fordMap.MarchStepCost(fordCell - 1, fordCell, garrison.HasBridge) < fordMap.MarchStepCost(fordCell - 1, fordCell),
+            && fordMap.MarchStepCost(fordCell - 1, fordCell, garrison.HasBridge) < fordMap.MarchStepCost(fordCell - 1, fordCell)
+            && !garrison.InfluenceInfrastructureCost(fordCell - 1, fordCell).HasValue,
             "A guarded bridge must charge once and reduce march cost across its banks.");
         garrison = CampaignState.Restore(fordMap, "garrison", JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(garrison.ToSave(), json), json), 5);
         Require(garrison.HasGarrison(garrison.CapitalCell) && garrison.HasBridge(fordCell) && garrison.TryChangeFordAccess(fordCell)
+            && garrison.InfluenceInfrastructureCost(fordCell - 1, fordCell) < 1f
             && garrison.TryDisbandGarrison(garrison.CapitalCell) && garrison.OwnedPopulation == beforeGuards
             && !garrison.TryChangeFordAccess(fordCell), "Saved garrisons must restore and return recruits on disbanding.");
 
@@ -837,6 +839,7 @@ internal static class Program
             JsonSerializer.Serialize(road.ToSave(), json), json), 5);
         var roadPath = road.Roads.Single().Path;
         Require(road.HasRoadEdge(roadPath[1], roadPath[0])
+            && road.InfluenceInfrastructureCost(roadPath[1], roadPath[0]) < 1f
             && hillMap.MarchStepCost(hill - 1, hill, hasRoad: (_, _) => true) < hillMap.MarchStepCost(hill - 1, hill),
             "Roads must restore in both directions and remove rough-ground march penalties.");
 

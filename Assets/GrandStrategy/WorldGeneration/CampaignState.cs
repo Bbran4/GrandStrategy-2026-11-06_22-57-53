@@ -642,6 +642,7 @@ namespace GrandStrategy.WorldGeneration
             AddRoadEdges(road.Path);
             RepriceMarch();
             ironSupplyRoutes.Clear();
+            InfluenceRevision++;
             return true;
         }
 
@@ -649,6 +650,16 @@ namespace GrandStrategy.WorldGeneration
             => ((long)Math.Min(first, second) << 32) | (uint)Math.Max(first, second);
 
         internal bool HasRoadEdge(int first, int second) => roadEdges.Contains(RoadEdge(first, second));
+
+        internal float? InfluenceInfrastructureCost(int from, int to)
+        {
+            if (map.IsFord(from) || map.IsFord(to))
+            {
+                var ford = map.FordForBridgeEdge(from, to);
+                return ford >= 0 && HasBridge(ford) && CanUseSupplyFord(ford) ? .55f : (float?)null;
+            }
+            return HasRoadEdge(from, to) ? .65f : (float?)null;
+        }
 
         private void AddRoadEdges(IReadOnlyList<int> path)
         {
