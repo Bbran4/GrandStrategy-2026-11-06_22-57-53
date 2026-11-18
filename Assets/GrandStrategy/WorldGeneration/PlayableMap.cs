@@ -726,9 +726,13 @@ namespace GrandStrategy.WorldGeneration
             }
 
             if (selected == campaign.IndependentVillageRegion)
+            {
                 GUILayout.Label(campaign.IndependentVillageOccupied ? "Independent village occupied | Growth and development paused"
                     : campaign.IndependentFarmCell >= 0 ? "Independent farming village | Larger food market"
                     : "Independent village | Population growing");
+                if (campaign.IndependentVillageGuarded)
+                    GUILayout.Label("Village guards | Hold the objective for 3 consecutive days to capture it");
+            }
             GUILayout.Label(population == 0 ? "No independent community here"
                 : selected == campaign.Capital || HasVillageHere ? "Clan settlement nearby | Independent community"
                 : "Independent community");
@@ -1024,7 +1028,9 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label("Warband committed | Trade with the target is suspended");
                 if (campaign.MilitaryObjectiveCell >= 0)
                 {
-                    GUILayout.Label(campaign.IndependentVillageOccupied ? "Objective village occupied" : "Objective village beyond current occupation");
+                    GUILayout.Label(campaign.IndependentVillageOccupied
+                        ? $"Objective occupied | {Math.Min(campaign.ObjectiveOccupiedDays, campaign.ObjectiveHoldDaysRequired)}/{campaign.ObjectiveHoldDaysRequired} days held"
+                        : $"Objective beyond occupation | Requires {campaign.ObjectiveHoldDaysRequired} consecutive days held");
                     if (GUILayout.Button("View objective village"))
                     {
                         followingWarband = false;
@@ -1042,7 +1048,7 @@ namespace GrandStrategy.WorldGeneration
                 return;
             }
             if (campaign.OperationMissedObjective)
-                GUILayout.Label("Last operation failed. March closer to the objective village before trying again.");
+                GUILayout.Label("Last operation failed. The objective was not held long enough.");
             if (surface.Map.IsFord(clickedCell) && !campaign.IsFordSecured(clickedCell))
             {
                 var rival = campaign.IsFordHeldByRival(clickedCell);

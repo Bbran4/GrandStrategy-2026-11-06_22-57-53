@@ -131,9 +131,11 @@ namespace GrandStrategy.WorldGeneration
         public int IndependentVillageSite;
         public int IndependentVillageFoundedDay;
         public int IndependentFarmSite;
+        public bool IndependentVillageGuarded;
         public int IntegrationProvinceRoot;
         public int IntegrationDaysLeft;
         public bool OperationMissedObjective;
+        public int ObjectiveOccupiedDays;
         public int Food;
         public int Wood;
         public int Iron;
@@ -493,6 +495,7 @@ namespace GrandStrategy.WorldGeneration
         public int IndependentVillageCell => data.IndependentVillageSite - 1;
         public bool IndependentVillageOccupied => IndependentVillageCell >= 0 && WarbandCommitted
             && MilitaryOccupationResolver?.Invoke(IndependentVillageCell) == true;
+        public bool IndependentVillageGuarded => data.IndependentVillageGuarded;
         public int IndependentFarmCell => data.IndependentFarmSite - 1;
         public int IndependentVillageRegion => SettlementProvince(IndependentVillageCell);
 
@@ -726,6 +729,8 @@ namespace GrandStrategy.WorldGeneration
             UpdateHeldShipments();
         }
 
+        public int ObjectiveOccupiedDays => data.ObjectiveOccupiedDays;
+        public int ObjectiveHoldDaysRequired => IndependentVillageGuarded ? 3 : 1;
         public bool OperationMissedObjective => data.OperationMissedObjective;
         public int MilitaryObjectiveCell
             => WarbandCommitted && IntegrationTarget == IndependentVillageRegion ? IndependentVillageCell : -1;
@@ -1093,7 +1098,7 @@ namespace GrandStrategy.WorldGeneration
 
             if (save.IndependentVillageFoundedDay < 0 || save.IndependentVillageFoundedDay > save.Day
                 || save.IndependentFarmSite < 0 || (save.IndependentVillageSite == 0
-                    && (save.IndependentVillageFoundedDay != 0 || save.IndependentFarmSite != 0))
+                    && (save.IndependentVillageFoundedDay != 0 || save.IndependentFarmSite != 0 || save.IndependentVillageGuarded))
                 || (save.IndependentFarmSite > 0 && !IsLand(map, ProvinceAt(map, save.IndependentFarmSite - 1))))
                 throw new ArgumentException("The save contains invalid independent village development.");
 
@@ -1208,6 +1213,10 @@ namespace GrandStrategy.WorldGeneration
                     || save.IntegrationDaysLeft < 1 || save.IntegrationDaysLeft > DaysFor(pending)
                     || !IsLand(map, target) || state.Owns(target))
                 throw new ArgumentException("The save contains invalid integration progress.");
+
+            if (save.ObjectiveOccupiedDays < 0 || save.ObjectiveOccupiedDays > ForceDuration
+                || (save.ObjectiveOccupiedDays > 0 && (pending != ExpansionApproach.Force || target != state.IndependentVillageRegion)))
+                throw new ArgumentException("The save contains invalid occupation progress.");
 
             if (save.IntegrationSettlementSite != 0 || save.IntegrationProvinceRoot != 0)
             {
@@ -1978,6 +1987,7 @@ namespace GrandStrategy.WorldGeneration
                     span = Math.Min(span, ProductionInterval - Day % ProductionInterval);
                     if (site.IronInTransit > 0 && site.IronHoldDay == 0) span = Math.Min(span, site.IronArrivalDay - Day);
                 }
+                if (MilitaryObjectiveCell >= 0) span = Math.Min(span, 1);
                 if (WarbandCommitted && IntegrationDaysLeft > ForceDuration - RivalFordResponseDays
                     && data.PassagePartners.Contains(IntegrationTarget + 1))
                     span = Math.Min(span, IntegrationDaysLeft - (ForceDuration - RivalFordResponseDays));
@@ -2038,6 +2048,8 @@ namespace GrandStrategy.WorldGeneration
                 data.Pop[region] += growth;
                 if (growth > 0) InfluenceRevision++;
                 if (data.IndependentVillageFoundedDay == 0) data.IndependentVillageFoundedDay = Day;
+                if (population >= 80 && Day - data.IndependentVillageFoundedDay >= FoodInterval * 2)
+                    data.IndependentVillageGuarded = true;
                 if (IndependentFarmCell < 0 && Day - data.IndependentVillageFoundedDay >= FoodInterval
                     && IndependentFarmSiteResolver != null)
                 {
@@ -2109,10 +2121,12 @@ namespace GrandStrategy.WorldGeneration
             data.IntegrationDaysLeft = Math.Max(0, IntegrationDaysLeft - days);
             if (WarbandCommitted && IntegrationDaysLeft <= ForceDuration - RivalFordResponseDays)
                 ContestPassageFords(IntegrationTarget);
+            if (MilitaryObjectiveCell >= 0)
+                data.ObjectiveOccupiedDays = IndependentVillageOccupied ? ObjectiveOccupiedDays + days : 0;
             if (IntegrationDaysLeft > 0) return false;
 
             var target = IntegrationTarget;
-            if (MilitaryObjectiveCell >= 0 && !IndependentVillageOccupied)
+            if (MilitaryObjectiveCell >= 0 && ObjectiveOccupiedDays < ObjectiveHoldDaysRequired)
             {
                 data.OperationMissedObjective = true;
                 ClearIntegration();
@@ -2152,7 +2166,10 @@ namespace GrandStrategy.WorldGeneration
             }
             if (!UsesLocalIntegration || destination < 0) data.Owned[target] = true;
             if (IndependentVillageRegion == target)
+            {
                 data.IndependentVillageSite = data.IndependentVillageFoundedDay = data.IndependentFarmSite = 0;
+                data.IndependentVillageGuarded = false;
+            }
             InfluenceRevision++;
             CancelTradeAgreement(target);
             var releasedFords = data.RivalHeldFords.RemoveAll(
@@ -2179,6 +2196,7 @@ namespace GrandStrategy.WorldGeneration
             var passageSuspended = WarbandCommitted && data.PassagePartners.Contains(IntegrationTarget + 1);
             data.IntegrationTarget = -1;
             data.IntegrationDaysLeft = 0;
+            data.ObjectiveOccupiedDays = 0;
             data.IntegrationSettlementSite = 0;
             data.IntegrationProvinceRoot = 0;
             data.PendingApproach = ExpansionApproach.None;

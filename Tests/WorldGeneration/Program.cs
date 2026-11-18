@@ -543,6 +543,8 @@ internal static class Program
         Require(independent.IndependentPopulation(1) > villagePopulation && independent.IndependentFarmCell == 1
             && independent.EvaluateTrade(1, foodOffer).Stock > openingStock,
             "The independent village must grow and develop a larger food market when it builds a farm.");
+        independent.Advance(15);
+        Require(independent.IndependentVillageGuarded, "A mature independent village must raise local guards.");
         independent = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(independent.ToSave(), json), json), 5);
         Require(independent.IndependentVillageCell == 1 && independent.TryStartIntegration(1)
@@ -575,6 +577,28 @@ internal static class Program
         Require(captured.Advance(10) && !captured.OperationMissedObjective
             && captured.IndependentVillageCell == -1 && captured.SettlementCells.Contains(1)
             && captured.SuccessfulOperations == 1, "Occupying the objective must allow capture of the village.");
+        var guardedSave = JsonSerializer.Deserialize<CampaignSave>(operationSave, json);
+        guardedSave.IndependentVillageGuarded = true;
+        var guarded = CampaignState.Restore(map, key, guardedSave, 5);
+        var operationsStart = guarded.Day;
+        guarded.MilitaryOccupationResolver = _ => guarded.Day >= operationsStart + 9;
+        guarded.Paused = false;
+        Require(!guarded.Advance(10) && guarded.OperationMissedObjective,
+            "Two days of occupation must not capture a guarded village.");
+        guardedSave = JsonSerializer.Deserialize<CampaignSave>(operationSave, json);
+        guardedSave.IndependentVillageGuarded = true;
+        guarded = CampaignState.Restore(map, key, guardedSave, 5);
+        guarded.MilitaryOccupationResolver = _ => guarded.Day >= operationsStart + 8;
+        guarded.Paused = false;
+        guarded.Advance(9);
+        Require(guarded.ObjectiveOccupiedDays == 2 && guarded.ObjectiveHoldDaysRequired == 3,
+            "Guarded objectives must record the number of consecutive held days.");
+        guarded = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(guarded.ToSave(), json), json), 5);
+        guarded.MilitaryOccupationResolver = _ => true;
+        guarded.Paused = false;
+        Require(guarded.Advance(1) && guarded.SettlementCells.Contains(1),
+            "A third consecutive day of restored occupation must capture the guarded village.");
         occupied.Advance(2);
         Require(occupied.IndependentPopulation(1) == beforeOccupation && occupied.TryWithdrawWarband()
             && !occupied.IndependentVillageOccupied, "Occupation must suspend village growth and end on withdrawal.");
