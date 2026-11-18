@@ -140,6 +140,7 @@ namespace GrandStrategy.WorldGeneration
         public int WarbandMarchCredit;
         public List<int> WarbandRoute;
         public List<int> SecuredFords;
+        public List<int> ClosedFords;
         public bool IronWarband;
         public int FoodReserve;
         public List<TradeAgreement> Agreements;
@@ -236,6 +237,12 @@ namespace GrandStrategy.WorldGeneration
             foreach (var ford in data.SecuredFords)
                 if (!map.IsFord(ford) || !uniqueFords.Add(ford))
                     throw new ArgumentException("The save contains an invalid secured ford.");
+
+            data.ClosedFords ??= new List<int>();
+            var closedFords = new HashSet<int>();
+            foreach (var ford in data.ClosedFords)
+                if (!uniqueFords.Contains(ford) || !closedFords.Add(ford))
+                    throw new ArgumentException("The save contains a closed ford without a valid clan claim.");
 
             data.Towns ??= new List<int>();
             data.TownSpecialisations ??= new List<TownSpecialisation>();
@@ -491,17 +498,36 @@ namespace GrandStrategy.WorldGeneration
         public bool HasWarband => data.Warband;
         public bool IsFordSecured(int cell) => data.SecuredFords.Contains(cell);
 
-        public bool CanSecureFord(int cell)
+        public bool IsFordClosed(int cell) => data.ClosedFords.Contains(cell);
+        private bool CanUseSupplyFord(int cell) => IsFordSecured(cell) && !IsFordClosed(cell);
+
+        private bool CanGuardFord(int cell)
             => HasWarband && !WarbandCommitted && WarbandTravelDays == 0 && map.IsFord(cell)
-                && !IsFordSecured(cell) && map.CanMarchBetween(WarbandCell, cell);
+                && map.CanMarchBetween(WarbandCell, cell);
+
+        public bool CanSecureFord(int cell) => CanGuardFord(cell) && !IsFordSecured(cell);
+        public bool CanChangeFordAccess(int cell) => CanGuardFord(cell) && IsFordSecured(cell);
 
         public bool TrySecureFord(int cell)
         {
             if (!CanSecureFord(cell)) return false;
             data.SecuredFords.Add(cell);
+            RefreshFordAccess();
+            return true;
+        }
+
+        public bool TryChangeFordAccess(int cell)
+        {
+            if (!CanChangeFordAccess(cell)) return false;
+            if (!data.ClosedFords.Remove(cell)) data.ClosedFords.Add(cell);
+            RefreshFordAccess();
+            return true;
+        }
+
+        private void RefreshFordAccess()
+        {
             ironSupplyRoutes.Clear();
             InfluenceRevision++;
-            return true;
         }
 
         public bool WarbandCommitted => PendingApproach == ExpansionApproach.Force;
@@ -1212,7 +1238,7 @@ namespace GrandStrategy.WorldGeneration
             if (cell == CapitalCell || !map.HasMarchTerrain) return null;
             if (!ironSupplyRoutes.TryGetValue(cell, out var route))
             {
-                route = map.FindWarbandRoute(cell, CapitalCell, IsFordSecured);
+                route = map.FindWarbandRoute(cell, CapitalCell, CanUseSupplyFord);
                 ironSupplyRoutes[cell] = route;
             }
             return route;

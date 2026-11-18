@@ -531,6 +531,12 @@ internal static class Program
         var fordSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(fordCampaign.ToSave(), json), json);
         Require(CampaignState.Restore(fordMap, "ford", fordSave, 5).IsFordSecured(fordCell),
             "Secured fords must survive save and load.");
+        Require(fordCampaign.TryChangeFordAccess(fordCell) && fordCampaign.IsFordClosed(fordCell)
+            && fordCampaign.IsFordSecured(fordCell), "Closing a crossing must preserve its clan claim.");
+        var closureSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(fordCampaign.ToSave(), json), json);
+        fordCampaign = CampaignState.Restore(fordMap, "ford", closureSave, 5);
+        Require(fordCampaign.IsFordClosed(fordCell) && fordCampaign.TryChangeFordAccess(fordCell)
+            && !fordCampaign.IsFordClosed(fordCell), "A ford closure must survive reload and be reversible by its guard.");
 
         var localFarm = CampaignState.Found(fordMap, "local-farm", fordCell - 1, "Local farm", 0);
         fordMap.LocalProductionYield = (cell, building) =>
@@ -556,10 +562,14 @@ internal static class Program
         var supplySave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(supply.ToSave(), json), json);
         var storedIron = supply.SettlementIronStock(mineSite);
         supplySave.SecuredFords.Add(fordCell);
+        supplySave.Warband = true;
         supply = CampaignState.Restore(supplyMap, "supply", supplySave, 5);
         Require(supply.SettlementIronStock(mineSite) == storedIron && supply.HasIronSupplyRoute(mineSite)
             && supply.GetOverlandIronRoute(mineSite).Contains(fordCell),
             "Saved stockpiles and secured fords must restore.");
+        Require(supply.TryChangeFordAccess(fordCell) && !supply.HasIronSupplyRoute(mineSite)
+            && supply.TryChangeFordAccess(fordCell) && supply.HasIronSupplyRoute(mineSite),
+            "Closing and reopening a ford must invalidate cached civilian routes.");
         supply.Paused = false;
         supply.Advance(5);
         var cargo = supply.IronShipment(mineSite);

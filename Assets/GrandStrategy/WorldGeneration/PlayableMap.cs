@@ -420,8 +420,8 @@ namespace GrandStrategy.WorldGeneration
                 }
             }
             if (surface.Map.IsFord(clickedCell))
-                GUILayout.Label(campaign?.IsFordSecured(clickedCell) == true
-                    ? "Secured ford | Settlement influence crosses more easily"
+                GUILayout.Label(campaign?.IsFordClosed(clickedCell) == true ? "Ford closed to civilian traffic"
+                    : campaign?.IsFordSecured(clickedCell) == true ? "Secured ford | Open to civilian traffic"
                     : "River ford | Warbands can cross here");
             var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
             if (constructionSite >= 0)
@@ -963,19 +963,22 @@ namespace GrandStrategy.WorldGeneration
                 }
                 return;
             }
-            if (surface.Map.IsFord(clickedCell) && !campaign.IsFordSecured(clickedCell))
+            if (surface.Map.IsFord(clickedCell))
             {
-                var canSecure = campaign.CanSecureFord(clickedCell);
+                var secured = campaign.IsFordSecured(clickedCell);
+                var closed = campaign.IsFordClosed(clickedCell);
+                var canIssueOrder = secured ? campaign.CanChangeFordAccess(clickedCell) : campaign.CanSecureFord(clickedCell);
                 var enabled = GUI.enabled;
-                GUI.enabled = enabled && canSecure;
-                if (GUILayout.Button("Secure ford") && campaign.TrySecureFord(clickedCell))
+                GUI.enabled = enabled && canIssueOrder;
+                var order = secured ? (closed ? "Reopen ford" : "Close ford to civilian traffic") : "Secure ford";
+                if (GUILayout.Button(order) && (secured ? campaign.TryChangeFordAccess(clickedCell) : campaign.TrySecureFord(clickedCell)))
                 {
                     surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
                     surface.RefreshSecuredFord(clickedCell);
-                    saveStatus = "Ford secured. Settlement influence can cross more easily.";
+                    saveStatus = !secured ? "Ford secured." : closed ? "Ford reopened." : "Ford closed to new civilian shipments.";
                 }
                 GUI.enabled = enabled;
-                if (!canSecure) GUILayout.Label("Stop the warband on a bank beside this ford.");
+                if (!canIssueOrder) GUILayout.Label("Stop the warband on a bank beside this ford.");
             }
             GUILayout.Label(campaign.WarbandTravelDays > 0
                 ? $"Warband marching | {campaign.WarbandTravelDays} days"
@@ -1390,7 +1393,7 @@ namespace GrandStrategy.WorldGeneration
 
             var status = mapView switch
             {
-                MapViewMode.Resources when resourceFilter == 0 => "White shows fords | Green shows secured crossings",
+                MapViewMode.Resources when resourceFilter == 0 => "White: ford | Green: secured | Red: closed",
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
                 MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",

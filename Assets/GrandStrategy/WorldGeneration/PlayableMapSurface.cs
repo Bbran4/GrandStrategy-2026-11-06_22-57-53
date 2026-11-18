@@ -596,7 +596,8 @@ namespace GrandStrategy.WorldGeneration
         }
 
         private byte FordResourceCode(int cell)
-            => influenceCampaign?.IsFordSecured(cell) == true ? (byte)176 : (byte)128;
+            => influenceCampaign?.IsFordClosed(cell) == true ? (byte)92
+                : influenceCampaign?.IsFordSecured(cell) == true ? (byte)176 : (byte)128;
 
         public void RefreshSecuredFord(int cell)
         {
@@ -1152,6 +1153,7 @@ namespace GrandStrategy.WorldGeneration
                     void Visit(int next)
                     {
                         if (water[next] != WaterKind.Land
+                            || (restrictedRegion < 0 && Map.IsFord(next) && campaign.IsFordClosed(next))
                             || (restrictedRegion >= 0 && (Map.ProvinceAt[next] != restrictedRegion || IsRiver(next)))) return;
                         var securedCrossing = restrictedRegion < 0 && (Map.IsFord(cell) || Map.IsFord(next))
                             && Map.CanMarchBetween(cell, next)
