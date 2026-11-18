@@ -378,11 +378,13 @@ namespace GrandStrategy.WorldGeneration
             nature.SetZoom(zoom);
         }
 
-        public void SetCityLimitsVisible(CampaignState campaign, int province)
+        public void SetCityLimitsVisible(CampaignState campaign, int province, int selectedSettlement)
         {
-            settlement?.SetBoundaryVisible(campaign != null && province == campaign.Capital);
+            settlement?.SetBoundaryVisible(campaign != null
+                && (province == campaign.Capital || selectedSettlement == campaign.CapitalCell));
             foreach (var village in villages)
-                village.Value.SetBoundaryVisible(campaign != null && province == campaign.SettlementProvince(village.Key));
+                village.Value.SetBoundaryVisible(campaign != null
+                    && (province == campaign.SettlementProvince(village.Key) || selectedSettlement == village.Key));
         }
 
         public void SetVillages(CampaignState campaign)

@@ -133,7 +133,7 @@ namespace GrandStrategy.WorldGeneration
             surface.ShowWarband(campaign);
             surface.RefreshInfluence();
             surface.HighlightInfluenceAt(clickedCell);
-            surface.SetCityLimitsVisible(campaign, selected);
+            surface.SetCityLimitsVisible(campaign, selected, campaign == null ? -1 : SelectedConstructionSite);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)
@@ -392,7 +392,10 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label(campaign?.IsFordSecured(clickedCell) == true
                     ? "Secured ford | Settlement influence crosses more easily"
                     : "River ford | Warbands can cross here");
-            if (selected >= 0)
+            var constructionSite = campaign == null ? -1 : SelectedConstructionSite;
+            if (constructionSite >= 0)
+                DrawSettlement(constructionSite);
+            else if (selected >= 0)
                 DrawProvince(surface.Map.Provinces[selected]);
             else if (selectedCell >= 0)
                 GUILayout.Label("No province at this location.");
@@ -403,6 +406,14 @@ namespace GrandStrategy.WorldGeneration
             }
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawSettlement(int site)
+        {
+            GUILayout.Label($"Settlement population: {campaign.SettlementPopulation(site):N0}");
+            GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
+            DrawConstruction(site);
+            if (site == campaign.CapitalCell) DrawCapitalActions();
         }
 
         private void DrawInfluenceProvince()
@@ -500,21 +511,9 @@ namespace GrandStrategy.WorldGeneration
                     ? campaign.TribeName + " | Capital" : campaign.TribeName + " | Integrated province");
                 GUILayout.Label($"Subsistence harvest: +{campaign.SubsistenceFood(selected)} food / {CampaignState.ProductionInterval} days outside winter");
                 if (selected == campaign.Capital || HasVillageHere)
-                {
-                    var site = SelectedConstructionSite;
-                    if (site < 0)
-                        GUILayout.Label("Select dry land within a settlement's gold city limits to see its buildings.");
-                    else
-                    {
-                        GUILayout.Label($"Settlement population: {campaign.SettlementPopulation(site):N0}");
-                        GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
-                        DrawConstruction(site);
-                    }
-                }
+                    GUILayout.Label("Select dry land within a settlement's gold city limits to see its buildings.");
                 else
-                {
                     GUILayout.Label("Construction requires a settlement.");
-                }
                 DrawFoundSettlement();
                 if (selected == campaign.Capital) DrawCapitalActions();
                 return;
@@ -747,7 +746,7 @@ namespace GrandStrategy.WorldGeneration
             }
         }
 
-        private bool InCapitalLimits => clickedCell >= 0 && selected == campaign.Capital
+        private bool InCapitalLimits => clickedCell >= 0
             && surface.IsWithinCityLimits(settlement, clickedMapUv);
 
         private int SelectedConstructionSite
@@ -757,7 +756,7 @@ namespace GrandStrategy.WorldGeneration
                 if (clickedCell < 0) return -1;
                 if (InCapitalLimits) return campaign.CapitalCell;
                 foreach (var site in campaign.SettlementCells)
-                    if (campaign.SettlementProvince(site) == selected && surface.IsWithinVillageLimits(site, clickedMapUv))
+                    if (surface.IsWithinVillageLimits(site, clickedMapUv))
                         return site;
                 return -1;
             }
