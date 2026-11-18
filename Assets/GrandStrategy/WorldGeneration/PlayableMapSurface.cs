@@ -27,6 +27,7 @@ namespace GrandStrategy.WorldGeneration
         private Material ironCargoMaterial;
         private Material bridgeMaterial;
         private CampaignState displayedBridgeCampaign;
+        private readonly List<LineRenderer> displayedRoads = new List<LineRenderer>();
         private readonly List<LineRenderer> displayedBridges = new List<LineRenderer>();
         private GameObject ironCargoMarker;
         private IReadOnlyList<int> displayedIronSupplyRoute;
@@ -701,21 +702,41 @@ namespace GrandStrategy.WorldGeneration
             productionSites.Apply(false, false);
         }
 
-        public void ShowBridges(CampaignState campaign)
+        public void ShowRoadsAndBridges(CampaignState campaign)
         {
             if (campaign != displayedBridgeCampaign)
             {
                 foreach (var bridge in displayedBridges) UnityEngine.Object.Destroy(bridge.gameObject);
                 displayedBridges.Clear();
+                foreach (var road in displayedRoads) UnityEngine.Object.Destroy(road.gameObject);
+                displayedRoads.Clear();
                 displayedBridgeCampaign = campaign;
             }
-            if (campaign == null || displayedBridges.Count >= campaign.BridgedFords.Count) return;
+            if (campaign == null || (displayedBridges.Count >= campaign.BridgedFords.Count
+                && displayedRoads.Count >= campaign.Roads.Count)) return;
             if (bridgeMaterial == null)
             {
                 var shader = Shader.Find("Universal Render Pipeline/Unlit");
                 if (shader == null || !shader.isSupported) return;
                 bridgeMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
                 bridgeMaterial.SetColor("_BaseColor", new Color(.48f, .29f, .15f));
+            }
+
+            for (var i = displayedRoads.Count; i < campaign.Roads.Count; i++)
+            {
+                var path = campaign.Roads[i].Path;
+                var road = new GameObject("Settlement road", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
+                road.transform.SetParent(surface.transform, false);
+                var line = road.GetComponent<LineRenderer>();
+                line.useWorldSpace = false;
+                line.widthMultiplier = .00028f;
+                line.sharedMaterial = bridgeMaterial;
+                var positions = new Vector3[path.Length];
+                for (var cell = 0; cell < path.Length; cell++)
+                    positions[cell] = geometry.Sample(CellCentre(path[cell]), out _) + Vector3.up * .00020f;
+                line.positionCount = positions.Length;
+                line.SetPositions(positions);
+                displayedRoads.Add(line);
             }
 
             for (var i = displayedBridges.Count; i < campaign.BridgedFords.Count; i++)

@@ -140,7 +140,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             surface.ShowWarband(campaign);
-            surface.ShowBridges(campaign);
+            surface.ShowRoadsAndBridges(campaign);
             surface.ShowIndependentVillage(campaign);
             surface.RefreshPassageDisplay();
             surface.RefreshInfluence();
@@ -508,8 +508,26 @@ namespace GrandStrategy.WorldGeneration
             }
             DrawTownUpgrade(site);
             DrawSettlementGarrison(site);
+            DrawSettlementRoad(site);
             DrawConstruction(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
+        }
+
+        private void DrawSettlementRoad(int site)
+        {
+            if (site == campaign.CapitalCell) return;
+            if (campaign.HasRoadToCapital(site))
+            {
+                GUILayout.Label("Road to the capital | Easier marches over rough ground");
+                return;
+            }
+
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.Wood >= CampaignState.RoadWood && campaign.Coin >= CampaignState.RoadCoin;
+            if (GUILayout.Button($"Build road to capital ({CampaignState.RoadWood} wood, {CampaignState.RoadCoin} coin)"))
+                saveStatus = campaign.TryBuildRoad(site) ? "Road opened to the capital."
+                    : "No open land route. Secure or negotiate access at the crossing.";
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawSettlementGarrison(int site)

@@ -826,6 +826,20 @@ internal static class Program
         Require(resumedClimb.WarbandCell == hill - 1 && resumedClimb.WarbandTravelDays == climb.WarbandTravelDays
             && resumedClimb.WarbandTravelDays > 0, "Partial progress across a steep step must survive a save.");
 
+        var roadSave = CampaignState.Found(hillMap, "road", hill - 1, "Road", 0).ToSave();
+        roadSave.Coin = roadSave.Wood = 200;
+        var road = CampaignState.Restore(hillMap, "road", roadSave, 5);
+        Require(road.TryFoundSettlement(hill + 1) && road.TryBuildRoad(hill + 1)
+            && !road.TryBuildRoad(hill + 1) && road.HasRoadToCapital(hill + 1)
+            && road.Wood == 200 - CampaignState.SettlementWood - CampaignState.RoadWood,
+            "A connected village can pay once to build a road.");
+        road = CampaignState.Restore(hillMap, "road", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(road.ToSave(), json), json), 5);
+        var roadPath = road.Roads.Single().Path;
+        Require(road.HasRoadEdge(roadPath[1], roadPath[0])
+            && hillMap.MarchStepCost(hill - 1, hill, hasRoad: (_, _) => true) < hillMap.MarchStepCost(hill - 1, hill),
+            "Roads must restore in both directions and remove rough-ground march penalties.");
+
         var march = CampaignState.Found(map, key, 0, "March", 0);
         var beforeRecruitment = march.SettlementPopulation(0);
         Require(march.TryRecruitWarband() && march.WarbandCell == 0
