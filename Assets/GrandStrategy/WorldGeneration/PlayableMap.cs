@@ -477,9 +477,10 @@ namespace GrandStrategy.WorldGeneration
             var partner = campaign.FordPassagePartner(clickedCell);
             if (partner < 0) return;
             GUILayout.Label($"Passage available from {surface.Map.Provinces[partner].Id}");
+            var cost = campaign.FordPassageCostWith(partner);
             var wasEnabled = GUI.enabled;
-            GUI.enabled = wasEnabled && campaign.Coin >= CampaignState.FordPassageCoin;
-            if (GUILayout.Button($"Negotiate passage ({CampaignState.FordPassageCoin} coin)")
+            GUI.enabled = wasEnabled && campaign.Coin >= cost;
+            if (GUILayout.Button($"Negotiate passage ({cost} coin)")
                 && campaign.TryNegotiateFordPassage(clickedCell))
             {
                 surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
@@ -800,6 +801,8 @@ namespace GrandStrategy.WorldGeneration
             if (population == 0) return;
             if (campaign.CanTradeWith(selected))
             {
+                GUILayout.Label(campaign.IsTrustedTradePartner(selected) ? "Trusted partner | Cheaper passage and negotiation"
+                    : $"Trade goodwill {campaign.TradeGoodwill(selected)}/{CampaignState.MaxTradeGoodwill}");
                 showTrade = GUILayout.Toggle(showTrade, "Trade with this community");
                 if (showTrade) DrawTrade();
             }
@@ -815,7 +818,7 @@ namespace GrandStrategy.WorldGeneration
                     : $"{campaign.PendingApproach}: joins in {campaign.IntegrationDaysLeft} days");
                 return;
             }
-            DrawExpansionButton(ExpansionApproach.Diplomacy, $"Negotiate ({campaign.NegotiationCoinCost} coin)");
+            DrawExpansionButton(ExpansionApproach.Diplomacy, $"Negotiate ({campaign.NegotiationCostWith(selected)} coin)");
             if (campaign.HasTradedWith(selected))
                 DrawExpansionButton(ExpansionApproach.Trade, $"Sign trade pact ({CampaignState.PactCost} coin)");
             if (campaign.HasWarband)

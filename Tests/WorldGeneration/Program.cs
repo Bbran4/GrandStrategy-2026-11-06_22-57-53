@@ -1057,6 +1057,27 @@ internal static class Program
             && !skilled.TryUnlockPerk(CampaignPerk.TownPlanning),
             "Saved perks must count against earned points and apply their campaign costs.");
 
+        var goodwill = CampaignState.Found(map, key, 0, "Goodwill", 0);
+        var fairOffer = new TradeOffer(TradeResource.Coin, 4, TradeResource.Food, 1);
+        Require(goodwill.TryTrade(1, fairOffer) && goodwill.TryTrade(1, fairOffer) && goodwill.TradeGoodwill(1) == 1,
+            "A community must gain goodwill at most once in a market period.");
+        goodwill.Paused = false;
+        goodwill.Advance(14);
+        Require(goodwill.TryTrade(1, fairOffer) && goodwill.TradeGoodwill(1) == 2,
+            "Continued trade must build goodwill across periods.");
+        goodwill.Advance(15);
+        Require(goodwill.TryTrade(1, fairOffer) && goodwill.IsTrustedTradePartner(1)
+            && goodwill.NegotiationCostWith(1) == CampaignState.IntegrationCost - CampaignState.TrustedPartnerDiscount
+            && goodwill.FordPassageCostWith(1) == CampaignState.FordPassageCoin - CampaignState.TrustedPartnerDiscount,
+            "Trusted partners must offer lower passage and negotiation costs.");
+        goodwill = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(goodwill.ToSave(), json), json), 5);
+        Require(goodwill.IsTrustedTradePartner(1) && goodwill.TryRecruitWarband()
+            && goodwill.TryMarchWarband(new List<int> { 0, 1 }), "Trust must persist across saves.");
+        goodwill.AdvanceToNextDecision();
+        Require(goodwill.TryStartIntegration(1, ExpansionApproach.Force) && goodwill.TradeGoodwill(1) == 0,
+            "Launching an operation must reset goodwill with the target.");
+
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);
         heavyTaxes.SetTaxPolicy(TaxPolicy.Heavy);

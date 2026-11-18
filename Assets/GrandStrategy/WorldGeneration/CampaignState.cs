@@ -57,6 +57,8 @@ namespace GrandStrategy.WorldGeneration
         public int Coin, Food, Wood, Iron;
         public int Period;
         public bool Traded;
+        public int Goodwill;
+        public int LastGoodwillPeriod;
     }
 
     [Serializable]
@@ -206,6 +208,8 @@ namespace GrandStrategy.WorldGeneration
         public const int GarrisonCoin = 10;
         public const float VillageRadius = .008f;
         public const float TownRadius = .012f;
+        public const int MaxTradeGoodwill = 3;
+        public const int TrustedPartnerDiscount = 5;
         public const int FordRetakeFood = 5;
         public const int FordPassageCoin = 15;
         public const int RegionalCouncilCoin = 60;
@@ -771,8 +775,8 @@ namespace GrandStrategy.WorldGeneration
         public bool TryNegotiateFordPassage(int ford)
         {
             var partner = FordPassagePartner(ford);
-            if (Coin < FordPassageCoin || partner < 0) return false;
-            data.Coin -= FordPassageCoin;
+            if (partner < 0 || Coin < FordPassageCostWith(partner)) return false;
+            data.Coin -= FordPassageCostWith(partner);
             ClearRivalFord(ford);
             GrantFordPassage(ford, partner);
             RefreshFordAccess();
@@ -1502,6 +1506,9 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var market in save.Markets)
                     if (market.Period < 0 || market.Period > save.Day / FoodInterval + 1
                         || (market.Traded && market.Period == 0)
+                        || market.Goodwill < 0 || market.Goodwill > MaxTradeGoodwill
+                        || market.LastGoodwillPeriod < 0 || market.LastGoodwillPeriod > market.Period
+                        || (market.Goodwill > 0 && (!market.Traded || market.LastGoodwillPeriod == 0))
                         || !ValidStock(market.Coin) || !ValidStock(market.Food)
                         || !ValidStock(market.Wood) || !ValidStock(market.Iron))
                         throw new ArgumentException("The save contains invalid neighbour stock.");
@@ -2050,6 +2057,14 @@ namespace GrandStrategy.WorldGeneration
                     throw new ArgumentException("The save contains an invalid trade agreement.");
         }
 
+        public int TradeGoodwill(int province) => province >= 0 && province < data.Markets.Length
+            ? data.Markets[province].Goodwill : 0;
+        public bool IsTrustedTradePartner(int province) => TradeGoodwill(province) >= MaxTradeGoodwill;
+        public int NegotiationCostWith(int province)
+            => NegotiationCoinCost - (IsTrustedTradePartner(province) ? TrustedPartnerDiscount : 0);
+        public int FordPassageCostWith(int province)
+            => FordPassageCoin - (IsTrustedTradePartner(province) ? TrustedPartnerDiscount : 0);
+
         public bool HasTradedWith(int province) => province >= 0 && province < data.Markets.Length
             && data.Markets[province].Traded;
 
@@ -2094,6 +2109,11 @@ namespace GrandStrategy.WorldGeneration
             SetMarketBalance(ref market, offer.Give, MarketBalance(market, offer.Give) + offer.GiveAmount);
             SetMarketBalance(ref market, offer.Want, MarketBalance(market, offer.Want) - offer.WantAmount);
             market.Traded = true;
+            if (market.LastGoodwillPeriod != market.Period)
+            {
+                market.Goodwill = Math.Min(MaxTradeGoodwill, market.Goodwill + 1);
+                market.LastGoodwillPeriod = market.Period;
+            }
             data.Markets[province] = market;
             AdjustResource(offer.Give, -offer.GiveAmount);
             AdjustResource(offer.Want, offer.WantAmount);
@@ -2119,6 +2139,8 @@ namespace GrandStrategy.WorldGeneration
             {
                 Period = period,
                 Traded = market.Traded,
+                Goodwill = market.Goodwill,
+                LastGoodwillPeriod = market.LastGoodwillPeriod,
                 Coin = Replenish(market.Coin, coin, elapsed),
                 Food = Replenish(market.Food, food, elapsed),
                 Wood = Replenish(market.Wood, wood, elapsed),
@@ -2203,7 +2225,7 @@ namespace GrandStrategy.WorldGeneration
             if (IntegrationTarget != -1 || !CanReachIndependentProvince(province)) return false;
             return approach switch
             {
-                ExpansionApproach.Diplomacy => Coin >= NegotiationCoinCost,
+                ExpansionApproach.Diplomacy => Coin >= NegotiationCostWith(province),
                 ExpansionApproach.Trade => HasTradedWith(province) && Coin >= PactCost,
                 ExpansionApproach.Force => WarbandAt(province) && Food >= ForceFood,
                 _ => false
@@ -2230,8 +2252,14 @@ namespace GrandStrategy.WorldGeneration
                 data.IntegrationSettlementSite = settlementCell + 1;
                 data.IntegrationProvinceRoot = provinceRoot + 1;
             }
-            if (approach == ExpansionApproach.Force) data.Food -= ForceFood;
-            else data.Coin -= approach == ExpansionApproach.Trade ? PactCost : NegotiationCoinCost;
+            if (approach == ExpansionApproach.Force)
+            {
+                data.Food -= ForceFood;
+                var partner = data.Markets[province];
+                partner.Goodwill = 0;
+                data.Markets[province] = partner;
+            }
+            else data.Coin -= approach == ExpansionApproach.Trade ? PactCost : NegotiationCostWith(province);
             data.IntegrationTarget = province;
             data.IntegrationDaysLeft = DaysFor(approach);
             data.PendingApproach = approach;
