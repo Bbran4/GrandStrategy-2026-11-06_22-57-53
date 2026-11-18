@@ -144,6 +144,9 @@ namespace GrandStrategy.WorldGeneration
         public int WinterShortfall;
         public ExpansionApproach PendingApproach;
         public ExpansionApproach FirstExpansion;
+        public int CompletedTradeDeliveries;
+        public int NegotiatedIntegrations;
+        public int SuccessfulOperations;
     }
 
     internal sealed class CampaignState
@@ -631,6 +634,10 @@ namespace GrandStrategy.WorldGeneration
             }
         }
         public ExpansionApproach FirstExpansion => data.FirstExpansion;
+        public int CompletedTradeDeliveries => data.CompletedTradeDeliveries;
+        public int NegotiatedIntegrations => Math.Max(data.NegotiatedIntegrations, FirstExpansion == ExpansionApproach.Diplomacy ? 1 : 0);
+        public int SuccessfulOperations => Math.Max(data.SuccessfulOperations, FirstExpansion == ExpansionApproach.Force ? 1 : 0);
+        public int SecuredFordCount => data.SecuredFords.Count;
         public ExpansionApproach PendingApproach => data.PendingApproach;
         public bool CanBuildGranary => !HasGranary && Wood >= GranaryWood && Coin >= GranaryCoin;
         public int WarbandRecruitWood => Tradition == ClanTradition.Highland ? WarbandWood - 10 : WarbandWood;
@@ -727,6 +734,7 @@ namespace GrandStrategy.WorldGeneration
                 || (!save.Owned[capital] && save.SettlementPopulations == null)
                 || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes)
                 || !Enum.IsDefined(typeof(ClanTradition), save.Tradition)
+                || save.CompletedTradeDeliveries < 0 || save.NegotiatedIntegrations < 0 || save.SuccessfulOperations < 0
                 || !Enum.IsDefined(typeof(WarbandSupplyPolicy), save.WarbandSupply))
                 throw new ArgumentException("The save contains invalid campaign data.");
 
@@ -1331,7 +1339,10 @@ namespace GrandStrategy.WorldGeneration
                     && Food - agreement.Offer.GiveAmount < FoodUpkeep + FoodReserve)
                     agreement.LastIssue = "Protected food reserve.";
                 if (agreement.LastIssue == null)
+                {
                     ExecuteTrade(agreement.Province, agreement.Offer);
+                    if (data.CompletedTradeDeliveries < int.MaxValue) data.CompletedTradeDeliveries++;
+                }
                 data.Agreements[i] = agreement;
             }
         }
@@ -1690,6 +1701,10 @@ namespace GrandStrategy.WorldGeneration
                 LosePopulation(target, 12);
                 AddFood(38);
             }
+            if (PendingApproach == ExpansionApproach.Diplomacy && NegotiatedIntegrations < int.MaxValue)
+                data.NegotiatedIntegrations = NegotiatedIntegrations + 1;
+            if (PendingApproach == ExpansionApproach.Force && SuccessfulOperations < int.MaxValue)
+                data.SuccessfulOperations = SuccessfulOperations + 1;
             if (FirstExpansion == ExpansionApproach.None) data.FirstExpansion = PendingApproach;
             var remainingResidents = IndependentPopulation(target);
             var destination = IntegrationSettlementCell;

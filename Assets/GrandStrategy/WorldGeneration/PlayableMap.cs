@@ -49,6 +49,7 @@ namespace GrandStrategy.WorldGeneration
         private bool editingName;
         private bool showProvinceSettlements;
         private bool showHappinessDetails;
+        private bool showCampaignMilestones;
         private bool showIronSupplyRoute;
         private System.Collections.Generic.List<int> plannedMarch;
         private int plannedMarchDestination = -1;
@@ -805,6 +806,8 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.EndHorizontal();
                 GUILayout.Label($"Tax rate: +{campaign.TaxIncome:N0} coin every {CampaignState.TaxInterval} days");
                 GUILayout.Label($"Recorded taxes +{campaign.TaxCollected:N0} | Trade +{campaign.TradeReceipts:N0} / −{campaign.TradeSpending:N0}");
+                showCampaignMilestones = GUILayout.Toggle(showCampaignMilestones, "Show campaign milestones");
+                if (showCampaignMilestones) DrawCampaignMilestones();
                 DrawTradeAgreements();
                 DrawNearbyCommunities();
                 showTradeContacts = GUILayout.Toggle(showTradeContacts, "Show all trade contacts");
@@ -827,6 +830,20 @@ namespace GrandStrategy.WorldGeneration
         }
 
         // Show each agreement's latest outcome and provide reserve and cancellation controls.
+        private void DrawCampaignMilestones()
+        {
+            var deliveries = campaign.CompletedTradeDeliveries;
+            var negotiations = campaign.NegotiatedIntegrations;
+            var operations = campaign.SuccessfulOperations;
+            var fords = campaign.SecuredFordCount;
+            GUILayout.Label(deliveries >= 3 ? "Trade network complete"
+                : $"Trade network | {deliveries}/3 recurring deliveries");
+            GUILayout.Label(negotiations >= 2 ? "Regional diplomacy complete"
+                : $"Regional diplomacy | {negotiations}/2 negotiated integrations");
+            GUILayout.Label(operations >= 2 && fords >= 1 ? "Military foothold complete"
+                : $"Military foothold | {Math.Min(operations, 2)}/2 operations, {Math.Min(fords, 1)}/1 secured ford");
+        }
+
         private void DrawTradeAgreements()
         {
             var agreements = campaign.TradeAgreements;

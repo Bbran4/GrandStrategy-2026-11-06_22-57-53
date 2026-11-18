@@ -520,7 +520,8 @@ internal static class Program
         localIntegration = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
             JsonSerializer.Serialize(localIntegration.ToSave(), json), json), 5);
         Require(localIntegration.AdvanceToNextDecision() && !localIntegration.Owns(1)
-            && localIntegration.SettlementCells.Contains(1) && localIntegration.IndependentPopulation(1) == 0,
+            && localIntegration.SettlementCells.Contains(1) && localIntegration.IndependentPopulation(1) == 0
+            && localIntegration.NegotiatedIntegrations == 1,
             "Completing a restored integration must create a settlement without granting the region.");
 
         var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
@@ -830,7 +831,8 @@ internal static class Program
             "Withdrawal must end pressure and reopen trade and movement without refunding supplies.");
         warrior.Paused = false;
         Require(warrior.Advance(10) && warrior.Owns(1) && warrior.FirstExpansion == ExpansionApproach.Force
-            && warrior.Food > startingFood && warrior.Population(warrior.Capital) < warriorPopulation,
+            && warrior.Food > startingFood && warrior.Population(warrior.Capital) < warriorPopulation
+            && warrior.SuccessfulOperations == 1,
             "Force must secure a province and supplies with casualties.");
 
         var economy = CampaignState.Found(map, key, 0, "Economy", 0);
@@ -901,6 +903,7 @@ internal static class Program
         exporter.Paused = false;
         exporter.Advance(15);
         Require(exporter.TradeAgreements[0].LastIssue == null && exporter.TradeReceipts == 5
+            && exporter.CompletedTradeDeliveries == 1
             && exporter.Coin == CampaignState.StartingCoin + exporter.TaxCollected + exporter.TradeReceipts,
             "An agreement must resume and book receipts separately from taxes.");
         Require(exporter.TryStartIntegration(1), "Could not integrate the trade partner.");
