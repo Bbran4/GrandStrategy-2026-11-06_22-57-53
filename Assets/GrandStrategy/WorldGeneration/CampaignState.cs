@@ -15,6 +15,9 @@ namespace GrandStrategy.WorldGeneration
 
     internal enum WarbandSupplyPolicy { Standard, Forage, Provisioned }
 
+    [Flags]
+    internal enum CampaignTechnology { Agronomy = 1, MarchLogistics = 2 }
+
     internal enum ClanTradition { Standard, River, Highland }
 
     internal enum TaxPolicy { Standard, Relief, Heavy }
@@ -148,10 +151,14 @@ namespace GrandStrategy.WorldGeneration
         public int NegotiatedIntegrations;
         public int SuccessfulOperations;
         public bool RegionalCouncil;
+        public int ResearchPoints;
+        public CampaignTechnology Technologies;
     }
 
     internal sealed class CampaignState
     {
+        public const int ResearchCost = 2;
+        private const int ResearchLimit = 99;
         public const int RegionalCouncilCoin = 60;
         public const int TradeMilestoneDeliveries = 3;
         public const int DiplomacyMilestoneIntegrations = 2;
@@ -528,6 +535,7 @@ namespace GrandStrategy.WorldGeneration
             get
             {
                 var normal = Math.Max(1, map.Height / 128);
+                if (HasTechnology(CampaignTechnology.MarchLogistics)) normal++;
                 return WarbandSupply switch
                 {
                     WarbandSupplyPolicy.Forage => Math.Max(1, normal / 2),
@@ -647,6 +655,19 @@ namespace GrandStrategy.WorldGeneration
         public bool DiplomacyMilestoneComplete => NegotiatedIntegrations >= DiplomacyMilestoneIntegrations;
         public bool MilitaryMilestoneComplete => SuccessfulOperations >= MilitaryMilestoneOperations && SecuredFordCount > 0;
         public bool HasRegionalCouncil => data.RegionalCouncil;
+        public int ResearchPoints => data.ResearchPoints;
+        public bool HasTechnology(CampaignTechnology technology) => (data.Technologies & technology) != 0;
+        public int ResearchProductionBonus(SettlementBuilding building)
+            => building == SettlementBuilding.Farm && HasTechnology(CampaignTechnology.Agronomy) ? 1 : 0;
+
+        public bool TryResearch(CampaignTechnology technology)
+        {
+            if (!HasRegionalCouncil || ResearchPoints < ResearchCost || !Enum.IsDefined(typeof(CampaignTechnology), technology)
+                || HasTechnology(technology)) return false;
+            data.ResearchPoints -= ResearchCost;
+            data.Technologies |= technology;
+            return true;
+        }
 
         public string RegionalCouncilIssue
         {
@@ -764,6 +785,9 @@ namespace GrandStrategy.WorldGeneration
                 || (!save.Owned[capital] && save.SettlementPopulations == null)
                 || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes)
                 || !Enum.IsDefined(typeof(ClanTradition), save.Tradition)
+                || save.ResearchPoints < 0 || save.ResearchPoints > ResearchLimit
+                || (save.Technologies & ~(CampaignTechnology.Agronomy | CampaignTechnology.MarchLogistics)) != 0
+                || (!save.RegionalCouncil && (save.ResearchPoints != 0 || save.Technologies != 0))
                 || save.CompletedTradeDeliveries < 0 || save.NegotiatedIntegrations < 0 || save.SuccessfulOperations < 0
                 || !Enum.IsDefined(typeof(WarbandSupplyPolicy), save.WarbandSupply))
                 throw new ArgumentException("The save contains invalid campaign data.");
@@ -1122,12 +1146,14 @@ namespace GrandStrategy.WorldGeneration
         {
             var total = 0;
             for (var province = 0; province < data.Buildings.Length; province++)
-                if (HasBuilding(province, building)) total += BuildingInfo(province, building).Yield;
+                if (HasBuilding(province, building))
+                    total += BuildingInfo(province, building).Yield + ResearchProductionBonus(building);
             foreach (var site in data.Construction)
                 if ((site.Buildings & (int)building) != 0)
                 {
                     var yield = SettlementBuildingInfo(site.Cell, building, site.Placement(building) - 1).Yield;
-                    total += yield > 0 ? yield : BuildingInfo(SettlementProvince(site.Cell), building).Yield;
+                    total += (yield > 0 ? yield : BuildingInfo(SettlementProvince(site.Cell), building).Yield)
+                        + ResearchProductionBonus(building);
                 }
             foreach (var entry in data.TownSpecialisations)
                 if (entry.Building == building && HasSettlementBuilding(entry.Cell, building)) total++;
@@ -1672,6 +1698,7 @@ namespace GrandStrategy.WorldGeneration
             }
             if (taxes > 0)
             {
+                if (HasRegionalCouncil) data.ResearchPoints = Math.Min(ResearchLimit, ResearchPoints + taxes);
                 var collected = (int)Math.Min(ResourceLimit - Coin, taxes * Math.Min(ResourceLimit, TaxIncome));
                 data.Coin += collected;
                 RecordCoin(ref data.TaxCollected, collected);

@@ -688,6 +688,17 @@ internal static class Program
             JsonSerializer.Serialize(council.ToSave(), json), json), 5);
         Require(council.HasRegionalCouncil && council.TradeCapacity == 2,
             "The regional council and its agreement slot must survive save and load.");
+        Require(!council.TryResearch(CampaignTechnology.Agronomy), "Research must wait for the council to earn points.");
+        council.Paused = false;
+        council.Advance(29);
+        Require(council.ResearchPoints == CampaignState.ResearchCost
+            && council.TryResearch(CampaignTechnology.Agronomy) && council.ResearchPoints == 0
+            && council.ResearchProductionBonus(SettlementBuilding.Farm) == 1
+            && !council.TryResearch(CampaignTechnology.Agronomy),
+            "Council research must earn and spend points once for a permanent upgrade.");
+        Require(CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(council.ToSave(), json), json), 5).HasTechnology(CampaignTechnology.Agronomy),
+            "Researched technology must survive saves.");
 
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);

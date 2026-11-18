@@ -849,7 +849,13 @@ namespace GrandStrategy.WorldGeneration
         private void DrawGovernment()
         {
             GUILayout.Label(campaign.HasRegionalCouncil ? "Regional council | +1 trade agreement slot" : "Founding clan");
-            if (campaign.HasRegionalCouncil) return;
+            if (campaign.HasRegionalCouncil)
+            {
+                GUILayout.Label($"Research {campaign.ResearchPoints} | +1 every {CampaignState.TaxInterval} days");
+                DrawResearch(CampaignTechnology.Agronomy, "Agronomy | +1 food per farm");
+                DrawResearch(CampaignTechnology.MarchLogistics, "March logistics | Faster warband movement");
+                return;
+            }
             var issue = campaign.RegionalCouncilIssue;
             if (issue != null) GUILayout.Label(issue);
             var wasEnabled = GUI.enabled;
@@ -857,6 +863,20 @@ namespace GrandStrategy.WorldGeneration
             if (GUILayout.Button($"Establish regional council ({CampaignState.RegionalCouncilCoin} coin)")
                 && campaign.TryEstablishRegionalCouncil())
                 saveStatus = "Regional council established. One additional trade agreement is available.";
+            GUI.enabled = wasEnabled;
+        }
+
+        private void DrawResearch(CampaignTechnology technology, string label)
+        {
+            if (campaign.HasTechnology(technology))
+            {
+                GUILayout.Label(label + " | Researched");
+                return;
+            }
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.ResearchPoints >= CampaignState.ResearchCost;
+            if (GUILayout.Button($"{label} ({CampaignState.ResearchCost} research)"))
+                campaign.TryResearch(technology);
             GUI.enabled = wasEnabled;
         }
 
@@ -1069,7 +1089,7 @@ namespace GrandStrategy.WorldGeneration
             var placement = built ? campaign.BuildingPlacement(site, building) : clickedCell;
             var info = campaign.SettlementBuildingInfo(site, building, placement);
             if (built && info.Yield == 0) info = campaign.BuildingInfo(campaign.SettlementProvince(site), building);
-            var bonus = campaign.TownSpeciality(site) == building ? 1 : 0;
+            var bonus = (campaign.TownSpeciality(site) == building ? 1 : 0) + campaign.ResearchProductionBonus(building);
             var output = building == SettlementBuilding.Docks ? $"Water trade access and +{1 + bonus} agreement slots"
                 : $"+{info.Yield + bonus} {info.Resource} / {CampaignState.ProductionInterval} days";
             if (built)
