@@ -595,6 +595,20 @@ internal static class Program
         Require(fordCampaign.IsFordClosed(fordCell) && fordCampaign.TryChangeFordAccess(fordCell)
             && !fordCampaign.IsFordClosed(fordCell), "A ford closure must survive reload and be reversible by its guard.");
 
+        var garrisonSave = CampaignState.Found(fordMap, "garrison", fordCell - 1, "Garrison", 0).ToSave();
+        garrisonSave.SecuredFords.Add(fordCell);
+        var garrison = CampaignState.Restore(fordMap, "garrison", garrisonSave, 5);
+        var beforeGuards = garrison.OwnedPopulation;
+        Require(garrison.TryRaiseGarrison(garrison.CapitalCell) && !garrison.HasWarband
+            && garrison.OwnedPopulation == beforeGuards - CampaignState.GarrisonRecruits
+            && garrison.HasGarrisonAtFord(fordCell) && garrison.TryChangeFordAccess(fordCell) && garrison.IsFordClosed(fordCell),
+            "A local garrison must recruit people and manage a nearby secured crossing without a warband.");
+        garrison = CampaignState.Restore(fordMap, "garrison", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(garrison.ToSave(), json), json), 5);
+        Require(garrison.HasGarrison(garrison.CapitalCell) && garrison.TryChangeFordAccess(fordCell)
+            && garrison.TryDisbandGarrison(garrison.CapitalCell) && garrison.OwnedPopulation == beforeGuards
+            && !garrison.TryChangeFordAccess(fordCell), "Saved garrisons must restore and return recruits on disbanding.");
+
         var localFarm = CampaignState.Found(fordMap, "local-farm", fordCell - 1, "Local farm", 0);
         fordMap.LocalProductionYield = (cell, building) =>
             building == SettlementBuilding.Farm ? (cell == fordCell + 1 ? 3 : 0) : (int?)null;

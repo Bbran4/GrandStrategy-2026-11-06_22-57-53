@@ -8,8 +8,8 @@ namespace GrandStrategy.WorldGeneration
     internal sealed class MapSettlement : IDisposable
     {
         public const float ProductionHalfWidth = .0010f;
-        public const float BuildRadius = .008f;
-        public const float TownBuildRadius = .012f;
+        public const float BuildRadius = CampaignState.VillageRadius;
+        public const float TownBuildRadius = CampaignState.TownRadius;
         public const float GranaryHalfWidth = .00125f;
         private static readonly Vector2 FirstHut = new Vector2(-.0019f, .0014f);
         private static readonly Vector2 SecondHut = new Vector2(.0005f, -.0021f);

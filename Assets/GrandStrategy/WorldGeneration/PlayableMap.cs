@@ -450,6 +450,18 @@ namespace GrandStrategy.WorldGeneration
                 : "River ford | Warbands can cross here");
             if (campaign == null) return;
 
+            if (campaign.IsFordSecured(clickedCell) && campaign.CanChangeFordAccess(clickedCell))
+            {
+                var closed = campaign.IsFordClosed(clickedCell);
+                var guard = campaign.HasGarrisonAtFord(clickedCell) ? "Garrison" : "Warband";
+                if (GUILayout.Button(closed ? $"{guard}: Reopen ford" : $"{guard}: Close ford")
+                    && campaign.TryChangeFordAccess(clickedCell))
+                {
+                    surface.RefreshSecuredFord(clickedCell);
+                    saveStatus = closed ? "Ford reopened." : "Ford closed to civilian traffic.";
+                }
+            }
+
             var partner = campaign.FordPassagePartner(clickedCell);
             if (partner < 0) return;
             GUILayout.Label($"Passage available from {surface.Map.Provinces[partner].Id}");
@@ -483,8 +495,27 @@ namespace GrandStrategy.WorldGeneration
                     : "Current stock falls short of upkeep. Population may decline.");
             }
             DrawTownUpgrade(site);
+            DrawSettlementGarrison(site);
             DrawConstruction(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
+        }
+
+        private void DrawSettlementGarrison(int site)
+        {
+            if (campaign.HasGarrison(site))
+            {
+                GUILayout.Label($"Garrison | {CampaignState.GarrisonRecruits} guards | 1 food / {CampaignState.FoodInterval} days");
+                if (GUILayout.Button("Disband garrison") && campaign.TryDisbandGarrison(site))
+                    saveStatus = "Guards returned to the settlement.";
+                return;
+            }
+
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && campaign.CanRaiseGarrison(site);
+            if (GUILayout.Button($"Raise garrison ({CampaignState.GarrisonCoin} coin, {CampaignState.GarrisonRecruits} people)")
+                && campaign.TryRaiseGarrison(site))
+                saveStatus = "Garrison raised. It can manage secured fords with a bank inside city limits.";
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawTownUpgrade(int site)
@@ -1012,23 +1043,18 @@ namespace GrandStrategy.WorldGeneration
             }
             if (campaign.OperationMissedObjective)
                 GUILayout.Label("Last operation failed. March closer to the objective village before trying again.");
-            if (surface.Map.IsFord(clickedCell))
+            if (surface.Map.IsFord(clickedCell) && !campaign.IsFordSecured(clickedCell))
             {
-                var secured = campaign.IsFordSecured(clickedCell);
-                var closed = campaign.IsFordClosed(clickedCell);
                 var rival = campaign.IsFordHeldByRival(clickedCell);
-                var canIssueOrder = secured ? campaign.CanChangeFordAccess(clickedCell) : campaign.CanSecureFord(clickedCell);
+                var canIssueOrder = campaign.CanSecureFord(clickedCell);
                 var enabled = GUI.enabled;
                 GUI.enabled = enabled && canIssueOrder;
-                var order = secured ? (closed ? "Reopen ford" : "Close ford to civilian traffic")
-                    : rival ? $"Retake ford ({CampaignState.FordRetakeFood} food)" : "Secure ford";
-                if (GUILayout.Button(order) && (secured ? campaign.TryChangeFordAccess(clickedCell) : campaign.TrySecureFord(clickedCell)))
+                var order = rival ? $"Retake ford ({CampaignState.FordRetakeFood} food)" : "Secure ford";
+                if (GUILayout.Button(order) && campaign.TrySecureFord(clickedCell))
                 {
                     surface.SetOwnership(campaign, TribeColours[campaign.Colour]);
                     surface.RefreshSecuredFord(clickedCell);
-                    saveStatus = rival ? "Ford retaken. Civilian traffic can resume."
-                        : !secured ? "Ford secured." : closed ? "Ford reopened."
-                        : "Ford closed. Civilian shipments that still need the crossing will wait.";
+                    saveStatus = rival ? "Ford retaken. Civilian traffic can resume." : "Ford secured.";
                 }
                 GUI.enabled = enabled;
                 if (!canIssueOrder)

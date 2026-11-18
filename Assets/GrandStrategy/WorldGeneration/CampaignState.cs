@@ -114,6 +114,7 @@ namespace GrandStrategy.WorldGeneration
         public List<int> SettlementCells;
         public List<int> SettlementProvinceRoots;
         public List<int> Towns;
+        public List<int> Garrisons;
         public List<TownSpecialisation> TownSpecialisations;
         public List<int> SettlementPopulations; // Capital first, then villages in founding order.
         public int SecondSettlementSite; // Cell index plus one. Zero means no second settlement.
@@ -172,6 +173,10 @@ namespace GrandStrategy.WorldGeneration
     {
         public const int ResearchCost = 2;
         private const int ResearchLimit = 99;
+        public const int GarrisonRecruits = 4;
+        public const int GarrisonCoin = 10;
+        public const float VillageRadius = .008f;
+        public const float TownRadius = .012f;
         public const int FordRetakeFood = 5;
         public const int FordPassageCoin = 15;
         public const int RegionalCouncilCoin = 60;
@@ -283,6 +288,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             data.Towns ??= new List<int>();
+            data.Garrisons ??= new List<int>();
             data.TownSpecialisations ??= new List<TownSpecialisation>();
             data.Construction ??= new List<SettlementConstruction>();
             data.SettlementCells ??= new List<int>();
@@ -339,6 +345,34 @@ namespace GrandStrategy.WorldGeneration
             data.SettlementCells.Add(cell);
             data.SettlementProvinceRoots.Add(provinceRoot == -1 ? cell : provinceRoot);
             AllocateSettlers(cell, party.Donor, party.People, Owns(SettlementProvince(cell)));
+            InfluenceRevision++;
+            return true;
+        }
+
+        public bool HasGarrison(int cell) => data.Garrisons.Contains(cell);
+        public bool CanRaiseGarrison(int cell) => !HasGarrison(cell) && Coin >= GarrisonCoin
+            && SettlementPopulation(cell) > GarrisonRecruits;
+
+        public bool TryRaiseGarrison(int cell)
+        {
+            if (!CanRaiseGarrison(cell)) return false;
+            var index = cell == CapitalCell ? 0 : data.SettlementCells.IndexOf(cell) + 1;
+            data.SettlementPopulations[index] -= GarrisonRecruits;
+            data.Pop[SettlementProvince(cell)] -= GarrisonRecruits;
+            data.Coin -= GarrisonCoin;
+            data.Garrisons.Add(cell);
+            InfluenceRevision++;
+            return true;
+        }
+
+        public bool TryDisbandGarrison(int cell)
+        {
+            var region = SettlementProvince(cell);
+            if (!HasGarrison(cell) || data.Pop[region] > int.MaxValue - GarrisonRecruits) return false;
+            var index = cell == CapitalCell ? 0 : data.SettlementCells.IndexOf(cell) + 1;
+            data.Garrisons.Remove(cell);
+            data.SettlementPopulations[index] += GarrisonRecruits;
+            data.Pop[region] += GarrisonRecruits;
             InfluenceRevision++;
             return true;
         }
@@ -610,7 +644,27 @@ namespace GrandStrategy.WorldGeneration
 
         public bool CanSecureFord(int cell) => CanGuardFord(cell) && !IsFordSecured(cell)
             && (!IsFordHeldByRival(cell) || Food >= FordRetakeFood);
-        public bool CanChangeFordAccess(int cell) => CanGuardFord(cell) && IsFordSecured(cell);
+        public bool CanChangeFordAccess(int cell) => IsFordSecured(cell) && (CanGuardFord(cell) || HasGarrisonAtFord(cell));
+
+        public bool HasGarrisonAtFord(int ford)
+        {
+            if (!map.IsFord(ford)) return false;
+            foreach (var site in data.Garrisons)
+            {
+                var radius = map.Height * (IsTown(site) ? TownRadius : VillageRadius);
+                if (ReachesBank(ford - 1) || ReachesBank(ford + 1)
+                    || ReachesBank(ford - map.Width) || ReachesBank(ford + map.Width)) return true;
+
+                bool ReachesBank(int bank)
+                {
+                    if (!map.CanMarchBetween(bank, ford)) return false;
+                    var dx = bank % map.Width - site % map.Width;
+                    var dy = bank / map.Width - site / map.Width;
+                    return (long)dx * dx + (long)dy * dy <= radius * radius;
+                }
+            }
+            return false;
+        }
 
         public bool TrySecureFord(int cell)
         {
@@ -797,7 +851,7 @@ namespace GrandStrategy.WorldGeneration
         public bool HasIronWarband => data.IronWarband;
         public bool CanUpgradeWarband => HasWarband && !HasIronWarband
             && Iron >= IronWarbandIron && Wood >= IronWarbandWood && Coin >= IronWarbandCoin;
-        public long FoodUpkeep => (OwnedPopulation + PeoplePerFood - 1) / PeoplePerFood;
+        public long FoodUpkeep => (OwnedPopulation + PeoplePerFood - 1) / PeoplePerFood + data.Garrisons.Count;
         public long LastPopulationChange => data.LastPopulationChange;
         public int WinterShortfall => data.WinterShortfall;
         public long WinterFoodRemaining
@@ -1020,6 +1074,14 @@ namespace GrandStrategy.WorldGeneration
                 foreach (var cell in save.Towns)
                     if ((cell != save.CapitalCell && !settlementSites.Contains(cell)) || !towns.Add(cell))
                         throw new ArgumentException("The save contains an invalid town.");
+            }
+
+            if (save.Garrisons != null)
+            {
+                var garrisonSites = new HashSet<int>();
+                foreach (var site in save.Garrisons)
+                    if ((site != save.CapitalCell && !settlementSites.Contains(site)) || !garrisonSites.Add(site))
+                        throw new ArgumentException("The save contains an invalid settlement garrison.");
             }
 
             if (save.IndependentVillageSite < 0 || (save.IndependentVillageSite > 0
