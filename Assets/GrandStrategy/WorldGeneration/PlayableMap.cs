@@ -50,6 +50,9 @@ namespace GrandStrategy.WorldGeneration
         private int selectedCell = -1;
         private int clickedCell = -1;
         private Vector2 clickedMapUv;
+        private float previewHalfWidth;
+        private Color previewColour;
+        private bool pointerOverProvincePanel;
         private CampaignState campaign;
         private string mapKey;
         private string savePath;
@@ -355,7 +358,14 @@ namespace GrandStrategy.WorldGeneration
             DrawTopBar();
             DrawMapDock();
             DrawCampaign();
+            if (Event.current.type == EventType.Repaint)
+            {
+                previewHalfWidth = 0f;
+                pointerOverProvincePanel = ProvincePanel.Contains(Event.current.mousePosition);
+            }
             DrawProvincePanel();
+            if (Event.current.type == EventType.Repaint)
+                surface.ShowBuildFootprint(previewHalfWidth > 0f ? clickedCell : -1, previewHalfWidth, previewColour);
             var focused = GUI.GetNameOfFocusedControl();
             editingName = focused == "TribeName" || focused == "TradeGive" || focused == "TradeWant";
         }
@@ -749,6 +759,11 @@ namespace GrandStrategy.WorldGeneration
         private void DrawConstruction(int site)
         {
             GUILayout.Label(site == campaign.CapitalCell ? "Capital buildings" : "Village buildings", hudHeading);
+            if (Event.current.type == EventType.Repaint)
+            {
+                previewHalfWidth = MapSettlement.ProductionHalfWidth;
+                previewColour = HudGold;
+            }
             var sites = surface.SurveyProductionSites(site);
             DrawBuilding(site, SettlementBuilding.Farm, sites);
             DrawBuilding(site, SettlementBuilding.LumberCamp, sites);
@@ -777,15 +792,25 @@ namespace GrandStrategy.WorldGeneration
                 _ => null
             };
             var fits = localIssue == null && surface.CanPlaceProduction(campaign, site, clickedCell, building);
-            GUI.enabled = wasEnabled && fits && campaign.CanBuildAtSettlement(site, building);
+            var canBuild = fits && campaign.CanBuildAtSettlement(site, building);
+            GUI.enabled = wasEnabled && canBuild;
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)")
                 && campaign.TryBuildAtSettlement(site, building, clickedCell))
             {
                 if (site == campaign.CapitalCell) surface.SetCapital(settlement, campaign);
                 else surface.RefreshVillage(campaign, site);
             }
+            PreviewWhenHovered(MapSettlement.ProductionHalfWidth, canBuild);
             GUI.enabled = wasEnabled;
             GUILayout.Label(localIssue ?? info.SiteIssue ?? (fits ? output : "Select clear ground suitable for this building."));
+        }
+
+        private void PreviewWhenHovered(float halfWidth, bool canBuild)
+        {
+            if (clickedCell < 0 || Event.current.type != EventType.Repaint || !pointerOverProvincePanel
+                || !GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition)) return;
+            previewHalfWidth = halfWidth;
+            previewColour = canBuild ? new Color(.34f, .95f, .47f) : new Color(1f, .32f, .28f);
         }
 
         private void DrawCapitalActions()
@@ -802,6 +827,8 @@ namespace GrandStrategy.WorldGeneration
                 surface.SetCapital(settlement, campaign);
                 saveStatus = "Granary built. Stored food is protected from winter spoilage.";
             }
+            if (!campaign.HasGranary)
+                PreviewWhenHovered(MapSettlement.GranaryHalfWidth, fitsGranary && campaign.CanBuildGranary);
             GUI.enabled = wasEnabled && campaign.CanRecruitWarband;
             if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({CampaignState.WarbandWood} wood, {CampaignState.WarbandCoin} coin)"))
             {

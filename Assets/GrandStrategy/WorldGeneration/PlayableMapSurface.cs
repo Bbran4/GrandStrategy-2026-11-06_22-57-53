@@ -12,6 +12,10 @@ namespace GrandStrategy.WorldGeneration
 
         private Mesh mesh;
         private Material material;
+        private Material footprintMaterial;
+        private LineRenderer footprint;
+        private int footprintCell = -1;
+        private float footprintWidth;
         private Texture2D colours;
         private Texture2D regions;
         private Texture2D provinceCorners;
@@ -499,6 +503,56 @@ namespace GrandStrategy.WorldGeneration
             => IsDryLandAt(uv) && MapSettlement.Contains(capital,
                 new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f));
 
+        public void ShowBuildFootprint(int cell, float halfWidth, Color colour)
+        {
+            if (cell < 0 || cell >= Map.ProvinceAt.Length)
+            {
+                if (footprint != null) footprint.enabled = false;
+                return;
+            }
+
+            if (footprint == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null || !shader.isSupported) return;
+                footprintMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+                var outline = new GameObject("Building footprint", typeof(LineRenderer)) { hideFlags = HideFlags.DontSave };
+                outline.transform.SetParent(surface.transform, false);
+                footprint = outline.GetComponent<LineRenderer>();
+                footprint.useWorldSpace = false;
+                footprint.loop = true;
+                footprint.widthMultiplier = .00019f;
+                footprint.sharedMaterial = footprintMaterial;
+            }
+
+            if (cell != footprintCell || halfWidth != footprintWidth)
+            {
+                const int samplesPerSide = 8;
+                footprint.positionCount = 4 * samplesPerSide;
+                var centre = CellCentre(cell);
+                var width = halfWidth / Aspect;
+                var depth = halfWidth * .77f;
+                for (var i = 0; i < footprint.positionCount; i++)
+                {
+                    var t = (i % samplesPerSide) / (float)samplesPerSide;
+                    var offset = (i / samplesPerSide) switch
+                    {
+                        0 => new Vector2(Mathf.Lerp(-width, width, t), -depth),
+                        1 => new Vector2(width, Mathf.Lerp(-depth, depth, t)),
+                        2 => new Vector2(Mathf.Lerp(width, -width, t), depth),
+                        _ => new Vector2(-width, Mathf.Lerp(depth, -depth, t))
+                    };
+                    var uv = centre + offset;
+                    uv = new Vector2(Mathf.Clamp01(uv.x), Mathf.Clamp01(uv.y));
+                    footprint.SetPosition(i, geometry.Sample(uv, out _) + Vector3.up * .0011f);
+                }
+                footprintCell = cell;
+                footprintWidth = halfWidth;
+            }
+            footprintMaterial.SetColor("_BaseColor", colour);
+            footprint.enabled = true;
+        }
+
         private Vector3? ProductionPoint(CampaignState campaign, int site, SettlementBuilding building)
         {
             var cell = campaign.BuildingPlacement(site, building);
@@ -749,6 +803,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(surface);
             UnityEngine.Object.Destroy(mesh);
             UnityEngine.Object.Destroy(material);
+            UnityEngine.Object.Destroy(footprintMaterial);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
