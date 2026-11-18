@@ -683,8 +683,11 @@ namespace GrandStrategy.WorldGeneration
 
         private void DrawSettlementLink(int cell, string label)
         {
-            if (!GUILayout.Button($"{label} | {campaign.SettlementPopulation(cell):N0} people")) return;
+            if (GUILayout.Button($"{label} | {campaign.SettlementPopulation(cell):N0} people")) FocusMapCell(cell);
+        }
 
+        private void FocusMapCell(int cell)
+        {
             var map = surface.Map;
             clickedCell = selectedCell = cell;
             clickedMapUv = new Vector2((cell % map.Width + .5f) / map.Width, (cell / map.Width + .5f) / map.Height);
@@ -693,7 +696,8 @@ namespace GrandStrategy.WorldGeneration
             focus = surface.PointAtCell(cell);
             targetZoom = MinimumZoom;
             showProvinceDetails = showTrade = false;
-            provinceDetails = Describe(map.Provinces[selected]);
+            provinceScroll = Vector2.zero;
+            provinceDetails = selected >= 0 ? Describe(map.Provinces[selected]) : null;
             surface.SetSelection(selected);
             surface.HighlightInfluenceAt(cell);
         }
@@ -896,6 +900,7 @@ namespace GrandStrategy.WorldGeneration
                 GUILayout.Label("Highland Clan | Reduced warband cost");
             if (campaign != null)
             {
+                DrawCrossingAlerts();
                 if (campaign.Day < CampaignState.WinterStart)
                     GUILayout.Label($"First winter in {CampaignState.WinterStart - campaign.Day} days");
                 else if (campaign.Day < CampaignState.WinterEnd)
@@ -969,6 +974,28 @@ namespace GrandStrategy.WorldGeneration
         }
 
         // Show each agreement's latest outcome and provide reserve and cancellation controls.
+        private void DrawCrossingAlerts()
+        {
+            if (campaign.RivalHeldFords.Count == 0) return;
+            GUILayout.Label("Crossings held by rivals", hudHeading);
+            foreach (var ford in campaign.RivalHeldFords)
+            {
+                var holder = surface.Map.Provinces[campaign.RivalFordHolder(ford)].Id;
+                if (GUILayout.Button($"View ford held by {holder}"))
+                {
+                    resourceFilter = 0;
+                    surface.SetResourceFilter(resourceFilter);
+                    surface.SetView(MapViewMode.Resources);
+                    mapView = MapViewMode.Resources;
+                    FocusMapCell(ford);
+                }
+
+                var held = campaign.SuppliesHeldAtFord(ford);
+                if (held.Shipments > 0)
+                    GUILayout.Label($"{held.Shipments:N0} {(held.Shipments == 1 ? "shipment" : "shipments")} waiting | {held.Cargo:N0} iron");
+            }
+        }
+
         private void DrawCampaignMilestones()
         {
             var deliveries = campaign.CompletedTradeDeliveries;

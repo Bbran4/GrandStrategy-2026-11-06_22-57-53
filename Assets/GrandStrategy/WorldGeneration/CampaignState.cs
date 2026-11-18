@@ -843,15 +843,7 @@ namespace GrandStrategy.WorldGeneration
 
                 var positionDay = shipment.IronHoldDay > 0 ? shipment.IronHoldDay : Day;
                 if (positionDay >= shipment.IronTravelEndDay) continue;
-                var elapsed = positionDay - shipment.IronDepartureDay;
-                var duration = shipment.IronTravelEndDay - shipment.IronDepartureDay;
-                var blocked = false;
-                for (var step = 1; step < path.Length - 1; step++)
-                    if ((long)step * duration >= (long)elapsed * (path.Length - 1) && IsFordClosed(path[step]))
-                    {
-                        blocked = true;
-                        break;
-                    }
+                var blocked = BlockingFord(shipment, positionDay) >= 0;
 
                 if (blocked && shipment.IronHoldDay == 0)
                     shipment.IronHoldDay = Day;
@@ -865,6 +857,33 @@ namespace GrandStrategy.WorldGeneration
                 }
                 data.Construction[i] = shipment;
             }
+        }
+
+        private int BlockingFord(SettlementConstruction shipment, int positionDay)
+        {
+            var path = shipment.IronTravelPath;
+            if (shipment.IronTransport != IronSupplyRoute.Overland || path == null) return -1;
+
+            var elapsed = positionDay - shipment.IronDepartureDay;
+            var duration = shipment.IronTravelEndDay - shipment.IronDepartureDay;
+            for (var step = 1; step < path.Length - 1; step++)
+                if ((long)step * duration >= (long)elapsed * (path.Length - 1) && IsFordClosed(path[step]))
+                    return path[step];
+            return -1;
+        }
+
+        public (int Shipments, long Cargo) SuppliesHeldAtFord(int ford)
+        {
+            var count = 0;
+            long cargo = 0;
+            foreach (var shipment in data.Construction)
+            {
+                if (shipment.IronInTransit <= 0 || shipment.IronHoldDay <= 0
+                    || BlockingFord(shipment, shipment.IronHoldDay) != ford) continue;
+                count++;
+                cargo += shipment.IronInTransit;
+            }
+            return (count, cargo);
         }
 
         private void RefreshFordAccess()

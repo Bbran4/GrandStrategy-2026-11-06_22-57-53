@@ -776,11 +776,12 @@ internal static class Program
         valley.Advance(44);
         var valleyCargo = valley.IronShipment(mineSite);
         var deliveredBeforeClosure = valley.Iron;
-        Require(valley.IsFordHeldByRival(fordCell) && valley.IsIronShipmentHeld(mineSite) && valleyCargo.Amount > 0,
+        Require(valley.IsFordHeldByRival(fordCell) && valley.IsIronShipmentHeld(mineSite) && valleyCargo.Amount > 0
+            && valley.SuppliesHeldAtFord(fordCell) == (1, (long)valleyCargo.Amount),
             "A rival takeover on a production day must cut a live supply route and hold outgoing cargo.");
         valley.Advance(valleyCargo.Days + 1);
         Require(valley.Iron == deliveredBeforeClosure && valley.TryNegotiateFordPassage(fordCell)
-            && !valley.IsIronShipmentHeld(mineSite), "Negotiated passage must release cargo without a military retake.");
+            && !valley.IsIronShipmentHeld(mineSite) && valley.SuppliesHeldAtFord(fordCell).Shipments == 0, "Negotiated passage must release cargo without a military retake.");
         valley.Advance(valleyCargo.Days);
         Require(valley.Iron == deliveredBeforeClosure + valleyCargo.Amount,
             "The reopened crossing must deliver precisely the previously held cargo.");
