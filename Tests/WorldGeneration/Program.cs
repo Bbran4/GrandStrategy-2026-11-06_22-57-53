@@ -495,6 +495,24 @@ internal static class Program
             && localFarm.SettlementBuildingInfo(localFarm.CapitalCell, SettlementBuilding.Farm, fordCell + 1).Yield == 3,
             "Manual farm construction must use local eligibility and yield.");
 
+        var hill = recipe.Width + 2;
+        var marchHeights = Enumerable.Repeat(recipe.SeaLevel, raster.Length).ToArray();
+        marchHeights[hill] = 1f;
+        var hillMap = ProvinceMap.Build(recipe, Enumerable.Repeat(1, raster.Length).ToArray(),
+            new[] { new ProvinceInfo { Id = "Hills", Rgb = 1, Type = "land" } });
+        hillMap.BuildMarchTerrain(WaterMap.Classify(new HeightmapResult(recipe, marchHeights)), null, marchHeights);
+        var detour = hillMap.FindWarbandRoute(hill - 1, hill + 1);
+        Require(detour.Count == 5 && !detour.Contains(hill), "Routing must prefer a cheaper detour around steep ground.");
+        var climb = CampaignState.Found(hillMap, "hill", hill - 1, "Climb", 0);
+        Require(climb.TryRecruitWarband() && climb.TryMarchWarband(new List<int> { hill - 1, hill })
+            && climb.WarbandTravelDays > 1, "A steep step must take longer than flat terrain.");
+        climb.Paused = false;
+        climb.Advance(1);
+        var climbSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(climb.ToSave(), json), json);
+        var resumedClimb = CampaignState.Restore(hillMap, "hill", climbSave, 5);
+        Require(resumedClimb.WarbandCell == hill - 1 && resumedClimb.WarbandTravelDays == climb.WarbandTravelDays
+            && resumedClimb.WarbandTravelDays > 0, "Partial progress across a steep step must survive a save.");
+
         var march = CampaignState.Found(map, key, 0, "March", 0);
         var beforeRecruitment = march.SettlementPopulation(0);
         Require(march.TryRecruitWarband() && march.WarbandCell == 0

@@ -58,6 +58,7 @@ namespace GrandStrategy.WorldGeneration
         private const byte FordEastWest = 2;
         private const byte FordNorthSouth = 4;
         [NonSerialized] private byte[] marchTerrain;
+        [NonSerialized] private float[] marchElevations;
         [NonSerialized] private int[] waterwayAt;
         internal bool HasDockWaterwayData => waterwayAt != null;
 
@@ -92,6 +93,7 @@ namespace GrandStrategy.WorldGeneration
 
         internal void BuildMarchTerrain(WaterMap water, byte[] rivers, float[] elevations)
         {
+            marchElevations = elevations;
             marchTerrain = new byte[ProvinceAt.Length];
             for (var cell = 0; cell < marchTerrain.Length; cell++)
                 if (water[cell] == WaterKind.Land && (rivers == null || rivers[cell] == 0)
@@ -136,6 +138,68 @@ namespace GrandStrategy.WorldGeneration
             if (a == MarchLand && b == MarchLand) return true;
             if (a != MarchLand && b != MarchLand) return false;
             return ((a | b) & (horizontal ? FordEastWest : FordNorthSouth)) != 0;
+        }
+
+        internal const int BaseMarchCost = 4;
+
+        internal int MarchStepCost(int from, int to)
+        {
+            var grade = marchElevations == null ? 0f : Math.Abs(marchElevations[from] - marchElevations[to]) * Height;
+            var elevationCost = (int)Math.Min(16f, grade);
+            return BaseMarchCost + elevationCost + (IsFord(from) || IsFord(to) ? 2 : 0);
+        }
+
+        internal List<int> FindWarbandRoute(int start, int goal)
+        {
+            if (!IsMarchCell(start) || !IsMarchCell(goal) || start == goal) return null;
+            var fordDestination = IsFord(goal);
+
+            var frontier = new SortedSet<(int Estimate, int Cell)> { (Distance(start), start) };
+            var costs = new Dictionary<int, int> { [start] = 0 };
+            var previous = new Dictionary<int, int>();
+            while (frontier.Count > 0)
+            {
+                var current = frontier.Min;
+                frontier.Remove(current);
+                var cell = current.Cell;
+                if (fordDestination ? CanMarchBetween(cell, goal) : cell == goal)
+                {
+                    var route = new List<int> { cell };
+                    while (cell != start)
+                    {
+                        cell = previous[cell];
+                        route.Add(cell);
+                    }
+                    route.Reverse();
+                    return route;
+                }
+
+                var spent = costs[cell];
+                var x = cell % Width;
+                if (x > 0) Visit(cell - 1);
+                if (x + 1 < Width) Visit(cell + 1);
+                if (cell >= Width) Visit(cell - Width);
+                if (cell + Width < ProvinceAt.Length) Visit(cell + Width);
+
+                void Visit(int next)
+                {
+                    if (!CanMarchBetween(cell, next)) return;
+                    var cost = spent + MarchStepCost(cell, next);
+                    var distance = Distance(next);
+                    if (costs.TryGetValue(next, out var prior))
+                    {
+                        if (prior <= cost) return;
+                        frontier.Remove((prior + distance, next));
+                    }
+                    costs[next] = cost;
+                    previous[next] = cell;
+                    frontier.Add((cost + distance, next));
+                }
+            }
+            return null;
+
+            int Distance(int cell) => BaseMarchCost * (Math.Abs(cell % Width - goal % Width)
+                + Math.Abs(cell / Width - goal / Width));
         }
 
         // Resolve imported colours to compact province indices and collect each province's neighbours and

@@ -590,57 +590,7 @@ namespace GrandStrategy.WorldGeneration
             productionSites.Apply(false, false);
         }
 
-        public List<int> FindWarbandRoute(int start, int goal)
-        {
-            if (!Map.IsMarchCell(start) || !Map.IsMarchCell(goal) || start == goal) return null;
-            var fordDestination = Map.IsFord(goal);
-
-            var frontier = new SortedSet<(int Estimate, int Cell)> { (Distance(start), start) };
-            var costs = new Dictionary<int, int> { [start] = 0 };
-            var previous = new Dictionary<int, int>();
-            while (frontier.Count > 0)
-            {
-                var current = frontier.Min;
-                frontier.Remove(current);
-                var cell = current.Cell;
-                if (fordDestination ? Map.CanMarchBetween(cell, goal) : cell == goal)
-                {
-                    var route = new List<int> { cell };
-                    while (cell != start)
-                    {
-                        cell = previous[cell];
-                        route.Add(cell);
-                    }
-                    route.Reverse();
-                    return route;
-                }
-
-                var cost = costs[cell] + 1;
-                var x = cell % Map.Width;
-                if (x > 0) Visit(cell - 1);
-                if (x + 1 < Map.Width) Visit(cell + 1);
-                if (cell >= Map.Width) Visit(cell - Map.Width);
-                if (cell + Map.Width < Map.ProvinceAt.Length) Visit(cell + Map.Width);
-
-                void Visit(int next)
-                {
-                    if (!Map.CanMarchBetween(cell, next)) return;
-                    var distance = Distance(next);
-                    if (costs.TryGetValue(next, out var prior))
-                    {
-                        if (prior <= cost) return;
-                        frontier.Remove((prior + distance, next));
-                    }
-                    costs[next] = cost;
-                    previous[next] = cell;
-                    frontier.Add((cost + distance, next));
-                }
-            }
-            return null;
-
-            int Distance(int cell) => Math.Abs(cell % Map.Width - goal % Map.Width)
-                + Math.Abs(cell / Map.Width - goal / Map.Width);
-        }
+        public List<int> FindWarbandRoute(int start, int goal) => Map.FindWarbandRoute(start, goal);
 
         public void ShowWarband(CampaignState campaign)
         {

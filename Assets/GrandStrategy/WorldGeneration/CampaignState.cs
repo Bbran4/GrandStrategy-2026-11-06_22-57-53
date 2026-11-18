@@ -116,6 +116,7 @@ namespace GrandStrategy.WorldGeneration
         public int GranarySite; // Cell index plus one. Zero uses the original automatic placement.
         public bool Warband;
         public int WarbandRouteIndex;
+        public int WarbandMarchCredit;
         public List<int> WarbandRoute;
         public List<int> SecuredFords;
         public bool IronWarband;
@@ -173,6 +174,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly CampaignSave data;
         private double fractionOfDay;
         private HashSet<int> dockWaterways;
+        private long remainingMarchCost;
         internal Func<int, bool> LandContactResolver { get; set; }
         public int InfluenceRevision { get; private set; }
 
@@ -183,6 +185,12 @@ namespace GrandStrategy.WorldGeneration
             if (data.WarbandRoute != null && (!data.Warband || data.WarbandRouteIndex < 0
                 || data.WarbandRouteIndex >= data.WarbandRoute.Count || !IsWarbandRoute(data.WarbandRoute)))
                 throw new ArgumentException("The save contains an invalid warband route.");
+            if (data.WarbandRoute != null)
+                remainingMarchCost = RouteCost(data.WarbandRoute, data.WarbandRouteIndex);
+            if (data.WarbandMarchCredit < 0 || (data.WarbandMarchCredit != 0
+                && (remainingMarchCost == 0 || data.WarbandMarchCredit >= map.MarchStepCost(
+                    data.WarbandRoute[data.WarbandRouteIndex], data.WarbandRoute[data.WarbandRouteIndex + 1]))))
+                throw new ArgumentException("The save contains invalid warband march progress.");
             data.SecuredFords ??= new List<int>();
             var uniqueFords = new HashSet<int>();
             foreach (var ford in data.SecuredFords)
@@ -462,8 +470,9 @@ namespace GrandStrategy.WorldGeneration
             : data.WarbandRoute == null ? CapitalCell : data.WarbandRoute[data.WarbandRouteIndex];
         public IReadOnlyList<int> WarbandRoute => data.WarbandRoute;
         public int WarbandRouteIndex => data.WarbandRouteIndex;
-        public int WarbandTravelDays => data.WarbandRoute == null
-            ? 0 : (data.WarbandRoute.Count - 1 - data.WarbandRouteIndex + WarbandCellsPerDay - 1) / WarbandCellsPerDay;
+        private int MarchBudgetPerDay => WarbandCellsPerDay * ProvinceMap.BaseMarchCost;
+        public int WarbandTravelDays
+            => (int)((remainingMarchCost - data.WarbandMarchCredit + MarchBudgetPerDay - 1) / MarchBudgetPerDay);
         public WarbandSupplyPolicy WarbandSupply => data.WarbandSupply;
         public int WarbandFoodCost => !HasWarband ? 0 : WarbandSupply switch
         {
@@ -499,6 +508,8 @@ namespace GrandStrategy.WorldGeneration
                 return false;
             data.WarbandRoute = new List<int>(route);
             data.WarbandRouteIndex = 0;
+            data.WarbandMarchCredit = 0;
+            remainingMarchCost = RouteCost(route, 0);
             return true;
         }
 
@@ -512,19 +523,40 @@ namespace GrandStrategy.WorldGeneration
             return true;
         }
 
+        private long RouteCost(IReadOnlyList<int> route, int start)
+        {
+            long total = 0;
+            for (var i = start + 1; i < route.Count; i++)
+                total += map.MarchStepCost(route[i - 1], route[i]);
+            return total;
+        }
+
         private void AdvanceWarband(int days)
         {
-            if (data.WarbandRoute == null) return;
-            var index = Math.Min(data.WarbandRoute.Count - 1L, data.WarbandRouteIndex + (long)days * WarbandCellsPerDay);
-            data.WarbandRouteIndex = (int)index;
-            if (index == data.WarbandRoute.Count - 1 && data.WarbandRoute.Count > 1)
+            if (remainingMarchCost == 0) return;
+            var route = data.WarbandRoute;
+            var budget = data.WarbandMarchCredit + (long)days * MarchBudgetPerDay;
+            while (data.WarbandRouteIndex < route.Count - 1)
             {
-                var destination = data.WarbandRoute[(int)index];
-                data.WarbandRoute.Clear();
-                data.WarbandRoute.Add(destination);
-                data.WarbandRouteIndex = 0;
+                var index = data.WarbandRouteIndex;
+                var step = map.MarchStepCost(route[index], route[index + 1]);
+                if (budget < step) break;
+                budget -= step;
+                remainingMarchCost -= step;
+                data.WarbandRouteIndex++;
             }
+
+            if (remainingMarchCost == 0)
+            {
+                var destination = route[data.WarbandRouteIndex];
+                route.Clear();
+                route.Add(destination);
+                data.WarbandRouteIndex = 0;
+                data.WarbandMarchCredit = 0;
+            }
+            else data.WarbandMarchCredit = (int)budget;
         }
+
         public bool HasIronWarband => data.IronWarband;
         public bool CanUpgradeWarband => HasWarband && !HasIronWarband
             && Iron >= IronWarbandIron && Wood >= IronWarbandWood && Coin >= IronWarbandCoin;
