@@ -47,6 +47,7 @@ namespace GrandStrategy.WorldGeneration
         private MapViewMode mapView = MapViewMode.Provinces;
         private bool editingName;
         private bool showProvinceSettlements;
+        private bool showHappinessDetails;
         private int selected = -1;
         private int selectedCell = -1;
         private int clickedCell = -1;
@@ -413,6 +414,19 @@ namespace GrandStrategy.WorldGeneration
         {
             GUILayout.Label($"Settlement population: {campaign.SettlementPopulation(site):N0}");
             GUILayout.Label($"Settlement happiness: {campaign.SettlementHappiness(site)}/100");
+            showHappinessDetails = GUILayout.Toggle(showHappinessDetails, "Show happiness and growth");
+            if (showHappinessDetails)
+            {
+                var factors = campaign.SettlementHappinessBreakdown(site);
+                GUILayout.Label($"Base {factors.Base} | {campaign.Taxes} taxes {factors.Tax:+0;-0;0}");
+                if (factors.Farm != 0) GUILayout.Label($"Local farm +{factors.Farm}");
+                if (factors.Granary != 0) GUILayout.Label($"Capital granary +{factors.Granary}");
+                if (factors.Food != 0) GUILayout.Label($"Food shortage {factors.Food}");
+                GUILayout.Label($"Clan food stock {campaign.Food:N0} | Next upkeep {campaign.FoodUpkeep:N0}");
+                GUILayout.Label(campaign.Food > campaign.FoodUpkeep ? "Surplus food supports growth at current stock."
+                    : campaign.Food == campaign.FoodUpkeep ? "Current stock covers upkeep with no surplus for growth."
+                    : "Current stock falls short of upkeep. Population may decline.");
+            }
             DrawConstruction(site);
             if (site == campaign.CapitalCell) DrawCapitalActions();
         }

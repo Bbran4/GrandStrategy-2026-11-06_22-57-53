@@ -361,13 +361,23 @@ namespace GrandStrategy.WorldGeneration
         public int CapitalHappiness => SettlementHappiness(CapitalCell);
         public int SettlementHappiness(int cell) => Happiness(cell, Food >= FoodUpkeep);
 
+        public (int Base, int Tax, int Food, int Farm, int Granary) SettlementHappinessBreakdown(int cell)
+            => HappinessFactors(cell, Food >= FoodUpkeep);
+
+        private (int Base, int Tax, int Food, int Farm, int Granary) HappinessFactors(int cell, bool fed)
+        {
+            var tax = Taxes switch { TaxPolicy.Relief => 15, TaxPolicy.Heavy => -30, _ => 0 };
+            var farm = HasSettlementBuilding(cell, SettlementBuilding.Farm) ? 5 : 0;
+            var granary = cell == CapitalCell && HasGranary ? 5 : 0;
+            return (60, tax, fed ? 0 : -25, farm, granary);
+        }
+
         private int Happiness(int cell, bool fed)
         {
-            var taxEffect = Taxes switch { TaxPolicy.Relief => 15, TaxPolicy.Heavy => -30, _ => 0 };
-            var buildings = (cell == CapitalCell && HasGranary ? 5 : 0)
-                + (HasSettlementBuilding(cell, SettlementBuilding.Farm) ? 5 : 0);
-            return 60 + taxEffect + buildings - (fed ? 0 : 25);
+            var factors = HappinessFactors(cell, fed);
+            return factors.Base + factors.Tax + factors.Food + factors.Farm + factors.Granary;
         }
+
         public long TaxCollected => data.TaxCollected;
         public long TradeReceipts => data.TradeReceipts;
         public long TradeSpending => data.TradeSpending;
