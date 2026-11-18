@@ -130,6 +130,7 @@ namespace GrandStrategy.WorldGeneration
                     OnProvinceJoined(hadExpanded);
             }
 
+            surface.ShowWarband(campaign?.WarbandCell ?? -1);
             surface.RefreshInfluence();
             surface.HighlightInfluenceAt(clickedCell);
             surface.SetCityLimitsVisible(campaign, selected);
@@ -626,6 +627,7 @@ namespace GrandStrategy.WorldGeneration
                     var target = surface.Map.Provinces[campaign.IntegrationTarget].Id;
                     GUILayout.Label($"{target} joins in {campaign.IntegrationDaysLeft} days");
                 }
+                DrawWarbandOrders();
                 GUILayout.Label("Treasury", hudHeading);
                 GUILayout.Label("Tax law");
                 GUILayout.BeginHorizontal();
@@ -680,6 +682,23 @@ namespace GrandStrategy.WorldGeneration
                     break;
                 }
             }
+        }
+
+        private void DrawWarbandOrders()
+        {
+            if (!campaign.HasWarband) return;
+            GUILayout.Label(campaign.WarbandTravelDays > 0
+                ? $"Warband marching | {campaign.WarbandTravelDays} days"
+                : "Warband ready");
+            var wasEnabled = GUI.enabled;
+            GUI.enabled = wasEnabled && clickedCell >= 0 && clickedCell != campaign.WarbandCell
+                && surface.IsDryLand(clickedCell);
+            if (GUILayout.Button("March to selected ground"))
+            {
+                var route = surface.FindWarbandRoute(campaign.WarbandCell, clickedCell);
+                saveStatus = campaign.TryMarchWarband(route) ? "March ordered." : "No land route to the selected ground.";
+            }
+            GUI.enabled = wasEnabled;
         }
 
         private void DrawTaxPolicy(TaxPolicy policy)

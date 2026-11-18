@@ -472,6 +472,20 @@ internal static class Program
             "Integration must transfer ownership on the scheduled day.");
         Require(restored.TryStartIntegration(2), "A new border must open further integration.");
 
+        var march = CampaignState.Found(map, key, 0, "March", 0);
+        Require(march.TryRecruitWarband() && march.WarbandCell == 0
+            && !march.TryMarchWarband(new List<int> { 0, 2 })
+            && march.TryMarchWarband(new List<int> { 0, 1 }),
+            "A recruited warband must start at the capital and accept only connected routes.");
+        var marchSave = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(march.ToSave(), json), json);
+        march = CampaignState.Restore(map, key, marchSave, 5);
+        Require(march.WarbandCell == 0 && march.WarbandTravelDays == 1,
+            "An active march must survive save and load.");
+        march.Paused = false;
+        march.Advance(1);
+        Require(march.WarbandCell == 1 && march.WarbandTravelDays == 0,
+            "A marching warband must reach its destination on the campaign clock.");
+
         var standardTaxes = CampaignState.Found(map, key, 0, "Standard", 0);
         var heavyTaxes = CampaignState.Found(map, key, 0, "Heavy", 0);
         heavyTaxes.SetTaxPolicy(TaxPolicy.Heavy);

@@ -13,6 +13,9 @@ namespace GrandStrategy.WorldGeneration
         private Mesh mesh;
         private Material material;
         private Material footprintMaterial;
+        private Material warbandMaterial;
+        private GameObject warbandMarker;
+        private int markerCell = -1;
         private LineRenderer footprint;
         private int footprintCell = -1;
         private float footprintWidth;
@@ -503,6 +506,91 @@ namespace GrandStrategy.WorldGeneration
             => IsDryLandAt(uv) && MapSettlement.Contains(capital,
                 new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f));
 
+        public List<int> FindWarbandRoute(int start, int goal)
+        {
+            if (start < 0 || goal < 0 || start == goal || !IsDryLand(goal)
+                || !CampaignState.IsLand(Map, Map.ProvinceAt[goal])) return null;
+
+            var frontier = new SortedSet<(int Estimate, int Cell)> { (Distance(start), start) };
+            var costs = new Dictionary<int, int> { [start] = 0 };
+            var previous = new Dictionary<int, int>();
+            while (frontier.Count > 0)
+            {
+                var current = frontier.Min;
+                frontier.Remove(current);
+                var cell = current.Cell;
+                if (cell == goal)
+                {
+                    var route = new List<int> { goal };
+                    while (cell != start)
+                    {
+                        cell = previous[cell];
+                        route.Add(cell);
+                    }
+                    route.Reverse();
+                    return route;
+                }
+
+                var cost = costs[cell] + 1;
+                var x = cell % Map.Width;
+                if (x > 0) Visit(cell - 1);
+                if (x + 1 < Map.Width) Visit(cell + 1);
+                if (cell >= Map.Width) Visit(cell - Map.Width);
+                if (cell + Map.Width < Map.ProvinceAt.Length) Visit(cell + Map.Width);
+
+                void Visit(int next)
+                {
+                    if (!IsDryLand(next) || !CampaignState.IsLand(Map, Map.ProvinceAt[next])) return;
+                    var distance = Distance(next);
+                    if (costs.TryGetValue(next, out var prior))
+                    {
+                        if (prior <= cost) return;
+                        frontier.Remove((prior + distance, next));
+                    }
+                    costs[next] = cost;
+                    previous[next] = cell;
+                    frontier.Add((cost + distance, next));
+                }
+            }
+            return null;
+
+            int Distance(int cell) => Math.Abs(cell % Map.Width - goal % Map.Width)
+                + Math.Abs(cell / Map.Width - goal / Map.Width);
+        }
+
+        public void ShowWarband(int cell)
+        {
+            if (cell == markerCell) return;
+            if (cell < 0)
+            {
+                if (warbandMarker != null) warbandMarker.SetActive(false);
+                markerCell = -1;
+                return;
+            }
+
+            if (warbandMarker == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null || !shader.isSupported) return;
+                warbandMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+                warbandMaterial.SetColor("_BaseColor", new Color(.86f, .18f, .13f));
+                warbandMarker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                warbandMarker.name = "Warband marker";
+                warbandMarker.hideFlags = HideFlags.DontSave;
+                warbandMarker.transform.SetParent(surface.transform, false);
+                warbandMarker.transform.localScale = new Vector3(.004f, .0025f, .004f);
+                warbandMarker.GetComponent<MeshRenderer>().sharedMaterial = warbandMaterial;
+                var collider = warbandMarker.GetComponent<Collider>();
+                collider.enabled = false;
+                UnityEngine.Object.Destroy(collider);
+            }
+
+            warbandMarker.SetActive(true);
+            warbandMarker.transform.localPosition = geometry.Sample(CellCentre(cell), out _) + Vector3.up * .003f;
+            warbandMarker.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
+            markerCell = cell;
+        }
+
         public void ShowBuildFootprint(int cell, float halfWidth, Color colour)
         {
             if (cell < 0 || cell >= Map.ProvinceAt.Length)
@@ -804,6 +892,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(mesh);
             UnityEngine.Object.Destroy(material);
             UnityEngine.Object.Destroy(footprintMaterial);
+            UnityEngine.Object.Destroy(warbandMaterial);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);

@@ -103,6 +103,8 @@ namespace GrandStrategy.WorldGeneration
         public bool Granary;
         public int GranarySite; // Cell index plus one. Zero uses the original automatic placement.
         public bool Warband;
+        public int WarbandRouteIndex;
+        public List<int> WarbandRoute;
         public bool IronWarband;
         public int FoodReserve;
         public List<TradeAgreement> Agreements;
@@ -159,6 +161,9 @@ namespace GrandStrategy.WorldGeneration
         {
             this.map = map;
             this.data = data;
+            if (data.WarbandRoute != null && (!data.Warband || data.WarbandRouteIndex < 0
+                || data.WarbandRouteIndex >= data.WarbandRoute.Count || !IsWarbandRoute(data.WarbandRoute)))
+                throw new ArgumentException("The save contains an invalid warband route.");
             data.Construction ??= new List<SettlementConstruction>();
             data.SettlementCells ??= new List<int>();
             if (data.SecondSettlementSite > 0)
@@ -325,6 +330,48 @@ namespace GrandStrategy.WorldGeneration
         public bool HasGranary => data.Granary;
         public int GranaryCell => data.GranarySite - 1;
         public bool HasWarband => data.Warband;
+        public int WarbandCell => !HasWarband ? -1
+            : data.WarbandRoute == null ? CapitalCell : data.WarbandRoute[data.WarbandRouteIndex];
+        public int WarbandTravelDays => data.WarbandRoute == null
+            ? 0 : (data.WarbandRoute.Count - 1 - data.WarbandRouteIndex + WarbandCellsPerDay - 1) / WarbandCellsPerDay;
+        private int WarbandCellsPerDay => Math.Max(1, map.Height / 128);
+
+        public bool TryMarchWarband(List<int> route)
+        {
+            if (!HasWarband || route == null || route.Count < 2 || route[0] != WarbandCell || !IsWarbandRoute(route))
+                return false;
+            data.WarbandRoute = new List<int>(route);
+            data.WarbandRouteIndex = 0;
+            return true;
+        }
+
+        private bool IsWarbandRoute(IReadOnlyList<int> route)
+        {
+            for (var i = 0; i < route.Count; i++)
+            {
+                var cell = route[i];
+                if (!IsLand(map, ProvinceAt(map, cell))) return false;
+                if (i == 0) continue;
+                var previous = route[i - 1];
+                if (Math.Abs(cell % map.Width - previous % map.Width)
+                    + Math.Abs(cell / map.Width - previous / map.Width) != 1) return false;
+            }
+            return true;
+        }
+
+        private void AdvanceWarband(int days)
+        {
+            if (data.WarbandRoute == null) return;
+            var index = Math.Min(data.WarbandRoute.Count - 1L, data.WarbandRouteIndex + (long)days * WarbandCellsPerDay);
+            data.WarbandRouteIndex = (int)index;
+            if (index == data.WarbandRoute.Count - 1 && data.WarbandRoute.Count > 1)
+            {
+                var destination = data.WarbandRoute[(int)index];
+                data.WarbandRoute.Clear();
+                data.WarbandRoute.Add(destination);
+                data.WarbandRouteIndex = 0;
+            }
+        }
         public bool HasIronWarband => data.IronWarband;
         public bool CanUpgradeWarband => HasWarband && !HasIronWarband
             && Iron >= IronWarbandIron && Wood >= IronWarbandWood && Coin >= IronWarbandCoin;
@@ -1042,6 +1089,7 @@ namespace GrandStrategy.WorldGeneration
                 if (IntegrationTarget >= 0 && IntegrationDaysLeft <= span)
                     span = Math.Max(1, IntegrationDaysLeft - 1);
                 data.Day += span;
+                AdvanceWarband(span);
                 expanded |= AdvanceIntegration(span);
                 ApplyEconomy(previousDay);
             }
