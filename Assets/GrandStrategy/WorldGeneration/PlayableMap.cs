@@ -546,6 +546,7 @@ namespace GrandStrategy.WorldGeneration
             if (root < 0)
             {
                 GUILayout.Label(clickedCell < 0 ? "Select a province"
+                    : surface.IsMilitaryOccupied(clickedCell) ? "Under military occupation"
                     : surface.IsIndependentTerritory(clickedCell) ? "Independent village territory"
                     : "Outside settlement influence", hudHeading);
                 return;
@@ -694,7 +695,8 @@ namespace GrandStrategy.WorldGeneration
             }
 
             if (selected == campaign.IndependentVillageRegion)
-                GUILayout.Label(campaign.IndependentFarmCell >= 0 ? "Independent farming village | Larger food market"
+                GUILayout.Label(campaign.IndependentVillageOccupied ? "Independent village occupied | Growth and development paused"
+                    : campaign.IndependentFarmCell >= 0 ? "Independent farming village | Larger food market"
                     : "Independent village | Population growing");
             GUILayout.Label(population == 0 ? "No independent community here"
                 : selected == campaign.Capital || HasVillageHere ? "Clan settlement nearby | Independent community"
@@ -1441,7 +1443,7 @@ namespace GrandStrategy.WorldGeneration
                 MapViewMode.Resources when resourceFilter == 0 => "White: ford | Blue: passage | Green: secured | Purple: rival | Red: closed",
                 MapViewMode.Resources => "Highlighted ground suits the selected resource",
                 MapViewMode.Realm => "Province and territory borders",
-                MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows active military pressure",
+                MapViewMode.Ownership when campaign?.WarbandCommitted == true => "Red shows military occupation",
                 MapViewMode.Ownership => campaign == null ? "Found a settlement to see its influence" : "Dark frontier | Lighter internal province borders",
                 MapViewMode.Biomes => selected >= 0 ? "Dominant biome: " + DominantBiome(surface.Map.Provinces[selected])
                     : "Click a province to inspect its biome",

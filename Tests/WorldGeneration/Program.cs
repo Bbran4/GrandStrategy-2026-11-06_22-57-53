@@ -552,6 +552,22 @@ internal static class Program
             && independent.BuildingPlacement(1, SettlementBuilding.Farm) == 1,
             "Integration must bring the existing independent village and its farm into the clan at their saved locations.");
 
+        var occupied = CampaignState.Found(map, key, 0, "Occupation", 0, localCapitalClaim: true);
+        occupied.IndependentVillageSiteResolver = region => region == 1 ? 1 : -1;
+        occupied.MilitaryOccupationResolver = cell => cell == 1;
+        Require(occupied.TryRecruitWarband() && occupied.TryMarchWarband(new List<int> { 0, 1 }),
+            "The occupation fixture requires a warband in the target region.");
+        occupied.Paused = false;
+        occupied.Advance(27);
+        var beforeOccupation = occupied.IndependentPopulation(1);
+        Require(occupied.TryStartIntegration(1, ExpansionApproach.Force) && occupied.IndependentVillageOccupied,
+            "The independent village must detect occupation in the target region.");
+        occupied.Advance(2);
+        Require(occupied.IndependentPopulation(1) == beforeOccupation && occupied.TryWithdrawWarband()
+            && !occupied.IndependentVillageOccupied, "Occupation must suspend village growth and end on withdrawal.");
+        occupied.Advance(15);
+        Require(occupied.IndependentPopulation(1) > beforeOccupation, "Growth must resume after the occupation lifts.");
+
         var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
         Require(fordMap.IsFord(fordCell) && !fordCampaign.TrySecureFord(fordCell)
             && fordCampaign.TryRecruitWarband() && fordCampaign.TrySecureFord(fordCell)

@@ -229,6 +229,7 @@ namespace GrandStrategy.WorldGeneration
         internal Func<int, int> IndependentVillageSiteResolver { get; set; }
         internal Func<int, int> IndependentFarmSiteResolver { get; set; }
         internal Func<int, bool> IndependentTerritoryResolver { get; set; }
+        internal Func<int, bool> MilitaryOccupationResolver { get; set; }
         public int InfluenceRevision { get; private set; }
         public int FordAccessRevision { get; private set; }
 
@@ -455,6 +456,8 @@ namespace GrandStrategy.WorldGeneration
         public int Coin => data.Coin;
         public bool UsesLocalIntegration => data.LocalIntegration;
         public int IndependentVillageCell => data.IndependentVillageSite - 1;
+        public bool IndependentVillageOccupied => IndependentVillageCell >= 0 && WarbandCommitted
+            && MilitaryOccupationResolver?.Invoke(IndependentVillageCell) == true;
         public int IndependentFarmCell => data.IndependentFarmSite - 1;
         public int IndependentVillageRegion => SettlementProvince(IndependentVillageCell);
 
@@ -1962,7 +1965,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 var region = IndependentVillageRegion;
                 var population = IndependentPopulation(region);
-                if (population <= 0) return;
+                if (population <= 0 || IndependentVillageOccupied) return;
                 var growth = Math.Min(int.MaxValue - data.Pop[region], Math.Max(1, population / 100));
                 data.Pop[region] += growth;
                 if (growth > 0) InfluenceRevision++;

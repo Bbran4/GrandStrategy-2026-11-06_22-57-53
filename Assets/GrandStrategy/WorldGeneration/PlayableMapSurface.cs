@@ -74,6 +74,7 @@ namespace GrandStrategy.WorldGeneration
         private int fordDisplayRevision = -1;
         private int influenceRevision = -1;
         private readonly Dictionary<int, SettlementBuilding> provinceProductionSites = new Dictionary<int, SettlementBuilding>();
+        private readonly HashSet<int> militaryOccupation = new HashSet<int>();
         private readonly HashSet<int> landContacts = new HashSet<int>();
 
         public ProvinceMap Map { get; }
@@ -1082,6 +1083,7 @@ namespace GrandStrategy.WorldGeneration
             campaign.IndependentVillageSiteResolver = FindIndependentVillageSite;
             campaign.IndependentFarmSiteResolver = FindIndependentFarmSite;
             campaign.IndependentTerritoryResolver = IsIndependentTerritory;
+            campaign.MilitaryOccupationResolver = IsMilitaryOccupied;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();
@@ -1111,6 +1113,13 @@ namespace GrandStrategy.WorldGeneration
             if (root < 0) return 0;
             RefreshInfluence(true);
             return provinceProductionSites.TryGetValue(root + 1, out var sites) ? sites : 0;
+        }
+
+        public bool IsMilitaryOccupied(int cell)
+        {
+            if (cell < 0 || influenceCampaign?.WarbandCommitted != true) return false;
+            RefreshInfluence(true);
+            return militaryOccupation.Contains(cell);
         }
 
         public bool IsIndependentTerritory(int cell)
@@ -1171,6 +1180,13 @@ namespace GrandStrategy.WorldGeneration
             Array.Clear(influenceRoots, 0, influenceRoots.Length);
             landContacts.Clear();
             provinceProductionSites.Clear();
+            militaryOccupation.Clear();
+            if (pressure > 0f && campaign.WarbandCell >= 0
+                && Map.ProvinceAt[campaign.WarbandCell] == campaign.IntegrationTarget)
+            {
+                var budget = Map.Height * Mathf.Lerp(.006f, .060f, pressure);
+                Flood(campaign.WarbandCell, budget, campaign.IntegrationTarget, (cell, _) => militaryOccupation.Add(cell));
+            }
 
             Spread(campaign.CapitalCell, campaign.CapitalCell);
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
@@ -1212,16 +1228,11 @@ namespace GrandStrategy.WorldGeneration
                 pixels[cell] = new Color32(255, border, root == highlightedInfluenceRoot ? (byte)255 : (byte)0, 0);
             }
 
-            if (pressure > 0f && campaign.WarbandCell >= 0
-                && Map.ProvinceAt[campaign.WarbandCell] == campaign.IntegrationTarget)
+            foreach (var cell in militaryOccupation)
             {
-                var budget = Map.Height * Mathf.Lerp(.006f, .060f, pressure);
-                Flood(campaign.WarbandCell, budget, campaign.IntegrationTarget, (cell, _) =>
-                {
-                    var pixel = pixels[cell];
-                    pixel.a = 255;
-                    pixels[cell] = pixel;
-                });
+                var pixel = pixels[cell];
+                pixel.a = 255;
+                pixels[cell] = pixel;
             }
 
             ownership.Apply(false, false);
@@ -1238,6 +1249,7 @@ namespace GrandStrategy.WorldGeneration
                 var budget = Map.Height * Mathf.Clamp(.014f + .0014f * Mathf.Sqrt(population), .014f, .085f);
                 Flood(origin, budget, -1, (cell, cost) =>
                 {
+                    if (provinceRoot < 0 && militaryOccupation.Contains(cell)) return;
                     var distance = cost / budget;
                     if (influenceRoots[cell] != 0 && distance >= influenceCosts[cell]) return;
                     influenceRoots[cell] = provinceRoot >= 0 ? provinceRoot + 1 : -1;
