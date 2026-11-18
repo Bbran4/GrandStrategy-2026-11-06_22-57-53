@@ -73,6 +73,7 @@ namespace GrandStrategy.WorldGeneration
         private byte[] settlementBiomes;
         private CampaignState influenceCampaign;
         private int[] influenceRoots;
+        private readonly List<int> influencedCells = new List<int>();
         private int highlightedInfluenceRoot;
         private float[] influenceCosts;
         private float displayedMilitaryPressure;
@@ -1243,13 +1244,13 @@ namespace GrandStrategy.WorldGeneration
             if (root == highlightedInfluenceRoot) return;
 
             var pixels = ownership.GetRawTextureData<Color32>();
-            for (var i = 0; i < pixels.Length; i++)
+            foreach (var influenced in influencedCells)
             {
-                if (influenceRoots[i] == 0
-                    || (influenceRoots[i] != highlightedInfluenceRoot && influenceRoots[i] != root)) continue;
-                var pixel = pixels[i];
-                pixel.b = influenceRoots[i] == root ? (byte)255 : (byte)0;
-                pixels[i] = pixel;
+                var owner = influenceRoots[influenced];
+                if (owner <= 0 || (owner != highlightedInfluenceRoot && owner != root)) continue;
+                var pixel = pixels[influenced];
+                pixel.b = owner == root ? (byte)255 : (byte)0;
+                pixels[influenced] = pixel;
             }
             highlightedInfluenceRoot = root;
             ownership.Apply(false, false);
@@ -1263,9 +1264,13 @@ namespace GrandStrategy.WorldGeneration
             var pressure = campaign.MilitaryPressure;
             if (revision == influenceRevision && pressure == displayedMilitaryPressure) return;
 
+            var firstUpload = ownership == null;
             ownership ??= CreateTexture("Settlement influence", true, FilterMode.Bilinear, false);
             var pixels = ownership.GetRawTextureData<Color32>();
-            if (campaign.IndependentVillageCell >= 0 && independentInfluence == null)
+            if (firstUpload)
+                for (var i = 0; i < pixels.Length; i++) pixels[i] = default;
+            var firstIndependentUpload = campaign.IndependentVillageCell >= 0 && independentInfluence == null;
+            if (firstIndependentUpload)
             {
                 independentInfluence = new Texture2D(Map.Width, Map.Height, TextureFormat.R8, false, true)
                 {
@@ -1273,14 +1278,28 @@ namespace GrandStrategy.WorldGeneration
                     filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp
                 };
                 material.SetTexture("_IndependentInfluence", independentInfluence);
+                var newPixels = independentInfluence.GetRawTextureData<byte>();
+                for (var i = 0; i < newPixels.Length; i++) newPixels[i] = 0;
             }
             var independentPixels = independentInfluence == null ? default : independentInfluence.GetRawTextureData<byte>();
             influenceRoots ??= new int[pixels.Length];
             influenceCosts ??= new float[pixels.Length];
-            Array.Clear(influenceRoots, 0, influenceRoots.Length);
+            var independentMaskChanged = firstIndependentUpload;
+            foreach (var cell in influencedCells)
+            {
+                if (influenceRoots[cell] < 0 && independentPixels.IsCreated)
+                {
+                    independentPixels[cell] = 0;
+                    independentMaskChanged = true;
+                }
+                influenceRoots[cell] = 0;
+                pixels[cell] = default;
+            }
+            influencedCells.Clear();
+            foreach (var cell in militaryOccupation) pixels[cell] = default;
+            militaryOccupation.Clear();
             landContacts.Clear();
             provinceProductionSites.Clear();
-            militaryOccupation.Clear();
             if (pressure > 0f && campaign.WarbandCell >= 0
                 && Map.ProvinceAt[campaign.WarbandCell] == campaign.IntegrationTarget)
             {
@@ -1300,18 +1319,20 @@ namespace GrandStrategy.WorldGeneration
                 if (campaign.IndependentOutpostCell >= 0) Spread(campaign.IndependentOutpostCell, -1, outpostResidents);
             }
 
-            for (var cell = 0; cell < pixels.Length; cell++)
+            const SettlementBuilding allSites = SettlementBuilding.Farm | SettlementBuilding.LumberCamp
+                | SettlementBuilding.IronMine | SettlementBuilding.Docks;
+            foreach (var cell in influencedCells)
             {
                 var root = influenceRoots[cell];
-                if (independentPixels.IsCreated) independentPixels[cell] = root < 0 ? (byte)255 : (byte)0;
-                if (root <= 0)
+                if (root < 0)
                 {
-                    pixels[cell] = default;
+                    independentPixels[cell] = 255;
+                    independentMaskChanged = true;
                     continue;
                 }
                 var x = cell % Map.Width;
                 provinceProductionSites.TryGetValue(root, out var sites);
-                provinceProductionSites[root] = sites | ProductionSitesAt(cell, x, cell / Map.Width);
+                if (sites != allSites) provinceProductionSites[root] = sites | ProductionSitesAt(cell, x, cell / Map.Width);
                 landContacts.Add(Map.ProvinceAt[cell]);
                 if (x > 0) RecordContact(cell - 1);
                 if (x + 1 < Map.Width) RecordContact(cell + 1);
@@ -1341,7 +1362,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             ownership.Apply(false, false);
-            if (independentInfluence != null) independentInfluence.Apply(false, false);
+            if (independentMaskChanged) independentInfluence.Apply(false, false);
             material.SetTexture("_OwnershipMask", ownership);
             displayedMilitaryPressure = pressure;
             influenceRevision = revision;
@@ -1356,7 +1377,8 @@ namespace GrandStrategy.WorldGeneration
                 {
                     if (provinceRoot < 0 && militaryOccupation.Contains(cell)) return;
                     var distance = cost / budget;
-                    if (influenceRoots[cell] != 0 && distance >= influenceCosts[cell]) return;
+                    if (influenceRoots[cell] == 0) influencedCells.Add(cell);
+                    else if (distance >= influenceCosts[cell]) return;
                     influenceRoots[cell] = provinceRoot >= 0 ? provinceRoot + 1 : -1;
                     influenceCosts[cell] = distance;
                 }, useClanFords: provinceRoot >= 0);
