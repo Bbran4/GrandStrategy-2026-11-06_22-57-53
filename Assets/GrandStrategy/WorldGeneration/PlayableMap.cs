@@ -150,7 +150,10 @@ namespace GrandStrategy.WorldGeneration
                 IronSupplyRoute.Waterway => campaign.GetWaterwayIronRoute(constructionSite),
                 _ => null
             };
-            surface.ShowIronSupplyRoute(supplyPath, supply == IronSupplyRoute.Waterway);
+            var journey = showSupply ? campaign.IronShipmentJourney(constructionSite) : default;
+            surface.ShowIronSupplyRoute(journey.Path ?? supplyPath,
+                (journey.Path != null ? journey.Transport : supply) == IronSupplyRoute.Waterway);
+            surface.ShowIronCargo(journey.Path, journey.Progress, journey.Transport == IronSupplyRoute.Waterway);
 
             var keyboard = Keyboard.current;
             if (keyboard != null && !editingName)

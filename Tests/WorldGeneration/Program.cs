@@ -523,7 +523,10 @@ internal static class Program
             "An opened route must dispatch accumulated and newly produced iron before it is usable.");
         var inTransit = JsonSerializer.Deserialize<CampaignSave>(JsonSerializer.Serialize(supply.ToSave(), json), json);
         supply = CampaignState.Restore(supplyMap, "supply", inTransit, 5);
-        Require(supply.IronShipment(mineSite) == cargo, "An in-transit shipment must survive save and load.");
+        var journey = supply.IronShipmentJourney(mineSite);
+        Require(supply.IronShipment(mineSite) == cargo && journey.Transport == IronSupplyRoute.Overland
+            && journey.Path.Contains(fordCell) && journey.Progress == 0f,
+            "An in-transit shipment and its original crossing must survive save and load.");
         supply.Paused = false;
         supply.Advance(cargo.Days);
         Require(supply.Iron == cargo.Amount && supply.IronShipment(mineSite).Amount == 0,

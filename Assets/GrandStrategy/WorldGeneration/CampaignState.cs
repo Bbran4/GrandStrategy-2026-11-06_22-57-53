@@ -59,6 +59,10 @@ namespace GrandStrategy.WorldGeneration
         public int IronStock;
         public int IronInTransit;
         public int IronArrivalDay;
+        public int IronDepartureDay;
+        public int IronTravelEndDay;
+        public IronSupplyRoute IronTransport;
+        public int[] IronTravelPath;
         public int FarmSite, LumberSite, MineSite, DockSite; // Cell index plus one.
 
         public int Placement(SettlementBuilding building) => building switch
@@ -747,6 +751,17 @@ namespace GrandStrategy.WorldGeneration
                         || ((site.IronStock > 0 || site.IronInTransit > 0)
                             && (site.Buildings & (int)SettlementBuilding.IronMine) == 0))
                         throw new ArgumentException("The save contains invalid settlement construction.");
+                    if (site.IronTravelPath != null && site.IronTravelPath.Length != 0)
+                    {
+                        if (site.IronInTransit == 0 || site.IronTravelPath.Length < 2 || site.IronDepartureDay < 1
+                            || site.IronDepartureDay > save.Day || site.IronTravelEndDay <= site.IronDepartureDay
+                            || site.IronTravelEndDay > site.IronArrivalDay
+                            || (site.IronTransport != IronSupplyRoute.Overland && site.IronTransport != IronSupplyRoute.Waterway))
+                            throw new ArgumentException("The save contains invalid iron transport progress.");
+                        foreach (var cell in site.IronTravelPath)
+                            if (cell < 0 || cell >= map.ProvinceAt.Length)
+                                throw new ArgumentException("The save contains an invalid iron transport path.");
+                    }
                     foreach (var building in new[] { SettlementBuilding.Farm, SettlementBuilding.LumberCamp,
                         SettlementBuilding.IronMine, SettlementBuilding.Docks })
                     {
@@ -1063,6 +1078,19 @@ namespace GrandStrategy.WorldGeneration
             return (0, 0);
         }
 
+        public (IReadOnlyList<int> Path, IronSupplyRoute Transport, float Progress) IronShipmentJourney(int cell)
+        {
+            foreach (var site in data.Construction)
+            {
+                if (site.Cell != cell || site.IronInTransit == 0 || site.IronTravelPath == null
+                    || site.IronTravelPath.Length < 2) continue;
+                var elapsed = (Day - site.IronDepartureDay) + fractionOfDay;
+                var duration = site.IronTravelEndDay - site.IronDepartureDay;
+                return (site.IronTravelPath, site.IronTransport, (float)Math.Clamp(elapsed / duration, 0d, 1d));
+            }
+            return (null, IronSupplyRoute.None, 0f);
+        }
+
         public bool HasIronSupplyRoute(int cell) => GetIronSupplyRoute(cell) != IronSupplyRoute.None;
 
         private void ProduceIron(int periods)
@@ -1100,6 +1128,10 @@ namespace GrandStrategy.WorldGeneration
                         var travelDays = Math.Max(1, (route.Count - 2) / cellsPerDay + 1);
                         site.IronInTransit = (int)Math.Min(ResourceLimit, available);
                         site.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + travelDays);
+                        site.IronDepartureDay = Day;
+                        site.IronTravelEndDay = site.IronArrivalDay;
+                        site.IronTransport = routeType;
+                        site.IronTravelPath = new List<int>(route).ToArray();
                         available -= site.IronInTransit;
                     }
                 }
@@ -1126,6 +1158,12 @@ namespace GrandStrategy.WorldGeneration
                 }
                 else
                     site.IronArrivalDay = (int)Math.Min(int.MaxValue, (long)Day + ProductionInterval);
+                if (site.IronInTransit == 0)
+                {
+                    site.IronDepartureDay = site.IronTravelEndDay = 0;
+                    site.IronTravelPath = null;
+                    site.IronTransport = IronSupplyRoute.None;
+                }
                 data.Construction[i] = site;
             }
         }

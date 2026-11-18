@@ -24,6 +24,8 @@ namespace GrandStrategy.WorldGeneration
         private LineRenderer marchLine;
         private LineRenderer ironSupplyLine;
         private Material ironSupplyMaterial;
+        private Material ironCargoMaterial;
+        private GameObject ironCargoMarker;
         private IReadOnlyList<int> displayedIronSupplyRoute;
         private IReadOnlyList<int> displayedMarchRoute;
         private int displayedMarchIndex = -1;
@@ -729,6 +731,44 @@ namespace GrandStrategy.WorldGeneration
             displayedIronSupplyRoute = route;
         }
 
+        public void ShowIronCargo(IReadOnlyList<int> path, float progress, bool waterway)
+        {
+            if (path == null || path.Count < 2)
+            {
+                if (ironCargoMarker != null) ironCargoMarker.SetActive(false);
+                return;
+            }
+
+            if (ironCargoMarker == null)
+            {
+                var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null || !shader.isSupported) return;
+                ironCargoMaterial = new Material(shader) { hideFlags = HideFlags.DontSave };
+                ironCargoMaterial.SetColor("_BaseColor", new Color(1f, .72f, .31f));
+                ironCargoMarker = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                ironCargoMarker.name = "Iron shipment";
+                ironCargoMarker.hideFlags = HideFlags.DontSave;
+                ironCargoMarker.transform.SetParent(surface.transform, false);
+                ironCargoMarker.GetComponent<MeshRenderer>().sharedMaterial = ironCargoMaterial;
+                var collider = ironCargoMarker.GetComponent<Collider>();
+                collider.enabled = false;
+                UnityEngine.Object.Destroy(collider);
+            }
+
+            var step = Mathf.Clamp01(progress) * (path.Count - 1);
+            var index = Mathf.Min(Mathf.FloorToInt(step), path.Count - 2);
+            var a = CellCentre(path[index]);
+            var b = CellCentre(path[index + 1]);
+            var direction = new Vector3((b.x - a.x) * Aspect, 0f, b.y - a.y);
+            if (direction.sqrMagnitude > 0f)
+                ironCargoMarker.transform.localRotation = Quaternion.LookRotation(direction.normalized);
+            ironCargoMarker.transform.localPosition = geometry.Sample(Vector2.Lerp(a, b, step - index), out _)
+                + Vector3.up * .0018f;
+            ironCargoMarker.transform.localScale = waterway
+                ? new Vector3(.0008f, .00052f, .0022f) : new Vector3(.0010f, .0008f, .0014f);
+            ironCargoMarker.SetActive(true);
+        }
+
         private void UpdateMarchLine(IReadOnlyList<int> route, int index)
         {
             if (warbandMaterial == null) return;
@@ -1161,6 +1201,7 @@ namespace GrandStrategy.WorldGeneration
             UnityEngine.Object.Destroy(warbandMaterial);
             UnityEngine.Object.Destroy(warbandArmour);
             UnityEngine.Object.Destroy(ironSupplyMaterial);
+            UnityEngine.Object.Destroy(ironCargoMaterial);
             UnityEngine.Object.Destroy(colours);
             UnityEngine.Object.Destroy(regions);
             UnityEngine.Object.Destroy(provinceCorners);
