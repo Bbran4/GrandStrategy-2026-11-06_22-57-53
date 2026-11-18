@@ -87,7 +87,7 @@ namespace GrandStrategy.WorldGeneration
         public void SetBoundaryVisible(bool visible) => boundary.enabled = visible;
 
         // Place or refresh settlement models on the sampled terrain surface.
-        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production, Func<SettlementBuilding, Vector3?> placement, Vector3? dockWater, float radius)
+        public void Show(Vector3 capital, bool granary, bool expanded, Vector3? granarySite, SettlementBuilding production, Func<SettlementBuilding, Vector3?> placement, Vector3? dockWater, float radius, bool independent = false)
         {
             const int segments = 96;
             boundary.positionCount = segments;
@@ -108,7 +108,7 @@ namespace GrandStrategy.WorldGeneration
             Vector3? farmSite = null;
             var productionAnchors = new List<Vector3>();
             var timber = new Color32(158, 111, 71, 255);
-            var thatch = new Color32(184, 145, 76, 255);
+            var thatch = independent ? new Color32(139, 87, 158, 255) : new Color32(184, 145, 76, 255);
             var storeWalls = new Color32(171, 136, 94, 255);
             var storeRoof = new Color32(139, 71, 43, 255);
 

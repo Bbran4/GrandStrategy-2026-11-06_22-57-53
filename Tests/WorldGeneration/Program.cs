@@ -524,6 +524,23 @@ internal static class Program
             && localIntegration.NegotiatedIntegrations == 1,
             "Completing a restored integration must create a settlement without granting the region.");
 
+        var independent = CampaignState.Found(map, key, 0, "Independent", 0, localCapitalClaim: true);
+        independent.IndependentVillageSiteResolver = region => region == 1 ? 1 : -1;
+        independent.Paused = false;
+        independent.Advance(14);
+        var villagePopulation = independent.IndependentPopulation(1);
+        Require(independent.IndependentVillageCell == 1 && !independent.TryFoundSettlement(1),
+            "An independent community must establish its own village and reserve the site.");
+        independent.Advance(15);
+        Require(independent.IndependentPopulation(1) > villagePopulation,
+            "The independent village must grow on its own.");
+        independent = CampaignState.Restore(map, key, JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(independent.ToSave(), json), json), 5);
+        Require(independent.IndependentVillageCell == 1 && independent.TryStartIntegration(1)
+            && independent.AdvanceToNextDecision() && independent.IndependentVillageCell == -1
+            && independent.SettlementCells.Contains(1) && independent.IndependentPopulation(1) == 0,
+            "Integration must bring the existing independent village into the clan at its saved location.");
+
         var fordCampaign = CampaignState.Found(fordMap, "ford", fordCell - 1, "Ford", 0);
         Require(fordMap.IsFord(fordCell) && !fordCampaign.TrySecureFord(fordCell)
             && fordCampaign.TryRecruitWarband() && fordCampaign.TrySecureFord(fordCell)

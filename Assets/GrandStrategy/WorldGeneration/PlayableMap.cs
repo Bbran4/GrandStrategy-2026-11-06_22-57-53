@@ -140,6 +140,7 @@ namespace GrandStrategy.WorldGeneration
             }
 
             surface.ShowWarband(campaign);
+            surface.ShowIndependentVillage(campaign);
             surface.RefreshPassageDisplay();
             surface.RefreshInfluence();
             surface.HighlightInfluenceAt(clickedCell);
@@ -689,6 +690,8 @@ namespace GrandStrategy.WorldGeneration
                 return;
             }
 
+            if (selected == campaign.IndependentVillageRegion)
+                GUILayout.Label("Independent village | Population growing");
             GUILayout.Label(population == 0 ? "No independent community here"
                 : selected == campaign.Capital || HasVillageHere ? "Clan settlement nearby | Independent community"
                 : "Independent community");
@@ -765,14 +768,14 @@ namespace GrandStrategy.WorldGeneration
         private void DrawExpansionButton(ExpansionApproach approach, string label)
         {
             var wasEnabled = GUI.enabled;
-            var existing = campaign.SettlementInRegion(selected);
+            var existing = campaign.IntegrationCommunitySite(selected);
             var needsSite = campaign.UsesLocalIntegration && existing < 0;
             var validSite = !needsSite || (clickedCell >= 0 && campaign.SettlementProvince(clickedCell) == selected
                 && surface.CanSiteVillage(campaign, clickedCell));
             GUI.enabled = wasEnabled && validSite && campaign.CanStartIntegration(selected, approach);
             if (GUILayout.Button(label))
             {
-                var root = needsSite ? surface.InfluenceProvinceAt(clickedCell) : -1;
+                var root = surface.InfluenceProvinceAt(needsSite ? clickedCell : existing);
                 campaign.TryStartIntegration(selected, approach, needsSite ? clickedCell : existing, root);
             }
             if (!validSite && approach == ExpansionApproach.Diplomacy)

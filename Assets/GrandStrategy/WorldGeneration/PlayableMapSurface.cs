@@ -51,6 +51,8 @@ namespace GrandStrategy.WorldGeneration
         private MapNature nature;
         private MapTerrainGeometry geometry;
         private MapSettlement settlement;
+        private MapSettlement independentVillage;
+        private int displayedIndependentVillage = -1;
         private readonly Dictionary<int, MapSettlement> villages = new Dictionary<int, MapSettlement>();
         private float groundDetail;
         private MapBorderOverlay borders;
@@ -437,6 +439,39 @@ namespace GrandStrategy.WorldGeneration
             => IsDryLandAt(uv) && MapSettlement.Contains(geometry.Sample(CellCentre(site), out _),
                 new Vector3((uv.x - .5f) * Aspect, 0f, uv.y - .5f), BuildRadius(campaign, site));
 
+        public void ShowIndependentVillage(CampaignState campaign)
+        {
+            var cell = campaign?.IndependentVillageCell ?? -1;
+            if (cell == displayedIndependentVillage) return;
+            independentVillage?.Dispose();
+            independentVillage = null;
+            displayedIndependentVillage = cell;
+            if (cell < 0 || !IsDryLand(cell)) return;
+
+            independentVillage = new MapSettlement(surface.transform, geometry, terrainShadow, Aspect, IsDryLandAt);
+            independentVillage.Show(geometry.Sample(CellCentre(cell), out _), false, false, null, 0,
+                _ => null, null, MapSettlement.BuildRadius, independent: true);
+        }
+
+        private int FindIndependentVillageSite(int region)
+        {
+            RefreshInfluence(true);
+            var capital = CellCentre(influenceCampaign.CapitalCell);
+            var nearest = float.PositiveInfinity;
+            var candidate = -1;
+            for (var cell = 0; cell < Map.ProvinceAt.Length; cell++)
+            {
+                if (Map.ProvinceAt[cell] != region || influenceRoots[cell] != 0) continue;
+                var offset = CellCentre(cell) - capital;
+                offset.x *= Aspect;
+                var distance = offset.sqrMagnitude;
+                if (distance >= nearest || !HasRoom(influenceCampaign, cell, MapSettlement.BuildRadius)) continue;
+                nearest = distance;
+                candidate = cell;
+            }
+            return candidate;
+        }
+
         public bool CanSiteVillage(CampaignState campaign, int cell)
             => HasRoom(campaign, cell, MapSettlement.BuildRadius);
 
@@ -448,6 +483,8 @@ namespace GrandStrategy.WorldGeneration
             if (cell < 0 || !IsDryLand(cell)) return false;
             var centre = CellCentre(cell);
             if (Conflicts(campaign.CapitalCell)) return false;
+            var independent = campaign.IndependentVillageCell;
+            if (independent >= 0 && (cell == independent || Conflicts(independent))) return false;
             var proposed = campaign.IntegrationSettlementCell;
             if (proposed >= 0 && proposed != campaign.CapitalCell && !villages.ContainsKey(proposed)
                 && Conflicts(proposed)) return false;
@@ -1011,6 +1048,7 @@ namespace GrandStrategy.WorldGeneration
         {
             influenceCampaign = campaign;
             campaign.LandContactResolver = HasLandContact;
+            campaign.IndependentVillageSiteResolver = FindIndependentVillageSite;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();
@@ -1216,6 +1254,7 @@ namespace GrandStrategy.WorldGeneration
         public void Dispose()
         {
             settlement?.Dispose();
+            independentVillage?.Dispose();
             ClearVillages();
             nature?.Dispose();
             borders?.Dispose();
