@@ -885,12 +885,49 @@ internal static class Program
             && split.SettlementCells.SequenceEqual(beforeSplitOrder) && split.OwnedPopulation == beforeSplitPopulation
             && split.Coin == beforeSplitCoin,
             "A split must reassign only the selected component without changing settlement order, population or coin.");
-        split = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(
-            JsonSerializer.Serialize(split.ToSave(), json), json), 5);
+        var splitSnapshot = JsonSerializer.Serialize(split.ToSave(), json);
+        split = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json), 5);
         Require(split.SettlementProvinceRoots.SequenceEqual(new[] { newSeat, newSeat, claimSeat, claimSeat })
             && split.AdvanceToNextDecision() && split.SettlementCells.Last() == plannedSite
             && split.SettlementProvinceRoots.Last() == newSeat && !split.Owns(1),
             "A later-founded seat and its pending settlement must restore as the same new province.");
+
+        var reunionSave = JsonSerializer.Deserialize<CampaignSave>(splitSnapshot, json);
+        reunionSave.Warband = true;
+        reunionSave.SecuredFords.Add(fordCell);
+        var reunion = CampaignState.Restore(splitMap, "detached", reunionSave, 5);
+        foreach (var cell in new[] { mineSite, newSeat, plannedSite, plannedSite + 1 })
+            splitClaims[cell] = newSeat + 1;
+        var reunionBorders = new Dictionary<int, SortedSet<int>>();
+        var reunionReach = new HashSet<int>();
+        reunion.ProvinceBorderResolver = (from, to) =>
+        {
+            reunionBorders.Clear();
+            reunionReach.Clear();
+            splitMap.CollectConnectedClaim(splitClaims, claimSeat, claimSeat, reunion.CanUseSupplyFord, reunionReach, claimQueue);
+            splitMap.CollectConnectedClaim(splitClaims, newSeat, newSeat, reunion.CanUseSupplyFord, reunionReach, claimQueue);
+            splitMap.CollectProvinceBorders(splitClaims, reunionReach, reunion.CanUseSupplyFord, reunionBorders);
+            return reunionBorders.TryGetValue(from, out var neighbours) && neighbours.Contains(to);
+        };
+        Require(reunion.TryChangeFordAccess(fordCell)
+            && !reunion.TryMergeProvinces(newSeat, claimSeat) && reunionBorders.Count == 0,
+            "A closed ford and contact through a detached fragment must not let provinces merge.");
+        Require(reunion.TryChangeFordAccess(fordCell)
+            && reunion.ProvinceBorderResolver(newSeat, claimSeat)
+            && reunionBorders[claimSeat].SetEquals(new[] { newSeat })
+            && !reunion.TryMergeProvinces(claimSeat, newSeat)
+            && !reunion.TryMergeProvinces(newSeat, nearVillage),
+            "An open ford must expose the mutual border while protecting the capital seat and rejecting non-seats.");
+        var reunionPopulation = reunion.OwnedPopulation;
+        Require(reunion.TryMergeProvinces(newSeat, claimSeat)
+            && !reunion.TryMergeProvinces(newSeat, claimSeat)
+            && reunion.SettlementProvinceRoots.All(root => root == claimSeat) && reunion.OwnedPopulation == reunionPopulation,
+            "Merging must reassign the source seat and all of its villages without moving population.");
+        reunion = CampaignState.Restore(splitMap, "detached", JsonSerializer.Deserialize<CampaignSave>(
+            JsonSerializer.Serialize(reunion.ToSave(), json), json), 5);
+        Require(reunion.AdvanceToNextDecision() && reunion.SettlementCells.Last() == plannedSite
+            && reunion.SettlementProvinceRoots.All(root => root == claimSeat) && !reunion.Owns(1),
+            "After saving a merger, a pending integration must join the surviving province seat.");
 
         supply.Paused = false;
         supply.Advance(5);

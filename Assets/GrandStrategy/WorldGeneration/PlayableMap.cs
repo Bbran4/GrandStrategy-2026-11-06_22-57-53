@@ -773,7 +773,6 @@ namespace GrandStrategy.WorldGeneration
                 return;
             }
 
-            var number = 1;
             var count = 0;
             var detachedSettlements = 0;
             long population = 0;
@@ -785,24 +784,17 @@ namespace GrandStrategy.WorldGeneration
                 reachableSites |= surface.SurveyProductionSites(root, campaign);
             }
 
-            var nextNumber = 1;
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
             {
                 var site = campaign.SettlementCells[i];
-                var province = campaign.SettlementProvinceRoots[i];
-                if (site == province)
-                {
-                    nextNumber++;
-                    if (root == site) number = nextNumber;
-                }
-                if (province != root) continue;
+                if (campaign.SettlementProvinceRoots[i] != root) continue;
                 count++;
                 if (!surface.HasConnectionToProvinceSeat(site)) detachedSettlements++;
                 population += campaign.SettlementPopulation(site);
                 reachableSites |= surface.SurveyProductionSites(site, campaign);
             }
 
-            GUILayout.Label(root == campaign.CapitalCell ? "Capital province" : $"Province {number}", hudHeading);
+            GUILayout.Label(InfluenceProvinceName(root), hudHeading);
             GUILayout.Label($"{campaign.TribeName} | {count} {(count == 1 ? "settlement" : "settlements")} | {population:N0} people");
             if (!surface.HasConnectionToProvinceSeat(clickedCell))
             {
@@ -817,6 +809,8 @@ namespace GrandStrategy.WorldGeneration
             if (selected >= 0)
                 GUILayout.Label($"Local economy region: {surface.Map.Provinces[selected].Id}");
 
+            if (root != campaign.CapitalCell && DrawProvinceMerges(root)) return;
+
             showProvinceSettlements = GUILayout.Toggle(showProvinceSettlements, "Show settlements");
             if (!showProvinceSettlements) return;
             if (root == campaign.CapitalCell) DrawSettlementLink(root, "Capital");
@@ -828,6 +822,34 @@ namespace GrandStrategy.WorldGeneration
                     if (!surface.HasConnectionToProvinceSeat(site)) label += " (detached)";
                     DrawSettlementLink(site, label);
                 }
+        }
+
+        private bool DrawProvinceMerges(int seat)
+        {
+            foreach (var neighbour in surface.ProvinceNeighbours(seat))
+            {
+                var name = InfluenceProvinceName(neighbour);
+                if (!GUILayout.Button($"Merge into {name}") || !campaign.TryMergeProvinces(seat, neighbour)) continue;
+                surface.RefreshInfluence(true);
+                surface.HighlightInfluenceAt(clickedCell);
+                saveStatus = $"Provinces merged into {InfluenceProvinceName(neighbour)}.";
+                return true;
+            }
+            return false;
+        }
+
+        private string InfluenceProvinceName(int seat)
+        {
+            if (seat == campaign.CapitalCell) return "Capital province";
+            var number = 1;
+            for (var i = 0; i < campaign.SettlementCells.Count; i++)
+            {
+                var site = campaign.SettlementCells[i];
+                if (campaign.SettlementProvinceRoots[i] != site) continue;
+                number++;
+                if (site == seat) return $"Province {number}";
+            }
+            return "Province";
         }
 
         private string SettlementLabel(int site)

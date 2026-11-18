@@ -76,6 +76,7 @@ namespace GrandStrategy.WorldGeneration
         private readonly List<int> influencedCells = new List<int>();
         private readonly HashSet<int> connectedClaims = new HashSet<int>();
         private readonly Queue<int> claimFrontier = new Queue<int>();
+        private readonly Dictionary<int, SortedSet<int>> provinceBorders = new Dictionary<int, SortedSet<int>>();
         private int highlightedInfluenceRoot;
         private float[] influenceCosts;
         private float displayedMilitaryPressure;
@@ -1207,6 +1208,7 @@ namespace GrandStrategy.WorldGeneration
             campaign.IndependentTerritoryResolver = IsIndependentTerritory;
             campaign.MilitaryOccupationResolver = IsMilitaryOccupied;
             campaign.DetachedClaimResolver = DetachedClaimAt;
+            campaign.ProvinceBorderResolver = HasProvinceBorder;
             if (productionSites != null && resourceMapCampaign != campaign)
             {
                 var pixels = productionSites.GetRawTextureData<Color32>();
@@ -1273,6 +1275,19 @@ namespace GrandStrategy.WorldGeneration
             var fragment = new HashSet<int>();
             Map.CollectConnectedClaim(influenceRoots, cell, root, influenceCampaign.CanUseSupplyFord, fragment, claimFrontier);
             return fragment;
+        }
+
+        public IEnumerable<int> ProvinceNeighbours(int seat)
+        {
+            RefreshInfluence(true);
+            if (provinceBorders.TryGetValue(seat, out var neighbours)) return neighbours;
+            return Array.Empty<int>();
+        }
+
+        private bool HasProvinceBorder(int first, int second)
+        {
+            RefreshInfluence(true);
+            return provinceBorders.TryGetValue(first, out var neighbours) && neighbours.Contains(second);
         }
 
         public void HighlightInfluenceAt(int cell)
@@ -1358,15 +1373,19 @@ namespace GrandStrategy.WorldGeneration
             }
 
             connectedClaims.Clear();
+            provinceBorders.Clear();
             Func<int, bool> canUseFord = campaign.CanUseSupplyFord;
             Map.CollectConnectedClaim(influenceRoots, campaign.CapitalCell, campaign.CapitalCell, canUseFord,
                 connectedClaims, claimFrontier);
+            var hasOtherProvince = false;
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
             {
                 var site = campaign.SettlementCells[i];
-                if (campaign.SettlementProvinceRoots[i] == site)
-                    Map.CollectConnectedClaim(influenceRoots, site, site, canUseFord, connectedClaims, claimFrontier);
+                if (campaign.SettlementProvinceRoots[i] != site) continue;
+                hasOtherProvince = true;
+                Map.CollectConnectedClaim(influenceRoots, site, site, canUseFord, connectedClaims, claimFrontier);
             }
+            if (hasOtherProvince) Map.CollectProvinceBorders(influenceRoots, connectedClaims, canUseFord, provinceBorders);
 
             const SettlementBuilding allSites = SettlementBuilding.Farm | SettlementBuilding.LumberCamp
                 | SettlementBuilding.IronMine | SettlementBuilding.Docks;

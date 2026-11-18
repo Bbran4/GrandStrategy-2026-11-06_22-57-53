@@ -301,6 +301,7 @@ namespace GrandStrategy.WorldGeneration
         internal Func<int, bool> IndependentTerritoryResolver { get; set; }
         internal Func<int, bool> MilitaryOccupationResolver { get; set; }
         internal Func<int, HashSet<int>> DetachedClaimResolver { get; set; }
+        internal Func<int, int, bool> ProvinceBorderResolver { get; set; }
         public int InfluenceRevision { get; private set; }
         public int FordAccessRevision { get; private set; }
 
@@ -460,6 +461,28 @@ namespace GrandStrategy.WorldGeneration
                 data.IntegrationProvinceRoot = seat + 1;
             InfluenceRevision++;
             return true;
+        }
+
+        public bool TryMergeProvinces(int sourceSeat, int destinationSeat)
+        {
+            if (sourceSeat == CapitalCell || sourceSeat == destinationSeat || !IsProvinceSeat(sourceSeat)
+                || !IsProvinceSeat(destinationSeat) || ProvinceBorderResolver?.Invoke(sourceSeat, destinationSeat) != true)
+                return false;
+
+            for (var i = 0; i < data.SettlementProvinceRoots.Count; i++)
+                if (data.SettlementProvinceRoots[i] == sourceSeat)
+                    data.SettlementProvinceRoots[i] = destinationSeat;
+
+            if (data.IntegrationProvinceRoot == sourceSeat + 1)
+                data.IntegrationProvinceRoot = destinationSeat + 1;
+            InfluenceRevision++;
+            return true;
+        }
+
+        private bool IsProvinceSeat(int site)
+        {
+            var index = data.SettlementCells.IndexOf(site);
+            return site == CapitalCell || (index >= 0 && data.SettlementProvinceRoots[index] == site);
         }
 
         public bool HasGarrison(int cell) => data.Garrisons.Contains(cell);

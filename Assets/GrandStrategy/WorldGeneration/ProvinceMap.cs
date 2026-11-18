@@ -297,22 +297,51 @@ namespace GrandStrategy.WorldGeneration
 
             void VisitEdge(int cell, int offset)
             {
-                var next = cell + offset;
-                if (claims[next] == root)
-                {
-                    Enqueue(next);
-                    return;
-                }
-
-                if (!IsFord(next) || !canUseFord(next) || !CanMarchBetween(cell, next)) return;
-                var oppositeBank = next + offset;
-                if (CanMarchBetween(next, oppositeBank) && claims[oppositeBank] == root) Enqueue(oppositeBank);
+                var next = LinkedClaimCell(cell, offset, canUseFord);
+                if (next >= 0 && claims[next] == root) Enqueue(next);
             }
 
             void Enqueue(int cell)
             {
                 if (connected.Add(cell)) frontier.Enqueue(cell);
             }
+        }
+
+        internal void CollectProvinceBorders(int[] claims, HashSet<int> connected, Func<int, bool> canUseFord,
+            Dictionary<int, SortedSet<int>> borders)
+        {
+            foreach (var cell in connected)
+            {
+                if (cell % Width + 1 < Width) RecordEdge(cell, 1);
+                if (cell + Width < claims.Length) RecordEdge(cell, Width);
+            }
+
+            void RecordEdge(int cell, int offset)
+            {
+                var next = LinkedClaimCell(cell, offset, canUseFord);
+                if (next < 0 || claims[next] == claims[cell] || !connected.Contains(next)) return;
+
+                var from = claims[cell] - 1;
+                var to = claims[next] - 1;
+                AddNeighbour(from, to);
+                AddNeighbour(to, from);
+            }
+
+            void AddNeighbour(int from, int to)
+            {
+                if (!borders.TryGetValue(from, out var neighbours))
+                    borders.Add(from, neighbours = new SortedSet<int>());
+                neighbours.Add(to);
+            }
+        }
+
+        private int LinkedClaimCell(int cell, int offset, Func<int, bool> canUseFord)
+        {
+            var next = cell + offset;
+            if (!IsFord(next)) return next;
+            var oppositeBank = next + offset;
+            return canUseFord(next) && CanMarchBetween(cell, next) && CanMarchBetween(next, oppositeBank)
+                ? oppositeBank : -1;
         }
 
         internal int FordForBridgeEdge(int from, int to)
