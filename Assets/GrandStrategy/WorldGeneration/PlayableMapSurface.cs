@@ -159,7 +159,11 @@ namespace GrandStrategy.WorldGeneration
                 var maximumReliefHeight = world.HeightScale * (1f - terrain.Recipe.SeaLevel);
                 material.SetFloat("_InverseReliefHeight", 1f / Mathf.Max(maximumReliefHeight, .0001f));
                 material.SetTexture("_ProvinceIndices", regions);
+                // Optional overlays receive their generated textures when first needed.
+                material.SetTexture("_ProductionSites", Texture2D.blackTexture);
+                material.SetTexture("_IndependentInfluence", Texture2D.blackTexture);
                 material.SetTexture("_OwnershipMask", Texture2D.blackTexture);
+                material.SetFloat("_ShowResources", 0f);
                 material.SetFloat("_ShowOwnership", 0f);
                 CreateProvinceCornerTexture();
                 surface = new GameObject("Map surface", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider))
