@@ -517,6 +517,12 @@ namespace GrandStrategy.WorldGeneration
                 GUI.enabled = enabled;
             }
 
+            DrawFordPassage();
+            DrawFordShipments(clickedCell);
+        }
+
+        private void DrawFordPassage()
+        {
             var partner = campaign.FordPassagePartner(clickedCell);
             if (partner < 0) return;
             GUILayout.Label($"Passage available from {surface.Map.Provinces[partner].Id}");
@@ -531,6 +537,42 @@ namespace GrandStrategy.WorldGeneration
                 saveStatus = "Civilian passage secured by agreement. Hostilities can suspend it.";
             }
             GUI.enabled = wasEnabled;
+        }
+
+        private void DrawFordShipments(int ford)
+        {
+            var hasShipments = false;
+            foreach (var shipment in campaign.HeldShipmentsAtFord(ford))
+            {
+                if (!hasShipments) GUILayout.Label("Held deliveries", hudHeading);
+                hasShipments = true;
+                var food = shipment.Resource == TradeResource.Food;
+                var village = food ? shipment.Destination : shipment.Origin;
+                GUILayout.Label($"{shipment.Amount:N0} {(food ? "food" : "iron")} | "
+                    + $"{SettlementLabel(shipment.Origin)} → {SettlementLabel(shipment.Destination)}");
+
+                GUILayout.BeginHorizontal();
+                var viewVillage = GUILayout.Button($"View {SettlementLabel(village)}");
+                var reroute = GUILayout.Button("Reroute");
+                GUILayout.EndHorizontal();
+                if (viewVillage)
+                {
+                    FocusMapCell(village);
+                    showIronSupplyRoute = !food;
+                    break;
+                }
+                if (reroute)
+                {
+                    RerouteHeldShipment(village, food);
+                    break;
+                }
+            }
+        }
+
+        private void RerouteHeldShipment(int village, bool food)
+        {
+            var rerouted = food ? campaign.TryRerouteHeldFoodShipment(village) : campaign.TryRerouteHeldIronShipment(village);
+            saveStatus = rerouted ? "Delivery rerouted overland." : "No alternate overland route is open.";
         }
 
         private void DrawSettlement(int site)
@@ -584,8 +626,7 @@ namespace GrandStrategy.WorldGeneration
                 }
             }
             if (shipment.Held && GUILayout.Button("Reroute held food delivery"))
-                saveStatus = campaign.TryRerouteHeldFoodShipment(site) ? "Food delivery rerouted overland."
-                    : "No alternate overland route is open.";
+                RerouteHeldShipment(site, food: true);
             GUILayout.BeginHorizontal();
             var wasEnabled = GUI.enabled;
             GUI.enabled = wasEnabled && target > 0;
@@ -741,6 +782,14 @@ namespace GrandStrategy.WorldGeneration
             for (var i = 0; i < campaign.SettlementCells.Count; i++)
                 if (campaign.SettlementProvinceRoots[i] == root)
                     DrawSettlementLink(campaign.SettlementCells[i], $"Village {i + 1}");
+        }
+
+        private string SettlementLabel(int site)
+        {
+            if (site == campaign.CapitalCell) return "Capital";
+            for (var i = 0; i < campaign.SettlementCells.Count; i++)
+                if (campaign.SettlementCells[i] == site) return $"Village {i + 1}";
+            return "Settlement";
         }
 
         private void DrawSettlementLink(int cell, string label)
@@ -1405,8 +1454,7 @@ namespace GrandStrategy.WorldGeneration
                             ? $"{shipment.Amount:N0} iron held by a ford closure"
                             : $"{shipment.Amount:N0} iron in transit | Next unload in {shipment.Days} days");
                     if (campaign.IsIronShipmentHeld(site) && GUILayout.Button("Reroute held shipment"))
-                        saveStatus = campaign.TryRerouteHeldIronShipment(site) ? "Shipment rerouted overland."
-                            : "No alternate secured route. The shipment is still waiting.";
+                        RerouteHeldShipment(site, food: false);
                     if (supply == IronSupplyRoute.Overland || supply == IronSupplyRoute.Waterway || shipment.Amount > 0)
                         showIronSupplyRoute = GUILayout.Toggle(showIronSupplyRoute, "Show iron supply route");
                 }

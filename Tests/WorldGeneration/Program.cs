@@ -834,9 +834,17 @@ internal static class Program
         Require(valley.IsFordHeldByRival(fordCell) && valley.IsIronShipmentHeld(mineSite) && valleyCargo.Amount > 0
             && valley.SuppliesHeldAtFord(fordCell) == (1, (long)valleyCargo.Amount),
             "A rival takeover on a production day must cut a live supply route and hold outgoing cargo.");
+        var manifest = valley.HeldShipmentsAtFord(fordCell).ToArray();
+        Require(manifest.Length == 2
+            && manifest.Contains((valley.CapitalCell, mineSite, TradeResource.Food, valleyFoodCargo.Amount))
+            && manifest.Contains((mineSite, valley.CapitalCell, TradeResource.Iron, valleyCargo.Amount)),
+            "The ford must report both shipment directions, affected settlements and quantities.");
+        Require(!valley.HeldShipmentsAtFord(alternateFord).Any(),
+            "A different crossing must not report this ford's cargo.");
         valley.Advance(valleyCargo.Days + 1);
         Require(valley.Iron == deliveredBeforeClosure && valley.TryNegotiateFordPassage(fordCell)
-            && !valley.IsIronShipmentHeld(mineSite) && valley.SuppliesHeldAtFord(fordCell).Shipments == 0, "Negotiated passage must release cargo without a military retake.");
+            && !valley.IsIronShipmentHeld(mineSite) && !valley.HeldShipmentsAtFord(fordCell).Any(),
+            "Negotiated passage must clear both shipment types from the crossing.");
         valley.Advance(valleyCargo.Days);
         Require(valley.Iron == deliveredBeforeClosure + valleyCargo.Amount,
             "The reopened crossing must deliver precisely the previously held cargo.");
@@ -895,6 +903,9 @@ internal static class Program
         var reroutedFood = CampaignState.Restore(supplyMap, "stocked", alternateFoodSave, 5);
         Require(!stocked.TryRerouteHeldFoodShipment(mineSite) && reroutedFood.TryRerouteHeldFoodShipment(mineSite)
             && reroutedFood.IsFordClosed(fordCell), "Food rerouting must require an open alternate ford.");
+        Require(stocked.HeldShipmentsAtFord(fordCell).Single() == (stocked.CapitalCell, mineSite, TradeResource.Food, 10)
+            && !reroutedFood.HeldShipmentsAtFord(fordCell).Any(),
+            "Rerouting must clear the original crossing's cargo only when an alternate route succeeds.");
         var alternateJourney = reroutedFood.FoodShipmentJourney(mineSite);
         Require(alternateJourney.Path.Contains(alternateFord) && !alternateJourney.Path.Contains(fordCell)
             && !alternateJourney.Held, "The visible convoy must follow the new crossing after rerouting.");

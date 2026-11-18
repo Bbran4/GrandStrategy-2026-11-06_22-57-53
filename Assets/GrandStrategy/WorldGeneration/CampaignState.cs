@@ -932,31 +932,33 @@ namespace GrandStrategy.WorldGeneration
             return -1;
         }
 
-        public (int Shipments, long Cargo) SuppliesHeldAtFord(int ford)
+        public IEnumerable<(int Origin, int Destination, TradeResource Resource, int Amount)> HeldShipmentsAtFord(int ford)
         {
-            var count = 0;
-            long cargo = 0;
+            if (!map.IsFord(ford) || !IsFordClosed(ford)) yield break;
+
+            foreach (var reserve in data.SettlementFood)
+                if (reserve.InTransit > 0 && reserve.HoldDay > 0
+                    && BlockingFord(reserve.OverlandPath, reserve.HoldDay, reserve.DepartureDay, reserve.ArrivalDay) == ford)
+                    yield return (CapitalCell, reserve.Cell, TradeResource.Food, reserve.InTransit);
+
             foreach (var shipment in data.Construction)
-            {
-                if (shipment.IronInTransit <= 0 || shipment.IronHoldDay <= 0
-                    || BlockingFord(shipment, shipment.IronHoldDay) != ford) continue;
-                count++;
-                cargo += shipment.IronInTransit;
-            }
-            return (count, cargo);
+                if (shipment.IronInTransit > 0 && shipment.IronHoldDay > 0
+                    && BlockingFord(shipment, shipment.IronHoldDay) == ford)
+                    yield return (shipment.Cell, CapitalCell, TradeResource.Iron, shipment.IronInTransit);
         }
 
-        public (int Shipments, long Cargo) FoodHeldAtFord(int ford)
+        public (int Shipments, long Cargo) SuppliesHeldAtFord(int ford) => CargoHeldAtFord(ford, TradeResource.Iron);
+        public (int Shipments, long Cargo) FoodHeldAtFord(int ford) => CargoHeldAtFord(ford, TradeResource.Food);
+
+        private (int Shipments, long Cargo) CargoHeldAtFord(int ford, TradeResource resource)
         {
             var count = 0;
             long cargo = 0;
-            foreach (var reserve in data.SettlementFood)
+            foreach (var shipment in HeldShipmentsAtFord(ford))
             {
-                if (reserve.HoldDay == 0
-                    || BlockingFord(reserve.OverlandPath, reserve.HoldDay, reserve.DepartureDay, reserve.ArrivalDay) != ford)
-                    continue;
+                if (shipment.Resource != resource) continue;
                 count++;
-                cargo += reserve.InTransit;
+                cargo += shipment.Amount;
             }
             return (count, cargo);
         }
