@@ -886,6 +886,11 @@ namespace GrandStrategy.WorldGeneration
                 _ => null
             };
             var fits = localIssue == null && surface.CanPlaceProduction(campaign, site, clickedCell, building);
+            if (fits && surface.IsBuildSiteTooSteep(clickedCell, building))
+            {
+                localIssue = "The building footprint is too steep.";
+                fits = false;
+            }
             var canBuild = fits && campaign.CanBuildAtSettlement(site, building, clickedCell);
             GUI.enabled = wasEnabled && canBuild;
             if (GUILayout.Button($"Build {info.Name.ToLowerInvariant()} ({info.Coin} coin, {info.Wood} wood)")
@@ -912,7 +917,12 @@ namespace GrandStrategy.WorldGeneration
             var wasEnabled = GUI.enabled;
             var fitsGranary = InCapitalLimits && surface.CanPlaceGranary(settlement, clickedCell)
                 && !surface.ConflictsWithProduction(campaign, campaign.CapitalCell, clickedCell, MapSettlement.GranaryHalfWidth);
-            if (!campaign.HasGranary && InCapitalLimits && !fitsGranary)
+            if (!campaign.HasGranary && fitsGranary && surface.IsBuildSiteTooSteep(clickedCell))
+            {
+                GUILayout.Label("The granary footprint is too steep.");
+                fitsGranary = false;
+            }
+            else if (!campaign.HasGranary && InCapitalLimits && !fitsGranary)
                 GUILayout.Label("Select open ground for the granary.");
             GUI.enabled = wasEnabled && fitsGranary && campaign.CanBuildGranary;
             if (!campaign.HasGranary && GUILayout.Button($"Build granary ({CampaignState.GranaryWood} wood, {CampaignState.GranaryCoin} coin)")

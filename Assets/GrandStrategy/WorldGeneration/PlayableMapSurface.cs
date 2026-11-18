@@ -784,6 +784,29 @@ namespace GrandStrategy.WorldGeneration
             return MapSettlement.FitsGranary(capital, site) && HasDryFootprint(uv, MapSettlement.GranaryHalfWidth);
         }
 
+        public bool IsBuildSiteTooSteep(int cell, SettlementBuilding? building = null)
+        {
+            if (cell < 0 || cell >= Map.ProvinceAt.Length) return false;
+            var limit = building switch
+            {
+                SettlementBuilding.Farm => .55f,
+                SettlementBuilding.IronMine => 1.35f,
+                SettlementBuilding.Docks => .70f,
+                _ => .85f
+            };
+            var centre = CellCentre(cell);
+            var halfWidth = building.HasValue ? MapSettlement.ProductionHalfWidth : MapSettlement.GranaryHalfWidth;
+            for (var column = -1; column <= 1; column++)
+                for (var row = -1; row <= 1; row++)
+                {
+                    var uv = centre + new Vector2(column * halfWidth / Aspect, row * halfWidth * .77f);
+                    uv = new Vector2(Mathf.Clamp01(uv.x), Mathf.Clamp01(uv.y));
+                    geometry.Sample(uv, out var slope);
+                    if (slope > limit) return true;
+                }
+            return false;
+        }
+
         private bool HasDryFootprint(Vector2 uv, float width)
         {
             var halfWidth = width / Aspect;
