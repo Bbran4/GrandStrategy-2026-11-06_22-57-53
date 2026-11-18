@@ -48,6 +48,7 @@ namespace GrandStrategy.WorldGeneration
         private byte[] rivers;
         private float[] elevations;
         private float seaLevel;
+        private int depositSeed;
         private byte[] settlementBiomes;
         private CampaignState influenceCampaign;
         private int[] influenceRoots;
@@ -75,6 +76,7 @@ namespace GrandStrategy.WorldGeneration
             ValidatePair(terrain, imported);
             elevations = terrain.Elevations;
             seaLevel = terrain.Recipe.SeaLevel;
+            depositSeed = terrain.Recipe.Seed;
             water = WaterMap.Classify(terrain);
             rivers = riverMap?.BuildSurfaceDirections();
             var settings = world.ReadClimateSettings();
@@ -464,7 +466,7 @@ namespace GrandStrategy.WorldGeneration
                 sites |= SettlementBuilding.Farm;
             if (settlementBiomes == null || MapNatureRules.IsForest(biome))
                 sites |= SettlementBuilding.LumberCamp;
-            if (biome == BiomeKind.Alpine || elevations[cell] >= Mathf.Lerp(seaLevel, 1f, .62f))
+            if (IronDepositYield(cell, x, y) > 0)
                 sites |= SettlementBuilding.IronMine;
             if ((x > 0 && IsTradeWater(cell - 1)) || (x + 1 < Map.Width && IsTradeWater(cell + 1))
                 || (y > 0 && IsTradeWater(cell - Map.Width))
@@ -485,9 +487,37 @@ namespace GrandStrategy.WorldGeneration
             {
                 SettlementBuilding.Farm => biome == BiomeKind.Wetland ? 3 : biome == BiomeKind.Grassland ? 2 : 1,
                 SettlementBuilding.LumberCamp => biome == BiomeKind.TropicalForest ? 3 : 2,
-                SettlementBuilding.IronMine => elevations[cell] >= Mathf.Lerp(seaLevel, 1f, .78f) ? 2 : 1,
+                SettlementBuilding.IronMine => IronDepositYield(cell, cell % Map.Width, cell / Map.Width),
                 _ => null
             };
+        }
+
+        private int IronDepositYield(int cell, int x, int y)
+        {
+            if (elevations[cell] < Mathf.Lerp(seaLevel, 1f, .42f)) return 0;
+
+            // Each square can contain one compact deposit. The world seed determines its location and grade.
+            var spacing = Mathf.Max(4f, Map.Height / 58f);
+            var scaledX = (x + .5f) / spacing;
+            var scaledY = (y + .5f) / spacing;
+            var squareX = Mathf.FloorToInt(scaledX);
+            var squareY = Mathf.FloorToInt(scaledY);
+            uint hash;
+            unchecked
+            {
+                hash = (uint)depositSeed ^ (uint)squareX * 0x9E3779B9u ^ (uint)squareY * 0x85EBCA6Bu;
+                hash ^= hash >> 16;
+                hash *= 0x7FEB352Du;
+                hash ^= hash >> 15;
+                hash *= 0x846CA68Bu;
+                hash ^= hash >> 16;
+            }
+            var offsetX = .27f + ((hash >> 8) & 255u) * (.46f / 255f);
+            var offsetY = .27f + ((hash >> 16) & 255u) * (.46f / 255f);
+            var dx = scaledX - squareX - offsetX;
+            var dy = scaledY - squareY - offsetY;
+            if ((hash & 3u) == 0 || dx * dx + dy * dy > .24f * .24f) return 0;
+            return (hash & 12u) == 12u ? 2 : 1;
         }
 
         private bool IsTradeWater(int cell) => water[cell] == WaterKind.Ocean || IsNavigableRiverCell(cell);

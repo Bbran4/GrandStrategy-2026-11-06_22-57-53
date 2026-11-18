@@ -848,7 +848,7 @@ namespace GrandStrategy.WorldGeneration
             var description = new System.Collections.Generic.List<string>();
             if ((sites & SettlementBuilding.Farm) != 0) description.Add("Farmland");
             if ((sites & SettlementBuilding.LumberCamp) != 0) description.Add("Timber");
-            if ((sites & SettlementBuilding.IronMine) != 0) description.Add("Mining ground");
+            if ((sites & SettlementBuilding.IronMine) != 0) description.Add("Iron deposits");
             if ((sites & SettlementBuilding.Docks) != 0) description.Add("Trade waterfront");
             return string.Join(", ", description);
         }
@@ -887,7 +887,7 @@ namespace GrandStrategy.WorldGeneration
             {
                 SettlementBuilding.Farm => "Requires workable land within city limits.",
                 SettlementBuilding.LumberCamp => "Requires forest within city limits.",
-                SettlementBuilding.IronMine => "Requires mining ground within city limits.",
+                SettlementBuilding.IronMine => "Requires an iron deposit within city limits.",
                 SettlementBuilding.Docks => "Requires an ocean shore or navigable riverbank within city limits.",
                 _ => null
             };
@@ -1127,7 +1127,7 @@ namespace GrandStrategy.WorldGeneration
                 DrawResourceFilter("Fords", 0, x + (slot + 4) * 3, y + 26, slot);
                 DrawResourceFilter("Farmland", SettlementBuilding.Farm, x, y + 52, slot);
                 DrawResourceFilter("Timber", SettlementBuilding.LumberCamp, x + slot + 4, y + 52, slot);
-                DrawResourceFilter("Mining", SettlementBuilding.IronMine, x + (slot + 4) * 2, y + 52, slot);
+                DrawResourceFilter("Iron", SettlementBuilding.IronMine, x + (slot + 4) * 2, y + 52, slot);
                 DrawResourceFilter("Waterfront", SettlementBuilding.Docks, x + (slot + 4) * 3, y + 52, slot);
             }
 
