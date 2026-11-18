@@ -792,6 +792,16 @@ namespace GrandStrategy.WorldGeneration
         private void DrawWarbandOrders()
         {
             if (!campaign.HasWarband) return;
+            GUILayout.Label($"Military supplies | {campaign.WarbandFoodCost} food / {CampaignState.ProductionInterval} days");
+            GUILayout.BeginHorizontal();
+            foreach (var policy in new[] { WarbandSupplyPolicy.Forage, WarbandSupplyPolicy.Standard, WarbandSupplyPolicy.Provisioned })
+            {
+                var canSelect = GUI.enabled;
+                GUI.enabled = canSelect && campaign.WarbandSupply != policy;
+                if (GUILayout.Button(policy.ToString())) campaign.SetWarbandSupply(policy);
+                GUI.enabled = canSelect;
+            }
+            GUILayout.EndHorizontal();
             if (campaign.WarbandCommitted)
             {
                 GUILayout.Label("Warband committed | Trade with the target is suspended");
@@ -998,7 +1008,7 @@ namespace GrandStrategy.WorldGeneration
             if (!campaign.HasWarband && GUILayout.Button($"Recruit warband ({CampaignState.WarbandWood} wood, {CampaignState.WarbandCoin} coin, {CampaignState.WarbandRecruits} people)"))
             {
                 campaign.TryRecruitWarband();
-                saveStatus = $"{CampaignState.WarbandRecruits} people recruited from the capital. The warband uses 1 food every five days.";
+                saveStatus = $"{CampaignState.WarbandRecruits} people recruited from the capital.";
             }
             GUI.enabled = wasEnabled && campaign.CanUpgradeWarband;
             if (campaign.HasWarband && !campaign.HasIronWarband && GUILayout.Button(

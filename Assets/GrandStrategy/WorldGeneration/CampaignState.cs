@@ -11,6 +11,8 @@ namespace GrandStrategy.WorldGeneration
     [Flags]
     internal enum SettlementBuilding { Farm = 1, LumberCamp = 2, IronMine = 4, Docks = 8 }
 
+    internal enum WarbandSupplyPolicy { Standard, Forage, Provisioned }
+
     internal enum TaxPolicy { Standard, Relief, Heavy }
 
     internal enum TradeResource { Coin, Food, Wood, Iron }
@@ -100,6 +102,7 @@ namespace GrandStrategy.WorldGeneration
         public int Speed;
         public int Coin;
         public TaxPolicy Taxes;
+        public WarbandSupplyPolicy WarbandSupply;
         public bool[] Owned;
         public int[] Pop;
         public int IntegrationTarget;
@@ -453,7 +456,34 @@ namespace GrandStrategy.WorldGeneration
         public int WarbandRouteIndex => data.WarbandRouteIndex;
         public int WarbandTravelDays => data.WarbandRoute == null
             ? 0 : (data.WarbandRoute.Count - 1 - data.WarbandRouteIndex + WarbandCellsPerDay - 1) / WarbandCellsPerDay;
-        private int WarbandCellsPerDay => Math.Max(1, map.Height / 128);
+        public WarbandSupplyPolicy WarbandSupply => data.WarbandSupply;
+        public int WarbandFoodCost => !HasWarband ? 0 : WarbandSupply switch
+        {
+            WarbandSupplyPolicy.Forage => 0,
+            WarbandSupplyPolicy.Provisioned => 2,
+            _ => 1
+        };
+
+        public void SetWarbandSupply(WarbandSupplyPolicy policy)
+        {
+            if (!Enum.IsDefined(typeof(WarbandSupplyPolicy), policy))
+                throw new ArgumentOutOfRangeException(nameof(policy));
+            data.WarbandSupply = policy;
+        }
+
+        private int WarbandCellsPerDay
+        {
+            get
+            {
+                var normal = Math.Max(1, map.Height / 128);
+                return WarbandSupply switch
+                {
+                    WarbandSupplyPolicy.Forage => Math.Max(1, normal / 2),
+                    WarbandSupplyPolicy.Provisioned => normal + Math.Max(1, normal / 2),
+                    _ => normal
+                };
+            }
+        }
 
         public bool TryMarchWarband(List<int> route)
         {
@@ -504,7 +534,7 @@ namespace GrandStrategy.WorldGeneration
                 return Math.Max(0, meals * FoodUpkeep - (long)production * WinterFoodOutput);
             }
         }
-        private int WinterFoodOutput => FarmFood - (HasGranary ? 0 : 2) - (HasWarband ? 1 : 0);
+        private int WinterFoodOutput => FarmFood - (HasGranary ? 0 : 2) - WarbandFoodCost;
         private int FarmFood => BuildingTotal(SettlementBuilding.Farm);
         public int SubsistenceFood(int province) => province == Capital ? Fertility(map.Provinces[province]) : 1;
 
@@ -512,7 +542,7 @@ namespace GrandStrategy.WorldGeneration
         {
             get
             {
-                var food = FarmFood - (HasWarband ? 1 : 0);
+                var food = FarmFood - WarbandFoodCost;
                 for (var province = 0; province < data.Owned.Length; province++)
                     if (Owns(province)) food += SubsistenceFood(province);
                 return food;
@@ -578,7 +608,8 @@ namespace GrandStrategy.WorldGeneration
                 || (save.SecondSettlementSite > 0 && (!IsLand(map, ProvinceAt(map, save.SecondSettlementSite - 1))
                     || !save.Owned[ProvinceAt(map, save.SecondSettlementSite - 1)]
                     || save.SecondSettlementSite - 1 == save.CapitalCell))
-                || !save.Owned[capital] || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes))
+                || !save.Owned[capital] || !Enum.IsDefined(typeof(TaxPolicy), save.Taxes)
+                || !Enum.IsDefined(typeof(WarbandSupplyPolicy), save.WarbandSupply))
                 throw new ArgumentException("The save contains invalid campaign data.");
 
             if (save.SettlementProvinceRoots != null)

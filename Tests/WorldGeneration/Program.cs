@@ -510,6 +510,12 @@ internal static class Program
         march.Advance(1);
         Require(march.WarbandCell == 1 && march.WarbandTravelDays == 0,
             "A marching warband must reach its destination on the campaign clock.");
+        march.SetWarbandSupply(WarbandSupplyPolicy.Provisioned);
+        Require(march.WarbandFoodCost == 2 && march.TryMarchWarband(new List<int> { 1, 0, 1 })
+            && march.WarbandTravelDays == 1, "Provisioning must buy a faster march at greater food cost.");
+        march.SetWarbandSupply(WarbandSupplyPolicy.Forage);
+        Require(march.WarbandFoodCost == 0 && march.WarbandTravelDays == 2,
+            "Foraging must trade march speed for lower food costs.");
 
         var frontier = CampaignState.Found(map, key, 0, "Frontier", 0);
         frontier.LandContactResolver = province => province == 2;
